@@ -28,11 +28,15 @@ making it accessible remotely.
 ## Use the workspace
 
 1. Add a property with its address, city, state, and optional ZIP code.
-2. Record facts such as square footage or asking price with a source name,
-   optional source URL, and confidence from 0 to 1.
-3. Save a repair-cost, sale-price, or days-to-close estimate.
-4. Enter the actual value and its evidence source when the result is known.
-5. Review the estimate error and the attached learning history.
+2. Record facts with a source name, optional URL, and confidence.
+3. Start an assignment or resale deal, enter your assumptions, and review downside,
+   base, and upside scenarios. These are manual estimates, not valuations or offers.
+4. Add buyers with their markets, strategy, price/repair limits, and owner-reviewed
+   funding reference; run matching to compare stated criteria.
+5. Move deal stages with notes. Contracted and completed stages require your
+   confirmation plus an evidence reference.
+6. Track ordinary sale-price, repair-cost, and days-to-close estimates, then record
+   outcomes and review the estimate error.
 
 Facts and outcomes are manually entered. Source URLs are saved references;
 the app does not fetch or verify their content. Estimates are supplied by you,
@@ -79,8 +83,9 @@ by Git so property data stays out of source control.
 
 ## Next integrations
 
-Provider adapters, live property-data ingestion, automated underwriting, MCP
-transport, outreach, and deal/contract workflows remain future work.
+Live property-data ingestion, independent funding verification, cash-at-risk and
+actual-versus-forecast ledgers, task/exception management, MCP transport, outreach,
+and signed document/transaction execution remain future work.
 The full-snapshot persistence adapter suits a small local workspace; larger
 datasets need targeted queries, migrations, and a production database strategy.
 

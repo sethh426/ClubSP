@@ -2,13 +2,20 @@
 
 ## Honest current status
 
-Implemented: local browser dashboard, property creation/search, manual sourced
-facts, manual estimates, recorded outcomes, learning history, SQLite persistence,
-atomic outcome resolution, core/HTTP/concurrency tests and desktop/mobile tests.
+Implemented: local property/evidence workspace, SQLite persistence, outcome learning,
+manual deal creation and gated stages, assignment/resale scenario underwriting
+(downside/base/upside), buyer criteria records and explainable matching, Python
+unit/HTTP/concurrency coverage, and desktop/mobile browser workflows.
 
-Not implemented: live property sourcing/comps, underwriting engine, operational
-deal stages, buyer CRM/matching, email integrations, suggested replies, training UI,
-researched knowledge refresh, MCP transport, public hosting or transaction execution.
+Partially implemented: the deal core has no task/exception queue, cash-at-risk ledger,
+buyer packet, signed-document storage, contract/closing workflow, or actual-versus-
+forecast profit reconciliation. Buyer funding status and evidence are owner-entered;
+the app does not independently verify funds, authority, or intent to close.
+
+Not implemented: live property sourcing/comps, email integrations, suggested replies,
+training UI, researched knowledge refresh, MCP transport, public hosting, or
+transaction execution. The Operations documentation remains a target build
+specification for those capabilities.
 
 The Operations documentation is a build specification, not a feature activation.
 
@@ -29,18 +36,21 @@ These are dependency gates, not promised completion dates.
 Reliability, evidence and privacy controls are built throughout, not postponed
 until release 7. Remote deployment requires its security gate first.
 
-## First feature to implement
+## Current next release
 
-Build the Deal + Underwriting + Buyer core together. It should answer:
+The Deal + Underwriting + Buyer foundation is now implemented in the local app.
+It should answer:
 what do we know; what is missing; who can buy; what can Seth offer; how much
 cash is at risk; what could go wrong; and what would net profit be?
 
-Deliverables: stage transitions, buyer criteria, transparent cost responsibility,
-conservative/base/upside calculations, explicit offer recommendation and
-owner decision, simulated completion and actual-versus-forecast ledger.
+Current deliverables: property-linked deal stages, evidence-gated contract/closing
+milestones, manual assignment/resale scenarios, and buyer criteria matching. The
+owner still makes all decisions; the calculator is not a valuation and does not
+make or transmit offers.
 
-After that, source actual property data to populate the same flow. Automating
-messages before the app can identify and analyze a viable deal is premature.
+Next, finish cash-at-risk and actual-versus-forecast ledgers, then add one verified
+property research source. Keep outreach automation behind a separate compliance
+gate until property evidence and deal economics are dependable.
 
 ## Example test fixture, not a market recommendation
 

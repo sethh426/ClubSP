@@ -173,3 +173,123 @@ def test_invalid_property_returns_readable_error(http_app, payload):
     status, body, _ = request(http_app, "/api/properties", payload)
     assert status == 400
     assert json.loads(body)["error"]
+
+
+def underwriting_payload(**overrides):
+    payload = {
+        "property_type": "single_family", "expected_exit_price": 240000,
+        "buyer_repairs": 30000, "buyer_funding_holding": 8000,
+        "buyer_closing": 5000, "buyer_selling_costs": 10000,
+        "buyer_minimum_profit": 42000, "target_assignment_fee": 20000,
+        "owner_transaction_costs": 4000, "partner_payout_allowance": 2000,
+        "contingency": 2000, "desired_owner_net": 10000,
+        "basis": "Synthetic fixture; costs and exit price are owner-entered assumptions.",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_assignment_and_resale_scenarios_reconcile(tmp_path):
+    app = Application(tmp_path / "app.db")
+    prop = create_property(app)
+    assignment = app.create_deal({"property_id": prop["id"], "strategy": "assignment"})
+    result = app.underwrite(assignment["id"], underwriting_payload())
+    base = result["result"]["scenarios"]["base"]
+    assert base["buyer_acquisition_ceiling"] == 145000
+    assert base["owner_max_contract_price"] == 125000
+    assert base["target_assignment_fee"] == 20000
+    assert base["planned_owner_net"] == 12000
+    assert base["profitable"] is True
+    down = result["result"]["scenarios"]["downside"]
+    assert down["owner_max_contract_price"] < base["owner_max_contract_price"]
+    resale = app.create_deal({"property_id": prop["id"], "strategy": "resale"})
+    resale_result = app.underwrite(resale["id"], underwriting_payload())
+    resale_base = resale_result["result"]["scenarios"]["base"]
+    assert resale_base["owner_max_contract_price"] == 169000
+    assert resale_base["planned_owner_net"] == 10000
+
+
+def test_deal_stages_require_evidence_and_only_follow_allowed_edges(tmp_path):
+    app = Application(tmp_path / "app.db")
+    prop = create_property(app)
+    deal = app.create_deal({"property_id": prop["id"], "strategy": "assignment"})
+    with pytest.raises(ValueError, match="Cannot move"):
+        app.advance_deal(deal["id"], {"stage": "completed", "note": "skip"})
+    app.advance_deal(deal["id"], {"stage": "qualified", "note": "Seller fit confirmed"})
+    app.underwrite(deal["id"], underwriting_payload())
+    app.advance_deal(deal["id"], {"stage": "offer_decision", "note": "Owner reviewed scenarios"})
+    with pytest.raises(ValueError, match="owner confirmation"):
+        app.advance_deal(deal["id"], {"stage": "contracted", "note": "Signed"})
+    app.advance_deal(deal["id"], {
+        "stage": "contracted", "note": "Owner confirmed", "owner_confirmed_signed": True,
+        "evidence_reference": "private-doc:contract-1",
+    })
+    with pytest.raises(ValueError, match="cannot be added after"):
+        app.underwrite(deal["id"], underwriting_payload())
+    assert [event["stage_after"] for event in app.state()["deals"][0]["events"]] == [
+        "qualified", "underwriting", "offer_decision", "contracted",
+    ]
+
+
+def test_buyer_matches_recorded_criteria_and_flags_funding_review(tmp_path):
+    app = Application(tmp_path / "app.db")
+    prop = create_property(app)
+    app.record_fact({
+        "property_id": prop["id"], "attribute": "property_type", "value": "single_family",
+        "provider": "Owner review",
+    })
+    deal = app.create_deal({"property_id": prop["id"], "strategy": "assignment"})
+    app.underwrite(deal["id"], underwriting_payload())
+    buyer = app.create_buyer({
+        "name": "Example Buyer", "company": "Example LLC",
+        "locations": [" Fort Wayne, IN "], "strategies": ["assignment"],
+        "property_types": ["single_family"], "max_total_price": 145000,
+        "max_repairs": 35000, "funding_status": "unverified",
+    })
+    app.create_buyer({
+        "name": "Out of market", "locations": ["Indianapolis, IN"],
+        "strategies": ["assignment"], "property_types": [],
+        "max_total_price": 200000, "max_repairs": 50000,
+        "funding_status": "owner_reviewed",
+    })
+    matches = app.match_buyers(deal["id"])["matches"]
+    candidate = next(item for item in matches if item["buyer_id"] == buyer["id"])
+    assert candidate["eligible_on_recorded_criteria"] is True
+    assert candidate["funding_verified_currently"] is False
+    assert "funding evidence requires current owner verification" in candidate["reasons"]
+    outsider = next(item for item in matches if item["name"] == "Out of market")
+    assert outsider["eligible_on_recorded_criteria"] is False
+    assert "market does not match" in outsider["reasons"]
+
+
+def test_buyer_matching_requires_an_underwriting(tmp_path):
+    app = Application(tmp_path / "app.db")
+    prop = create_property(app)
+    deal = app.create_deal({"property_id": prop["id"], "strategy": "resale"})
+    with pytest.raises(ValueError, match="underwriting"):
+        app.match_buyers(deal["id"])
+
+
+def test_negative_underwriting_values_are_rejected_without_mutating_deal(tmp_path):
+    app = Application(tmp_path / "app.db")
+    prop = create_property(app)
+    deal = app.create_deal({"property_id": prop["id"], "strategy": "resale"})
+    with pytest.raises(ValueError, match="cannot be negative"):
+        app.underwrite(deal["id"], underwriting_payload(buyer_repairs=-1))
+    assert app.state()["deals"][0]["underwriting"] is None
+    assert app.state()["deals"][0]["stage"] == "research"
+
+
+def test_unprofitable_deal_cannot_be_marked_contracted(tmp_path):
+    app = Application(tmp_path / "app.db")
+    prop = create_property(app)
+    deal = app.create_deal({"property_id": prop["id"], "strategy": "assignment"})
+    app.underwrite(deal["id"], underwriting_payload(
+        desired_owner_net=100000, expected_exit_price=100000,
+    ))
+    app.advance_deal(deal["id"], {"stage": "offer_decision", "note": "Reviewed poor case"})
+    with pytest.raises(ValueError, match="profitable base underwriting"):
+        app.advance_deal(deal["id"], {
+            "stage": "contracted", "note": "Should remain blocked",
+            "owner_confirmed_signed": True, "evidence_reference": "contract-ref",
+        })

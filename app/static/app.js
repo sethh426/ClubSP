@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 let state = null;
 let selected = null;
+let selectedDeal = null;
 
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -138,6 +139,62 @@ function renderLearning() {
     box.append(row);
   });
 }
+function renderDealBoard() {
+  const box = $("deal-board"); box.replaceChildren();
+  const deals = state.deals.filter(d => d.property_id === selected);
+  if (!deals.length) { box.append(node("p", "No deal started for this property.", "muted small")); return; }
+  if (!deals.some(d => d.id === selectedDeal)) selectedDeal = deals[0].id;
+  const picker = node("div", undefined, "deal-tabs");
+  deals.forEach(deal => {
+    const b = node("button", deal.strategy + " · " + deal.stage.replaceAll("_", " "), "button secondary");
+    b.type = "button"; b.setAttribute("aria-pressed", String(deal.id === selectedDeal));
+    b.addEventListener("click", () => { selectedDeal = deal.id; renderDealBoard(); });
+    picker.append(b);
+  });
+  box.append(picker);
+  const deal = deals.find(d => d.id === selectedDeal);
+  const stageForm = node("form", undefined, "inline-form");
+  const stageWrap = node("label", "Move stage");
+  const stage = node("select"); stage.name = "stage"; stage.required = true;
+  const nextStages = {
+    research:["contacting","qualified","underwriting","lost"], contacting:["qualified","underwriting","lost"],
+    qualified:["underwriting","lost"], underwriting:["contacting","offer_decision","lost"],
+    offer_decision:["underwriting","contracted","lost"], contracted:["disposition","closing","lost"],
+    disposition:["closing","lost"], closing:["completed","disposition","lost"], completed:[], lost:[]
+  }[deal.stage] || [];
+  nextStages.forEach(s => { const o=node("option",s.replaceAll("_"," ")); o.value=s; stage.append(o); });
+  if (!nextStages.length) { stage.disabled = true; note.disabled = true; ref.disabled = true; }
+  stageWrap.append(stage);
+  const noteWrap=node("label","Reason / note"); const note=node("input"); note.name="note"; note.required=true; note.maxLength=1000; noteWrap.append(note);
+  const refWrap=node("label","Evidence reference"); const ref=node("input"); ref.name="evidence_reference"; ref.maxLength=500; ref.placeholder="Document or record ID"; refWrap.append(ref);
+  const signedWrap=node("label"); const signed=node("input"); signed.type="checkbox"; signed.name="owner_confirmed_signed"; signedWrap.append(signed,document.createTextNode(" I confirmed signed agreement"));
+  const closedWrap=node("label"); const closed=node("input"); closed.type="checkbox"; closed.name="owner_confirmed_closed"; closedWrap.append(closed,document.createTextNode(" I confirmed closing"));
+  const submit=node("button","Save stage","button"); submit.type="submit";
+  stageForm.append(stageWrap,noteWrap,refWrap,signedWrap,closedWrap,submit);
+  stageForm.addEventListener("submit",e=>{e.preventDefault();const v=values(stageForm);v.owner_confirmed_signed=signed.checked;v.owner_confirmed_closed=closed.checked;runForm(stageForm,()=>api("/api/deals/"+deal.id+"/stage",v),"Deal stage recorded.");});
+  box.append(stageForm);
+  const underwriting=node("form",undefined,"underwrite-form");
+  const fields=[["property_type","Property type","single_family","text"],["expected_exit_price","Expected exit price ($)","250000","number"],["buyer_repairs","Buyer repair estimate ($)","30000","number"],["buyer_funding_holding","Buyer funding / holding ($)","8000","number"],["buyer_closing","Buyer closing costs ($)","5000","number"],["buyer_selling_costs","Buyer selling costs ($)","10000","number"],["buyer_minimum_profit","Buyer minimum profit ($)","40000","number"],["target_assignment_fee","Target assignment fee ($)","20000","number"],["owner_transaction_costs","Your transaction costs ($)","4000","number"],["partner_payout_allowance","Partner payout allowance ($)","0","number"],["contingency","Contingency ($)","5000","number"],["desired_owner_net","Desired net to you ($)","10000","number"],["basis","Assumptions / evidence basis","Enter sources and what remains unverified.","text"]];
+  fields.forEach(([name,label,placeholder,type])=>{const w=node("label",label);const i=type==="text"&&name==="basis"?node("textarea"):node("input");i.name=name;i.required=true;i.placeholder=placeholder;if(type==="number"){i.type="number";i.min="0";i.step="0.01";i.value=placeholder;}else if(name==="property_type"){i.value=placeholder;}w.append(i);underwriting.append(w);});
+  const uwButton=node("button","Save underwriting scenarios","button primary");uwButton.type="submit";underwriting.append(uwButton);
+  underwriting.addEventListener("submit",e=>{e.preventDefault();const v=values(underwriting);fields.filter(f=>f[3]==="number").forEach(f=>v[f[0]]=Number(v[f[0]]));runForm(underwriting,()=>api("/api/deals/"+deal.id+"/underwriting",v),"Underwriting scenarios saved.");});
+  box.append(node("h3","Manual underwriting"),underwriting);
+  if(deal.underwriting){const result=deal.underwriting.result;box.append(node("p",result.warning,"note"));const grid=node("div",undefined,"scenario-grid");Object.entries(result.scenarios).forEach(([name,s])=>{const card=node("article",undefined,"scenario-card");card.append(node("h3",name.toUpperCase()));card.append(node("p","Owner max contract: "+amount("money",s.owner_max_contract_price)));card.append(node("p","Planned owner net: "+amount("money",s.planned_owner_net)));if(s.buyer_acquisition_ceiling!==null)card.append(node("p","Buyer ceiling: "+amount("money",s.buyer_acquisition_ceiling)));card.append(node("span",s.profitable?"Meets entered target":"Below entered target","pill "+(s.profitable?"":"open")));grid.append(card);});box.append(grid);}
+  const match=node("button","Run buyer matching","button");match.type="button";match.addEventListener("click",()=>runForm(match.form||box,()=>api("/api/deals/"+deal.id+"/buyer-matches",{}),"Buyer matching complete."));
+  box.append(match);
+  const matches=deal.buyer_matches?.matches||[];
+  const matchBox=node("div");matches.forEach(m=>{const card=node("article",undefined,"evidence-row");card.append(node("strong",m.name+(m.company?" · "+m.company:"")));card.append(node("p",m.eligible_on_recorded_criteria?"Recorded criteria fit":"Criteria gaps: "+m.reasons.filter(r=>r!=="funding evidence requires current owner verification").join(", "),"small"));card.append(node("p",m.funding_verified_currently?"Funding evidence marked current by owner":"Funding evidence needs current owner review","muted small"));matchBox.append(card);});box.append(matchBox);
+}
+function renderBuyers() {
+ const box=$("buyer-results"); box.replaceChildren();
+ if(!state.buyers.length){box.append(node("p","No buyers saved yet.","muted small"));return;}
+ state.buyers.forEach(b=>{const row=node("article",undefined,"evidence-row");row.append(node("strong",b.name+(b.company?" · "+b.company:"")));row.append(node("p",b.locations.join(" · ")+" | "+b.strategies.join(", ")+" | max "+amount("money",b.max_total_price),"small"));row.append(node("p","Funding status: "+b.funding_status+" (owner-entered)","muted small"));box.append(row);});
+}
+function bindDealForms(){
+ $("deal-form").addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget;const v=values(f);v.property_id=selected;runForm(f,async()=>{selectedDeal=(await api("/api/deals",v)).id;},"Deal started.",true);});
+ $("buyer-form").addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget;const v=values(f);v.locations=v.locations.split("\n").map(x=>x.trim()).filter(Boolean);v.strategies=v.strategies==="both"?["assignment","resale"]:[v.strategies];v.property_types=v.property_types.split(",").map(x=>x.trim()).filter(Boolean);v.max_total_price=Number(v.max_total_price);v.max_repairs=Number(v.max_repairs);if(v.funding_status!=="verified"){v.verified_at="";v.verification_reference="";}else if(v.verified_at){v.verified_at=new Date(v.verified_at+"T00:00:00Z").toISOString();}runForm(f,()=>api("/api/buyers",v),"Buyer saved.",true);});
+}
+
 function render() {
   $("count-properties").textContent = state.properties.length;
   $("count-facts").textContent = state.facts.length;
@@ -150,7 +207,7 @@ function render() {
   if (!property) return;
   $("property-title").textContent = property.address;
   $("property-location").textContent = property.city + ", " + property.state + (property.zip ? " " + property.zip : "");
-  renderFacts(); renderPredictions(); renderLearning();
+  renderFacts(); renderPredictions(); renderLearning(); renderDealBoard(); renderBuyers();
 }
 async function refresh() {
   state = await api("/api/state");
@@ -207,6 +264,7 @@ $("prediction-form").addEventListener("submit", event => {
   runForm(form, () => api("/api/predictions", data), "Estimate saved.", true);
 });
 $("search").addEventListener("input", () => { if (state) renderList(); });
+bindDealForms();
 refresh().catch(error => {
   $("connection").textContent = "Offline";
   message("Could not connect to the app: " + error.message + ". Reload after starting the server.", true);

@@ -99,6 +99,22 @@ def handler_for(application):
                     result = application.record_fact(data)
                 elif path == "/api/predictions":
                     result = application.predict(data)
+                elif path == "/api/deals":
+                    result = application.create_deal(data)
+                elif path == "/api/buyers":
+                    result = application.create_buyer(data)
+                elif path.startswith("/api/deals/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 4:
+                        raise LookupError("Route not found")
+                    if parts[3] == "stage":
+                        result = application.advance_deal(parts[2], data)
+                    elif parts[3] == "underwriting":
+                        result = application.underwrite(parts[2], data)
+                    elif parts[3] == "buyer-matches" and data == {}:
+                        result = application.match_buyers(parts[2])
+                    else:
+                        raise LookupError("Route not found")
                 elif path.startswith("/api/predictions/") and path.endswith("/outcome"):
                     parts = path.strip("/").split("/")
                     if len(parts) != 4:
