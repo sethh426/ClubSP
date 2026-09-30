@@ -15,6 +15,7 @@ ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/workspace.js": ("workspace.js", "text/javascript; charset=utf-8"),
+    "/communications.js": ("communications.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 MAX_BODY = 65536
@@ -114,6 +115,22 @@ def handler_for(application):
                     result = application.create_deal(data)
                 elif path == "/api/buyers":
                     result = application.create_buyer(data)
+                elif path == "/api/contacts":
+                    result = application.create_contact(data)
+                elif path == "/api/training/practice":
+                    result = application.save_practice(data)
+                elif path.startswith("/api/contacts/"):
+                    parts = path.strip("/").split("/")
+                    routes = {"permission": application.set_contact_permission, "messages": application.record_message,
+                              "profile": application.save_seller_profile, "reply": application.suggest_reply}
+                    if len(parts) != 4 or parts[3] not in routes:
+                        raise LookupError("Route not found")
+                    result = routes[parts[3]](parts[2], data)
+                elif path.startswith("/api/replies/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 4 or parts[3] != "review":
+                        raise LookupError("Route not found")
+                    result = application.review_reply(parts[2], data)
                 elif path.startswith("/api/tasks/"):
                     parts = path.strip("/").split("/")
                     if len(parts) != 4 or parts[3] not in {"status", "schedule"}:

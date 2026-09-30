@@ -31,6 +31,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node --check app/static/app.js
       - run: node --check app/static/workspace.js
+      - run: node --check app/static/communications.js
       - run: npx playwright test
       - uses: actions/upload-artifact@v4
         if: always()

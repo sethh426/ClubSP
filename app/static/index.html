@@ -6,6 +6,7 @@
   <title>ClubSP — Property Workspace</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/workspace.js" defer></script>
+  <script src="/communications.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -28,6 +29,8 @@
     </section>
     <section id="money-scorecard" class="metrics money-scorecard" aria-label="Money and operation totals"></section>
     <details class="panel operations-guide"><summary>18 Operations · What happens from research to reconciled profit</summary><p class="muted small">Capability labels show which steps the current app supports. Manual reviews remain owner tasks.</p><div id="operations-catalog"></div></details>
+    <details id="seller-insights" class="panel"><summary>Seller priorities · Your recorded pain points</summary><div id="pain-point-insights"></div></details>
+    <details id="sales-training" class="panel"><summary>Operation 11 · Sales practice & objection training</summary><div id="training-workspace"></div></details>
     <div class="layout">
       <aside>
         <section class="panel">
@@ -54,6 +57,7 @@
         <div id="detail" hidden>
           <section class="panel property-heading"><p class="eyebrow">PROPERTY FILE</p><h2 id="property-title"></h2><p id="property-location" class="muted"></p></section>
           <section id="property-research" class="panel"></section>
+          <section id="seller-workspace" class="panel"></section>
 
           <section class="panel deal-panel">
             <div class="panel-heading"><div><p class="eyebrow">03 / ACQUISITION</p><h2>Deal pipeline</h2></div><span class="muted small">Owner-controlled stages</span></div>

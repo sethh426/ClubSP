@@ -1,5 +1,32 @@
 # Release evidence
 
+## Seller conversations and internal training — 2026-09-30
+
+Delivered: property-linked contacts, role/permission evidence, manually recorded
+conversations with retry-safe UUIDs, explicit/phrase-based stop detection,
+matching-email suppression and draft cancellation, confirmed/hypothesis seller
+profiles and latest-contact pain-point counts. Local template replies retain
+conversation/profile/deal/financial context, invalidate after changes and require
+owner review. Twelve synthetic lessons and owner-assessed practice persist with
+curriculum version, six ratings, hard failures and review notes.
+
+Validation: 68 Python tests and four desktop/mobile browser workflows passed
+locally. Tests cover concurrent message retries, cross-property suppression,
+preserved review history, stale draft rejection, latest-profile counts, untrusted
+conversation content, self-assessment retry behavior, HTTP routes and browser
+reload persistence. GitHub Actions must pass before merge. All example
+conversations are synthetic.
+
+Storage upgrade: contact/event/suppression/message/profile/draft/practice tables
+and indexes are added without replacing property or money records. Back up a
+stopped database before upgrading. Earlier releases retain but do not display
+these records or apply their suppression controls.
+
+Limits: no mailbox integration, external sends, background sequence or complete
+language classifier. Templates/curriculum remain internal drafts. Permission
+records are not legal campaign clearance. Scores are owner self-assessments,
+not AI evaluations or proof that the system can close profitable transactions.
+
 ## Official parcel evidence — 2026-09-30
 
 Delivered: one exact Allen County, Indiana iMap parcel lookup, fixed provider

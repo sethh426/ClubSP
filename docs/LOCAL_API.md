@@ -1,7 +1,7 @@
 # Local application API
 
 Run `python -m app.server` before calling endpoints. Responses are JSON except
-for the three UI asset paths. Requests that mutate data require
+for the fixed UI asset paths. Requests that mutate data require
 `Content-Type: application/json`. Browser Origin must match the app URL.
 Bodies are limited to 64 KiB.
 
@@ -96,3 +96,27 @@ the daily workspace limit is twenty requests including failures. Acceptance is
 idempotent and imports only available fields with provenance. A pending snapshot
 older than seven days must be refreshed before acceptance. Rejection imports no
 facts. Records do not authorize outreach or establish title or valuation.
+
+## Conversations, drafts and practice
+
+| Route | Fields and result |
+| --- | --- |
+| POST /api/contacts | property_id, name, optional email, role=unverified/owner/representative/other; owner/representative need role_reference; starts unknown or existing-email suppression |
+| POST /api/contacts/{id}/permission | status=unknown/permitted/suppressed, note, evidence_reference required unless unknown; suppression cannot be cleared |
+| POST /api/contacts/{id}/messages | UUID message_key, direction=incoming/outgoing/note, channel=email/phone/in_person/note, category, body, occurred_on, evidence_reference; retry-safe history; incoming stop signals cancel drafts and suppress matching emails |
+| POST /api/contacts/{id}/profile | status=confirmed/hypothesis, goal, optional timing/condition_notes/authority_notes/alternatives/priority, pain_points list; confirmed requires evidence_reference; saves a new profile version |
+| POST /api/contacts/{id}/reply | Empty object; local template draft from saved incoming context; refuses suppressed contacts or an already-followed-up incoming message |
+| POST /api/replies/{id}/review | owner_reviewed=true, final_body, note; requires current context and permitted contact; immutable review, no external send |
+| POST /api/training/practice | UUID attempt_key, scenario_id, response, ratings object, hard_failures list, review_note; retry-safe owner assessment |
+
+GET /api/state includes `communications` and `training`. Conversation dates
+cannot be in the future. Category/lesson/rubric choices are provided in state.
+Pain-point choices: price, timing, convenience, trust, condition, authority, other.
+Practice ratings must include listening, grounding, clarity, next_step, economics,
+respect, each an integer 0–2. A hard failure overrides the practice threshold;
+the result never approves an external template. Email transport is not configured.
+
+Recorded message/profile/permission/deal/underwriting/financial-plan changes make
+older draft context stale. Suppression preserves prior reviewed text and notes
+while changing draft status to void. Unique-email suppression applies throughout
+the workspace; no outreach or email-provider call occurs in these routes.

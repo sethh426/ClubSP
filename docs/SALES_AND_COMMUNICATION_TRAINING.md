@@ -1,5 +1,8 @@
 # Sales and Communication Training
 Status: draft curriculum/templates for review; no campaign is activated.
+The local app now provides twelve synthetic practice lessons, a six-dimension
+owner self-assessment and saved practice history. Local reply templates are
+grounded in saved conversations and require owner review; no email is sent.
 
 ## Sales objective
 
@@ -151,6 +154,12 @@ term change or legal improvisation fails regardless of total score.
 Proposed passing policy: at least 10/12 and no hard failure, followed by reviewer
 approval for a template used externally. This is a starting rubric, not proven
 prediction of sales success.
+
+The implemented practice score is entered by the owner, with a review note and
+explicit hard-failure selections. It is not automatic language evaluation. The
+app records the curriculum version and response, keeps retries idempotent and
+never marks an external template approved from the score. Passing a self-assessed
+exercise does not verify conduct, legal applicability or sales effectiveness.
 
 ## Improvement loop
 

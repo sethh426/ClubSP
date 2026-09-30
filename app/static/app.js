@@ -200,6 +200,7 @@ function bindDealForms(){
 
 function render() {
   renderScorecard();
+  renderSellerInsights(); renderTraining();
   $("count-properties").textContent = state.properties.length;
   $("count-facts").textContent = state.facts.length;
   $("count-open").textContent = state.predictions.filter(p => !p.resolved_at).length;
@@ -211,7 +212,7 @@ function render() {
   if (!property) return;
   $("property-title").textContent = property.address;
   $("property-location").textContent = property.city + ", " + property.state + (property.zip ? " " + property.zip : "");
-  renderFacts(); renderPredictions(); renderLearning(); renderDealBoard(); renderBuyers(); renderResearch();
+  renderFacts(); renderPredictions(); renderLearning(); renderDealBoard(); renderBuyers(); renderResearch(); renderContacts();
 }
 async function refresh() {
   state = await api("/api/state");
@@ -221,7 +222,10 @@ async function refresh() {
 }
 async function runForm(form, action, success, reset = false) {
   const buttons = Array.from(document.querySelectorAll("button[type=submit]"));
-  const previousDisabled = buttons.map(b=>b.disabled);
+  const previousDisabled = buttons.map(button=>button.disabled);
+  const forms = Array.from(document.querySelectorAll("form"));
+  const previousInert = forms.map(item=>item.inert);
+  forms.forEach(item=>item.inert=true);
   buttons.forEach(button => button.disabled = true);
   try {
     await action();
@@ -229,7 +233,10 @@ async function runForm(form, action, success, reset = false) {
     try { await refresh(); message(success); }
     catch (error) { message("Saved, but the view could not refresh. Reload the page to see the update.", true); }
   } catch (error) { message(error.message, true); }
-  finally { buttons.forEach((button,i) => button.disabled = previousDisabled[i]); }
+  finally {
+    buttons.forEach((button,i) => button.disabled = previousDisabled[i]);
+    forms.forEach((item,i)=>item.inert=previousInert[i]);
+  }
 }
 $("property-form").addEventListener("submit", event => {
   event.preventDefault();
