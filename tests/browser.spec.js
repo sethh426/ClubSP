@@ -47,6 +47,25 @@ test("property evidence, estimate, and outcome work through the browser", async 
   await expect(page.locator("#learning")).toContainText("predicted=30000");
   await expect(page.locator(".outcome-form")).toHaveCount(0);
 
+  const dealStart = page.locator("#deal-form");
+  await dealStart.locator('[name="strategy"]').selectOption("assignment");
+  await dealStart.getByRole("button", { name: "Start deal" }).click();
+  const underwriting = page.locator(".underwrite-form");
+  await underwriting.locator('[name="basis"]').fill("Browser test assumptions; not a live valuation.");
+  await underwriting.getByRole("button", { name: "Save underwriting scenarios" }).click();
+  await expect(page.locator("#deal-board")).toContainText("Owner max contract:");
+  await expect(page.locator("#deal-board")).toContainText("Manual scenario analysis");
+  const buyer = page.locator("#buyer-form");
+  await buyer.locator('[name="name"]').fill("Browser Buyer");
+  await buyer.locator('[name="locations"]').fill("Fort Wayne, IN");
+  await buyer.locator('[name="max_total_price"]').fill("200000");
+  await buyer.locator('[name="max_repairs"]').fill("50000");
+  await buyer.getByRole("button", { name: "Save buyer" }).click();
+  await expect(page.locator("#buyer-results")).toContainText("Browser Buyer");
+  await page.getByRole("button", { name: "Run buyer matching" }).click();
+  await expect(page.locator("#deal-board")).toContainText("Browser Buyer");
+  await expect(page.locator("#deal-board")).toContainText("Funding evidence needs current owner review");
+
   await page.reload();
   await expect(page.locator("#property-title")).toHaveText(address);
   await expect(page.locator("#facts")).toContainText("sqft: 1800");

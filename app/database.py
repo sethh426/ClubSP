@@ -68,6 +68,51 @@ class Database:
                     zip TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS deals (
+                    id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL REFERENCES properties(id),
+                    strategy TEXT NOT NULL CHECK(strategy IN ('assignment','resale')),
+                    stage TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS deal_events (
+                    id TEXT PRIMARY KEY,
+                    deal_id TEXT NOT NULL REFERENCES deals(id),
+                    stage_before TEXT NOT NULL,
+                    stage_after TEXT NOT NULL,
+                    note TEXT NOT NULL,
+                    evidence_reference TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS underwritings (
+                    id TEXT PRIMARY KEY,
+                    deal_id TEXT NOT NULL REFERENCES deals(id),
+                    inputs_json TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS buyers (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    company TEXT NOT NULL,
+                    locations_json TEXT NOT NULL,
+                    strategies_json TEXT NOT NULL,
+                    property_types_json TEXT NOT NULL,
+                    max_total_price REAL NOT NULL,
+                    max_repairs REAL NOT NULL,
+                    funding_status TEXT NOT NULL,
+                    verified_at TEXT NOT NULL,
+                    verification_reference TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS buyer_match_runs (
+                    id TEXT PRIMARY KEY,
+                    deal_id TEXT NOT NULL REFERENCES deals(id),
+                    matches_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS memory (
                     collection TEXT NOT NULL,
                     id TEXT NOT NULL,

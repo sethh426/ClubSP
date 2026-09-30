@@ -50,6 +50,26 @@
         <div id="empty" class="panel empty"><span class="empty-icon">↗</span><h2>Start with a property.</h2><p class="muted">Add an address, then build its evidence and outcome history.</p></div>
         <div id="detail" hidden>
           <section class="panel property-heading"><p class="eyebrow">PROPERTY FILE</p><h2 id="property-title"></h2><p id="property-location" class="muted"></p></section>
+
+          <section class="panel deal-panel">
+            <div class="panel-heading"><div><p class="eyebrow">03 / ACQUISITION</p><h2>Deal pipeline</h2></div><span class="muted small">Owner-controlled stages</span></div>
+            <form id="deal-form" class="inline-form"><label>Strategy<select name="strategy"><option value="assignment">Assignment</option><option value="resale">Buy and resell</option></select></label><button class="button" type="submit">Start deal</button></form>
+            <div id="deal-board"></div>
+          </section>
+          <section class="panel buyer-panel">
+            <div class="panel-heading"><div><p class="eyebrow">04 / DISPOSITION</p><h2>Buyer registry</h2></div></div>
+            <p class="muted small">Match recorded criteria to the current deal. A match does not confirm funds, authority, or intent to close.</p>
+            <form id="buyer-form" class="buyer-form">
+              <label>Name<input name="name" required maxlength="120"></label><label>Company<input name="company" maxlength="160"></label>
+              <label>Markets <span class="muted">(one city, state per line)</span><textarea name="locations" required placeholder="Fort Wayne, IN"></textarea></label>
+              <label>Strategies<select name="strategies"><option value="assignment">Assignment</option><option value="resale">Resale</option><option value="both">Both</option></select></label>
+              <label>Property types <span class="muted">(comma separated; blank = any)</span><input name="property_types" placeholder="single_family, duplex"></label>
+              <div class="two-columns"><label>Maximum total price<input name="max_total_price" type="number" min="0" step="1000" required></label><label>Maximum repairs<input name="max_repairs" type="number" min="0" step="1000" required></label></div>
+              <label>Funding review status<select name="funding_status"><option value="unverified">Unverified</option><option value="owner_reviewed">Owner reviewed</option><option value="verified">Owner marked verified (requires current evidence)</option></select></label>
+              <div class="two-columns"><label>Review date<input name="verified_at" type="date"></label><label>Evidence reference<input name="verification_reference" maxlength="300" placeholder="Private file/reference ID"></label></div>
+              <button class="button" type="submit">Save buyer</button>
+            </form><div id="buyer-results"></div>
+          </section>
           <div class="two-columns form-panels">
             <section class="panel">
               <p class="eyebrow">01 / EVIDENCE</p><h2>Record a sourced fact</h2>
