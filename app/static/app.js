@@ -156,7 +156,14 @@ function renderDealBoard() {
   const stageForm = node("form", undefined, "inline-form");
   const stageWrap = node("label", "Move stage");
   const stage = node("select"); stage.name = "stage"; stage.required = true;
-  ["contacting","qualified","underwriting","offer_decision","contracted","disposition","closing","completed","lost"].forEach(s => { if (s !== deal.stage) { const o=node("option",s.replaceAll("_"," ")); o.value=s; stage.append(o); } });
+  const nextStages = {
+    research:["contacting","qualified","underwriting","lost"], contacting:["qualified","underwriting","lost"],
+    qualified:["underwriting","lost"], underwriting:["contacting","offer_decision","lost"],
+    offer_decision:["underwriting","contracted","lost"], contracted:["disposition","closing","lost"],
+    disposition:["closing","lost"], closing:["completed","disposition","lost"], completed:[], lost:[]
+  }[deal.stage] || [];
+  nextStages.forEach(s => { const o=node("option",s.replaceAll("_"," ")); o.value=s; stage.append(o); });
+  if (!nextStages.length) { stage.disabled = true; note.disabled = true; ref.disabled = true; }
   stageWrap.append(stage);
   const noteWrap=node("label","Reason / note"); const note=node("input"); note.name="note"; note.required=true; note.maxLength=1000; noteWrap.append(note);
   const refWrap=node("label","Evidence reference"); const ref=node("input"); ref.name="evidence_reference"; ref.maxLength=500; ref.placeholder="Document or record ID"; refWrap.append(ref);
@@ -168,7 +175,7 @@ function renderDealBoard() {
   box.append(stageForm);
   const underwriting=node("form",undefined,"underwrite-form");
   const fields=[["property_type","Property type","single_family","text"],["expected_exit_price","Expected exit price ($)","250000","number"],["buyer_repairs","Buyer repair estimate ($)","30000","number"],["buyer_funding_holding","Buyer funding / holding ($)","8000","number"],["buyer_closing","Buyer closing costs ($)","5000","number"],["buyer_selling_costs","Buyer selling costs ($)","10000","number"],["buyer_minimum_profit","Buyer minimum profit ($)","40000","number"],["target_assignment_fee","Target assignment fee ($)","20000","number"],["owner_transaction_costs","Your transaction costs ($)","4000","number"],["partner_payout_allowance","Partner payout allowance ($)","0","number"],["contingency","Contingency ($)","5000","number"],["desired_owner_net","Desired net to you ($)","10000","number"],["basis","Assumptions / evidence basis","Enter sources and what remains unverified.","text"]];
-  fields.forEach(([name,label,placeholder,type])=>{const w=node("label",label);const i=type==="text"&&name==="basis"?node("textarea"):node("input");i.name=name;i.required=true;i.placeholder=placeholder;if(type==="number"){i.type="number";i.min="0";i.step="0.01";i.value=placeholder;}w.append(i);underwriting.append(w);});
+  fields.forEach(([name,label,placeholder,type])=>{const w=node("label",label);const i=type==="text"&&name==="basis"?node("textarea"):node("input");i.name=name;i.required=true;i.placeholder=placeholder;if(type==="number"){i.type="number";i.min="0";i.step="0.01";i.value=placeholder;}else if(name==="property_type"){i.value=placeholder;}w.append(i);underwriting.append(w);});
   const uwButton=node("button","Save underwriting scenarios","button primary");uwButton.type="submit";underwriting.append(uwButton);
   underwriting.addEventListener("submit",e=>{e.preventDefault();const v=values(underwriting);fields.filter(f=>f[3]==="number").forEach(f=>v[f[0]]=Number(v[f[0]]));runForm(underwriting,()=>api("/api/deals/"+deal.id+"/underwriting",v),"Underwriting scenarios saved.");});
   box.append(node("h3","Manual underwriting"),underwriting);

@@ -381,7 +381,7 @@ class Application:
         name = text_field(data, "name", 120)
         company = text_field(data, "company", 160, required=False)
         locations = list_field(data, "locations", max_items=30)
-        locations = sorted({", ".join(part.strip().lower().split()) for part in locations})
+        locations = sorted({" ".join(part.strip().lower().split()) for part in locations})
         strategies = list_field(data, "strategies", allowed=STRATEGIES, max_items=2)
         types = list_field(data, "property_types", max_items=30, required=False)
         types = sorted({value.lower().replace(" ", "_") for value in types})
@@ -419,7 +419,7 @@ class Application:
             if uw is None:
                 raise ValueError("Record an underwriting before matching buyers")
             inputs, result = json.loads(uw["inputs_json"]), json.loads(uw["result_json"])
-            location = ", ".join(f"{prop['city']}, {prop['state']}".lower().split())
+            location = " ".join(f"{prop['city']}, {prop['state']}".lower().split())
             observed_type = None
             for row in connection.execute(
                 "SELECT body FROM memory WHERE collection='facts' AND json_extract(body,'$.subject_id')=?",
