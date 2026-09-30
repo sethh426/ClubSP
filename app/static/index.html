@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ClubSP — Property Workspace</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="mark">C</span> ClubSP <span class="brand-sub">PROPERTY WORKSPACE</span></a>
+    <span class="local-badge">Local workspace</span>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">EVIDENCE → ESTIMATE → OUTCOME</p><h1>A clearer view of every property.</h1>
+      <p class="muted">Keep your sources together. Track your estimates. Learn from the result.</p></div>
+      <a class="button primary" href="#new-property">+ Add property</a>
+    </section>
+    <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+    <section class="metrics" aria-label="Workspace totals">
+      <article><span>Properties</span><strong id="count-properties">0</strong></article>
+      <article><span>Sourced facts</span><strong id="count-facts">0</strong></article>
+      <article><span>Open estimates</span><strong id="count-open">0</strong></article>
+      <article><span>Recorded outcomes</span><strong id="count-outcomes">0</strong></article>
+    </section>
+    <div class="layout">
+      <aside>
+        <section class="panel">
+          <div class="panel-heading"><h2>Your properties</h2><span id="connection" class="muted">Connecting…</span></div>
+          <label class="sr-only" for="search">Search properties</label>
+          <input id="search" type="search" placeholder="Search address or city…">
+          <div id="property-list" class="property-list"></div>
+        </section>
+        <section id="new-property" class="panel">
+          <p class="eyebrow">BUILD YOUR WORKSPACE</p><h2>Add a property</h2>
+          <form id="property-form">
+            <label>Street address<input name="address" required maxlength="300" placeholder="123 Example Street"></label>
+            <label>City<input name="city" required maxlength="120"></label>
+            <div class="two-columns">
+              <label>State<input name="state" required maxlength="80" placeholder="IN"></label>
+              <label>ZIP code<input name="zip" maxlength="20" inputmode="numeric"></label>
+            </div>
+            <button class="button primary" type="submit">Save property</button>
+          </form>
+        </section>
+      </aside>
+      <section class="workspace">
+        <div id="empty" class="panel empty"><span class="empty-icon">↗</span><h2>Start with a property.</h2><p class="muted">Add an address, then build its evidence and outcome history.</p></div>
+        <div id="detail" hidden>
+          <section class="panel property-heading"><p class="eyebrow">PROPERTY FILE</p><h2 id="property-title"></h2><p id="property-location" class="muted"></p></section>
+          <div class="two-columns form-panels">
+            <section class="panel">
+              <p class="eyebrow">01 / EVIDENCE</p><h2>Record a sourced fact</h2>
+              <form id="fact-form">
+                <label>Attribute<input name="attribute" required maxlength="80" placeholder="sqft, beds, asking_price…"></label>
+                <label>Value<input name="value" required maxlength="4000" placeholder="1800"></label>
+                <label>Value format<select name="value_format"><option value="number">Number</option><option value="text">Text</option><option value="boolean">True / false</option></select></label>
+                <label>Source name<input name="provider" required maxlength="120" placeholder="County assessor, seller, inspection…"></label>
+                <label>Source URL <span class="muted">(optional)</span><input name="url" type="url" maxlength="2000" placeholder="https://…"></label>
+                <label>Confidence <span class="muted">(0–1)</span><input name="confidence" type="number" min="0" max="1" step="0.01" value="0.8" required></label>
+                <button class="button" type="submit">Record fact</button>
+              </form>
+            </section>
+            <section class="panel">
+              <p class="eyebrow">02 / ESTIMATE</p><h2>Track an estimate</h2>
+              <p class="muted small">Enter your own estimate now. Record the actual value when you have evidence.</p>
+              <form id="prediction-form">
+                <label>Estimate type<select name="prediction_type"><option value="repair_cost">Repair cost ($)</option><option value="sale_price">Sale price ($)</option><option value="days_to_close">Days to close</option></select></label>
+                <label>Estimated value<input name="predicted_value" type="number" min="0" step="0.01" required placeholder="30000"></label>
+                <label>Confidence <span class="muted">(0–1)</span><input name="confidence" type="number" min="0" max="1" step="0.01" value="0.6" required></label>
+                <button class="button" type="submit">Save estimate</button>
+              </form>
+              <div class="note">Estimates are entered by you. Automated valuations and live data providers are future integrations.</div>
+            </section>
+          </div>
+          <section class="panel"><div class="panel-heading"><h2>Evidence history</h2><span class="muted small">Sources attached</span></div><div id="facts"></div></section>
+          <section class="panel"><h2>Estimates & outcomes</h2><div id="predictions"></div></section>
+          <section class="panel"><h2>Learning history</h2><p class="muted small">A record of estimate accuracy, not a trained or calibrated model.</p><div id="learning"></div></section>
+        </div>
+      </section>
+    </div>
+  </main>
+  <footer>ClubSP · Your local evidence and learning workspace</footer>
+</body>
+</html>

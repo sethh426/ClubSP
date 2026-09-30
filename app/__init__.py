@@ -1,0 +1,1 @@
+"""ClubSP local application."""
