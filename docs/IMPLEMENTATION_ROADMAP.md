@@ -31,8 +31,16 @@ Partially implemented: property research, communication CRM, buyer packets, inde
 checks, licensed comps, professional title review and document workflows. Tasks
 are local records; external email reminders and workers are not connected.
 
+Implemented in the knowledge release: explicit source-check runs, eight fixed
+public sources, fingerprints/short previews, per-source failures and cache dates,
+budgets/cancellation, restart interruption, owner-authored notes, review evidence,
+versions/withdrawal/restore and audit events. Compliance notes require an entered
+professional-review reference. Notes do not change execution policies or private
+property facts. Direct runtime source access was blocked during final checks;
+the complete workflow uses synthetic offline tests until live access is verified.
+
 Not implemented: autonomous property sourcing/comps, email integrations, AI-generated
-replies/automatic grading, researched knowledge refresh, MCP transport, public hosting, or
+replies/automatic grading, automatic researched synthesis, MCP transport, public hosting, or
 transaction execution. The Operations documentation remains a target build
 specification for those capabilities.
 
@@ -67,8 +75,8 @@ milestones, manual assignment/resale scenarios, and buyer criteria matching. The
 owner still makes all decisions; the calculator is not a valuation and does not
 make or transmit offers.
 
-Next, add the button-triggered knowledge source/review workflow and licensed
-market evidence. Keep outreach
+Next, connect a durable email outbox/inbound provider and licensed local market
+evidence after source, sender and jurisdiction setup. Keep outreach
 automation behind a separate compliance gate until research and economics are
 dependable. Knowledge refresh remains button-triggered and reviewable.
 

@@ -200,7 +200,7 @@ function bindDealForms(){
 
 function render() {
   renderScorecard();
-  renderSellerInsights(); renderTraining();
+  renderSellerInsights(); renderTraining(); renderKnowledge();
   $("count-properties").textContent = state.properties.length;
   $("count-facts").textContent = state.facts.length;
   $("count-open").textContent = state.predictions.filter(p => !p.resolved_at).length;

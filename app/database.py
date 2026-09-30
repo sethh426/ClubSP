@@ -210,6 +210,36 @@ class Database:
                 CREATE INDEX IF NOT EXISTS message_contact ON conversation_messages(contact_id,created_at);
                 CREATE INDEX IF NOT EXISTS profile_contact ON seller_profiles(contact_id,created_at);
                 CREATE INDEX IF NOT EXISTS draft_contact ON reply_drafts(contact_id,created_at);
+                CREATE TABLE IF NOT EXISTS knowledge_runs (
+                    id TEXT PRIMARY KEY, request_key TEXT NOT NULL UNIQUE, source_ids_json TEXT NOT NULL,
+                    jurisdiction TEXT NOT NULL, initiated_by TEXT NOT NULL, status TEXT NOT NULL,
+                    cancel_requested INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, finished_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS knowledge_snapshots (
+                    id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES knowledge_runs(id),
+                    source_id TEXT NOT NULL, domain TEXT NOT NULL, source_url TEXT NOT NULL,
+                    status TEXT NOT NULL, data_json TEXT NOT NULL, diff_json TEXT NOT NULL,
+                    checked_at TEXT, cached INTEGER NOT NULL DEFAULT 0, is_attempt INTEGER NOT NULL DEFAULT 0,
+                    request_day TEXT NOT NULL, error TEXT NOT NULL, review_status TEXT NOT NULL,
+                    review_note TEXT NOT NULL, created_at TEXT NOT NULL,
+                    UNIQUE(run_id,source_id)
+                );
+                CREATE TABLE IF NOT EXISTS knowledge_items (
+                    id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL UNIQUE REFERENCES knowledge_snapshots(id),
+                    source_id TEXT NOT NULL, domain TEXT NOT NULL, title TEXT NOT NULL, claim TEXT NOT NULL,
+                    claim_type TEXT NOT NULL, jurisdiction TEXT NOT NULL, published_on TEXT NOT NULL,
+                    effective_on TEXT NOT NULL, applicability TEXT NOT NULL, reviewer TEXT NOT NULL,
+                    review_reference TEXT NOT NULL, professional_review_reference TEXT NOT NULL,
+                    supersedes_id TEXT REFERENCES knowledge_items(id), status TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS knowledge_events (
+                    id TEXT PRIMARY KEY, item_id TEXT REFERENCES knowledge_items(id), snapshot_id TEXT REFERENCES knowledge_snapshots(id),
+                    action TEXT NOT NULL, prior_item_id TEXT REFERENCES knowledge_items(id), reviewer TEXT NOT NULL,
+                    note TEXT NOT NULL, evidence_reference TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS knowledge_source ON knowledge_snapshots(source_id,checked_at);
+                CREATE INDEX IF NOT EXISTS knowledge_budget ON knowledge_snapshots(request_day,is_attempt);
+                CREATE UNIQUE INDEX IF NOT EXISTS knowledge_active_source ON knowledge_items(source_id) WHERE status='active';
             """)
 
     @contextmanager

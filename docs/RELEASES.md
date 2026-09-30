@@ -1,5 +1,45 @@
 # Release evidence
 
+## Button-triggered knowledge and review versions — 2026-09-30
+
+Delivered: eight fixed public source checks covering sales, aggregate-market
+context, compliance, finance education, closing, operations and parcel-service
+metadata. An explicit retry-safe request starts one bounded job; there is no
+research schedule. Per-source failures, fingerprints/short previews, reported
+publication/actual retrieval dates, twenty-request daily budget, 24-hour cache,
+six-second timeout, 1 MiB cap, no redirects/retries, cancel and restart failure
+handling are recorded. Cached checks preserve their original retrieval date.
+
+Owner-authored notes require original-source comparison, scope and review evidence;
+compliance requires a professional-review reference. Publishing preserves prior
+versions, and withdrawal/restore retain audit events. Changed active notes make
+old reply context stale and can be shown beside internal training. Unknown dates
+stay unknown; page retrieval does not establish rule effectiveness or applicability.
+
+Validation: 85 Python tests and six desktop/mobile browser workflows passed
+locally. Includes cache/idempotency, budget exhaustion, partial failures, source
+changes, rejection of old/superseded checks, cancel/concurrency, interrupted-run
+restart, HTML/size/schema boundaries, compliance review references, version
+rollback and no research on page load. Browser sources are explicitly synthetic.
+GitHub Actions must pass before merge.
+
+Live access: canonical public pages were located with research tools. Direct
+runtime fetches for several sources and the later metadata check returned network
+errors in this workspace; no success or freshness is fabricated. The earlier
+parcel lookup protocol check remains separate evidence. Verify live extraction
+and compare originals on a machine with working source access before real use.
+
+Storage upgrade: knowledge run/snapshot/item/event tables and indexes are added.
+Existing property, contact, evidence and money history is preserved. The expanded
+reply context makes older drafts require a new review. Back up a stopped database
+before upgrade. Downgrading retains these tables but hides review/version controls.
+
+Limits: source monitoring plus owner-authored review, not automatic research
+synthesis or legal certification. Published notes never alter offers, saved costs,
+execution policies, contact eligibility or transactions. Licensed comps/local
+series, transaction tax review, mail delivery and professional policy setup remain
+coverage gaps. No paid provider or secret is required for this release.
+
 ## Seller conversations and internal training — 2026-09-30
 
 Delivered: property-linked contacts, role/permission evidence, manually recorded

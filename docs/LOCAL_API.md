@@ -120,3 +120,30 @@ Recorded message/profile/permission/deal/underwriting/financial-plan changes mak
 older draft context stale. Suppression preserves prior reviewed text and notes
 while changing draft status to void. Unique-email suppression applies throughout
 the workspace; no outreach or email-provider call occurs in these routes.
+
+## Knowledge source checks and versions
+
+| Route | Fields and result |
+| --- | --- |
+| POST /api/knowledge/update | UUID request_key, source_ids (1–8 fixed ids from state), jurisdiction, initiated_by; starts one explicit source-check job; same-key retries return the same run |
+| POST /api/knowledge/runs/{id}/cancel | Empty object; stops later requests and prevents an in-flight result from being staged after cancellation |
+| POST /api/knowledge/snapshots/{id}/review | decision=accept/reject, reviewer, note; accept additionally needs owner_verified_source=true, title, claim, claim_type, applicability, review_reference, optional published_on/effective_on, professional_review_reference required for compliance |
+| POST /api/knowledge/items/{id}/version | action=activate/withdraw, owner_reviewed=true, reviewer, note, evidence_reference; preserves versions and an audit event |
+
+GET /api/state includes `knowledge` with sources, coverage gaps, request usage,
+runs/snapshots, reviewed items and events. Run states are requested, running,
+review_required, partially_complete, failed and cancelled. Source checks are
+queued/fetching/succeeded/failed/cancelled. A successful check is not a reviewed
+business claim. Published claim_type is interpretation, operational_note or
+source_metadata; items never change execution policy.
+
+Only one run can be active. Fixed URLs/ids, a six-second timeout, 1 MiB response
+limit, no redirects/retries, 24-hour cache and 20 attempted source requests per
+business day bound research. Cached retrieval dates are preserved. Empty/invalid
+metadata and challenge pages fail. Rejected or failed checks leave active items
+unchanged. Checks over seven days old or superseded by changed source content
+cannot publish as current. Restart fails unfinished work without external retry.
+
+An active note change/rollback/withdrawal invalidates old reply context. Related
+sales/operations/compliance notes can appear beside training. References and
+professional review are owner-entered records, not independent verification.

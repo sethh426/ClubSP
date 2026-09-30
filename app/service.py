@@ -17,6 +17,7 @@ from .research import ResearchMixin
 from .providers import PROVIDER
 from .communications import CommunicationsMixin
 from .training import TrainingMixin
+from .knowledge import KnowledgeMixin
 
 
 DEAL_STAGES = (
@@ -85,10 +86,11 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin):
+class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin):
     def __init__(self, path):
         self.database = Database(path)
         with self.database.session(write=True) as (connection, _):
+            self._recover_knowledge_runs(connection)
             for deal in connection.execute("SELECT id FROM deals").fetchall():
                 self._seed_tasks(connection, deal["id"])
                 uw = connection.execute("SELECT id FROM underwritings WHERE deal_id=? ORDER BY created_at DESC LIMIT 1", (deal["id"],)).fetchone()
@@ -113,6 +115,7 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
             result["providers"] = [PROVIDER]
             result["communications"] = self._communications_state(connection)
             result["training"] = self._training_state(connection)
+            result["knowledge"] = self._knowledge_state(connection)
             result["operations"] = [{"number": i + 1, "name": op[0], "expectation": op[1], "capability": op[2]} for i, op in enumerate(OPERATIONS)]
             result["scorecard"] = {
                 "reconciled_net_contribution": money(sum(

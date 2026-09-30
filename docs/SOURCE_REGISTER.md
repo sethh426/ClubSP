@@ -16,6 +16,27 @@ before activation.
 | S7 | [Postmark inbound parsing docs](https://postmarkapp.com/developer/user-guide/inbound/parse-an-email) | Example inbound email transport design | Reviewed technical capability only; cold-outreach permission NOT established |
 | S8 | [CFPB Closing Disclosure explainer](https://www.consumerfinance.gov/owning-a-home/closing-disclosure/) | Settlement review concepts for applicable loans | Reviewed; loan-specific form/timing must not be applied to every cash/assignment transaction |
 | S9 | [Allen County iMap](https://www.acimap.us/) / [parcel layer](https://gis.acimap.us/services/rest/services/CFW/Parcels_With_Ownership_Information/MapServer/0) | Exact parcel identity, reported owner-of-record/site address, transfer date and record year | Implemented bounded adapter; metadata and live no-match protocol checked; positive records require owner identity review; no bulk-export rights assumed |
+| S10 | [CFPB loan cost explorer](https://www.consumerfinance.gov/owning-a-home/explore-rates/) | Finance education source check | Page located; not an actual lending quote or loan approval |
+| S11 | [SBA planning resources](https://www.sba.gov/counseling/plan-your-business/) | General operations/planning source check | Canonical page located after redirect; business-specific applicability still needs review |
+
+## Runtime knowledge source checks
+
+The first fixed registry checks S1, S2, S6b, S8, S9 metadata, S10, S11 and the
+Indiana licensing overview below. It retrieves only those configured endpoints,
+without following page links, JavaScript or redirects. Limits: up to eight source
+pages per explicit run, twenty attempted knowledge-source requests per business
+day, six-second timeout, 1 MiB response cap, twenty-four-hour cache, no automatic
+retries. Keep content/section hashes, at most eight title words plus twelve preview
+words, reported publication date and actual retrieval/cache time. No full article
+or restricted dataset is republished by this workflow.
+
+Public pages were located through research tools. Direct runtime requests to
+several pages and the later parcel-metadata check were blocked in this workspace;
+they do not count as successful verification. Offline extraction/browser tests
+use synthetic pages. Inaccessible sources keep prior notes intact. A successful
+page check still requires original-source comparison and an owner-authored note;
+compliance requires a professional-review reference. No note changes execution
+policy or certifies that all jurisdiction requirements are covered.
 
 ## Active parcel adapter
 

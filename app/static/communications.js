@@ -98,6 +98,8 @@ function renderReplyDrafts(contact, box) {
 function renderTraining() {
   const box=$("training-workspace");box.replaceChildren();const training=state.training;
   box.append(node("p","Synthetic scenarios · Internal draft curriculum · "+training.version,"muted small"));
+  const related=state.knowledge.items.filter(i=>i.status==="active"&&["sales","operations","compliance"].includes(i.domain));
+  if(related.length){const notes=workspaceDetails("Reviewed knowledge for practice · "+related.length);related.forEach(i=>{const row=node("article",undefined,"communication-card");row.append(node("strong",i.title),node("p",i.claim),node("p",i.applicability,"muted small"));if(i.source_changed_since_review||i.source_check_older_than_seven_days)row.append(node("p","Source needs a new review before relying on this note.","note"));notes.append(row);});box.append(notes);}
   const selector=node("form");const select=workspaceSelect(selector,"scenario_id","Practice an objection",training.lessons.map(l=>[l.id,l.title]),selectedLesson);select.addEventListener("change",()=>{selectedLesson=select.value;renderTraining();});box.append(selector);
   const lesson=training.lessons.find(l=>l.id===selectedLesson);const article=node("article",undefined,"training-lesson");article.append(node("h3",lesson.title),node("p",lesson.prompt,"reply-body"),node("p",lesson.guidance),node("p","Clarify: "+lesson.clarifying_question),node("p","Avoid: "+lesson.avoid,"note"),node("p","Next step: "+lesson.next_step),node("p",lesson.status+" · Source: "+lesson.source_reference,"muted small"));box.append(article);
   const form=node("form",undefined,"practice-form workspace-form");communicationText(form,"response","Your practice reply","",true);
