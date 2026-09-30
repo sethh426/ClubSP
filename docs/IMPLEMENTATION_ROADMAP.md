@@ -7,10 +7,15 @@ manual deal creation and gated stages, assignment/resale scenario underwriting
 (downside/base/upside), buyer criteria records and explainable matching, Python
 unit/HTTP/concurrency coverage, and desktop/mobile browser workflows.
 
-Partially implemented: the deal core has no task/exception queue, cash-at-risk ledger,
-buyer packet, signed-document storage, contract/closing workflow, or actual-versus-
-forecast profit reconciliation. Buyer funding status and evidence are owner-entered;
-the app does not independently verify funds, authority, or intent to close.
+Implemented in the Operations/money release: proposed terms and owner cash limits,
+fixed-price downside comparisons, integer-cent cash/escrow ledger, retry-safe
+entries and append-only reversals, completion/loss reconciliation, current-only
+portfolio contribution totals, 18 Operations catalog, seeded/custom tasks,
+exceptions, owner/deadline assignments and evidence-gated stage reviews.
+
+Partially implemented: seller/contact CRM, buyer packets, independent funding
+checks, licensed comps, professional title review and document workflows. Tasks
+are local records; external email reminders and workers are not connected.
 
 Not implemented: live property sourcing/comps, email integrations, suggested replies,
 training UI, researched knowledge refresh, MCP transport, public hosting, or
@@ -48,9 +53,10 @@ milestones, manual assignment/resale scenarios, and buyer criteria matching. The
 owner still makes all decisions; the calculator is not a valuation and does not
 make or transmit offers.
 
-Next, finish cash-at-risk and actual-versus-forecast ledgers, then add one verified
-property research source. Keep outreach automation behind a separate compliance
-gate until property evidence and deal economics are dependable.
+Next, add one official property research adapter with identity confirmation,
+provenance and bounded requests, then licensed market evidence. Keep outreach
+automation behind a separate compliance gate until research and economics are
+dependable. Knowledge refresh remains button-triggered and reviewable.
 
 ## Example test fixture, not a market recommendation
 

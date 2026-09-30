@@ -9,6 +9,10 @@ from uuid import UUID, uuid4
 from core.memory import Fact, LearningEngine, Observation, Prediction, SourceRecord
 from core.memory.models import utc_now
 from .database import COLLECTIONS, Database
+from .validation import text_field, number_field, list_field, property_exists, deal_exists
+from .deal_finance import FinanceMixin
+from .operations import OperationsMixin, OPERATIONS, business_today
+from .money import cents
 
 
 DEAL_STAGES = (
@@ -33,64 +37,6 @@ UNDERWRITING_FIELDS = (
     "target_assignment_fee", "owner_transaction_costs", "partner_payout_allowance",
     "contingency", "desired_owner_net",
 )
-
-
-def text_field(data, key, limit=300, required=True):
-    value = data.get(key, "")
-    if not isinstance(value, str):
-        raise ValueError(f"{key} must be text")
-    value = value.strip()
-    if required and not value:
-        raise ValueError(f"{key} is required")
-    if len(value) > limit:
-        raise ValueError(f"{key} is too long")
-    return value
-
-
-def number_field(data, key, default=None, nonnegative=False):
-    value = data.get(key, default)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
-        raise ValueError(f"{key} must be a finite number")
-    if nonnegative and value < 0:
-        raise ValueError(f"{key} cannot be negative")
-    return float(value)
-
-
-def list_field(data, key, allowed=None, max_items=50, required=True):
-    value = data.get(key)
-    if not isinstance(value, list) or len(value) > max_items or (required and not value):
-        raise ValueError(f"{key} must be a list with 1 to {max_items} entries")
-    cleaned = []
-    for entry in value:
-        if not isinstance(entry, str) or not entry.strip() or len(entry.strip()) > 100:
-            raise ValueError(f"{key} entries must be nonempty text up to 100 characters")
-        item = entry.strip()
-        if allowed is not None and item not in allowed:
-            raise ValueError(f"Unsupported {key} value: {item}")
-        if item not in cleaned:
-            cleaned.append(item)
-    return cleaned
-
-
-def property_exists(connection, property_id):
-    try:
-        property_id = UUID(str(property_id))
-    except (ValueError, TypeError, AttributeError) as exc:
-        raise ValueError("property_id must be a valid UUID") from exc
-    if connection.execute("SELECT id FROM properties WHERE id=?", (str(property_id),)).fetchone() is None:
-        raise LookupError("Property not found")
-    return property_id
-
-
-def deal_exists(connection, deal_id):
-    try:
-        deal_id = UUID(str(deal_id))
-    except (ValueError, TypeError, AttributeError) as exc:
-        raise ValueError("deal_id must be a valid UUID") from exc
-    deal = connection.execute("SELECT * FROM deals WHERE id=?", (str(deal_id),)).fetchone()
-    if deal is None:
-        raise LookupError("Deal not found")
-    return deal
 
 
 def money(value):
@@ -135,9 +81,15 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application:
+class Application(FinanceMixin, OperationsMixin):
     def __init__(self, path):
         self.database = Database(path)
+        with self.database.session(write=True) as (connection, _):
+            for deal in connection.execute("SELECT id FROM deals").fetchall():
+                self._seed_tasks(connection, deal["id"])
+                uw = connection.execute("SELECT id FROM underwritings WHERE deal_id=? ORDER BY created_at DESC LIMIT 1", (deal["id"],)).fetchone()
+                if uw:
+                    self._complete_system_task(connection, deal["id"], "underwriting", "Existing underwriting found", uw["id"])
 
     def state(self):
         with self.database.session() as (connection, memory):
@@ -152,6 +104,22 @@ class Application:
                 for name in COLLECTIONS
             })
             result["deals"] = self._list_deals(connection)
+            result["today"] = business_today().isoformat()
+            result["operations"] = [{"number": i + 1, "name": op[0], "expectation": op[1], "capability": op[2]} for i, op in enumerate(OPERATIONS)]
+            result["scorecard"] = {
+                "reconciled_net_contribution": money(sum(
+                    d["finance"]["reconciliation"]["actual_net"] for d in result["deals"]
+                    if d["finance"]["reconciliation"] and d["finance"]["reconciliation"]["current"]
+                )),
+                "unrecovered_cash": money(sum(d["finance"]["summary"]["unrecovered_cash"] for d in result["deals"])),
+                "unreconciled_ended_deals": sum(
+                    d["stage"] in {"completed", "lost"} and not (
+                        d["finance"]["reconciliation"] and d["finance"]["reconciliation"]["current"]
+                    ) for d in result["deals"]
+                ),
+                "open_exceptions": sum(t["status"] == "open" and t["kind"] == "exception" for d in result["deals"] for t in d["tasks"]),
+                "overdue_tasks": sum(t["overdue"] for d in result["deals"] for t in d["tasks"]),
+            }
             result["buyers"] = [
                 self._buyer_json(row)
                 for row in connection.execute("SELECT * FROM buyers ORDER BY created_at DESC,id")
@@ -199,6 +167,8 @@ class Application:
                 "SELECT stage_before,stage_after,note,evidence_reference,created_at "
                 "FROM deal_events WHERE deal_id=? ORDER BY created_at,id", (item["id"],)
             )]
+            item["finance"] = self._finance(connection, item)
+            item["tasks"] = self._tasks(connection, item["id"])
             deals.append(item)
         return deals
 
@@ -292,6 +262,7 @@ class Application:
                 "INSERT INTO deals(id,property_id,strategy,stage,created_at,updated_at) VALUES(?,?,?,?,?,?)",
                 (str(deal_id), str(property_id), strategy, "research", now, now),
             )
+            self._seed_tasks(connection, str(deal_id))
         return {"id": str(deal_id), "property_id": str(property_id), "strategy": strategy, "stage": "research", "created_at": now, "updated_at": now}
 
     def advance_deal(self, deal_id, data):
@@ -315,8 +286,14 @@ class Application:
                     raise ValueError("A profitable base underwriting is required before a deal can be contracted")
                 if data.get("owner_confirmed_signed") is not True or not evidence:
                     raise ValueError("Moving to contracted requires owner confirmation and a signed-agreement reference")
+                blockers = self._finance(connection, deal)["contract_blockers"]
+                if blockers:
+                    raise ValueError("Contract stage blocked: " + "; ".join(blockers))
             if target == "completed" and (data.get("owner_confirmed_closed") is not True or not evidence):
                 raise ValueError("Completing a deal requires owner confirmation and closing evidence")
+            task_blockers = self._task_blockers(connection, str(deal["id"]), target)
+            if task_blockers:
+                raise ValueError("Resolve operation tasks first: " + "; ".join(task_blockers))
             connection.execute(
                 "UPDATE deals SET stage=?,updated_at=? WHERE id=?", (target, now, str(deal["id"]))
             )
@@ -330,6 +307,8 @@ class Application:
     def underwrite(self, deal_id, data):
         notes = text_field(data, "basis", 2000)
         values = {name: number_field(data, name, nonnegative=True) for name in UNDERWRITING_FIELDS}
+        for name, value in values.items():
+            cents(value, name)
         property_type = text_field(data, "property_type", 60).lower().replace(" ", "_")
         if values["expected_exit_price"] <= 0:
             raise ValueError("expected_exit_price must be greater than zero")
@@ -349,7 +328,6 @@ class Application:
                 for key in ("buyer_repairs", "buyer_funding_holding", "buyer_closing", "buyer_selling_costs"):
                     case[key] *= cost_factor
                 scenarios[name] = calculate_scenario(deal["strategy"], case)
-            latest = scenarios["base"]
             inputs = {**values, "property_type": property_type, "basis": notes}
             fact_ids = [str(row[0]) for row in connection.execute(
                 "SELECT id FROM memory WHERE collection='facts' "
@@ -369,6 +347,8 @@ class Application:
                 (uw_id, str(deal["id"]), json.dumps(inputs, allow_nan=False),
                  json.dumps(snapshot, allow_nan=False), now),
             )
+            self._complete_system_task(connection, str(deal["id"]), "underwriting", "Underwriting saved", uw_id)
+            self._reopen_system_task(connection, str(deal["id"]), "money_plan", "Underwriting changed; refresh financial plan")
             connection.execute("UPDATE deals SET stage='underwriting',updated_at=? WHERE id=?", (now, str(deal["id"])))
             connection.execute(
                 "INSERT INTO deal_events(id,deal_id,stage_before,stage_after,note,evidence_reference,created_at) VALUES(?,?,?,?,?,?,?)",
@@ -428,7 +408,16 @@ class Application:
                 fact = json.loads(row["body"])
                 if fact["attribute"].lower() in {"property_type", "property type"}:
                     observed_type = str(fact["value"]).lower().replace(" ", "_")
-            total = result["scenarios"]["base"]["owner_max_contract_price"] if deal["strategy"] == "resale" else result["scenarios"]["base"]["buyer_acquisition_ceiling"]
+            plan = self._finance(connection, deal)["plan"]
+            if deal["strategy"] == "resale":
+                total = inputs["expected_exit_price"]
+                price_basis = "entered resale exit price"
+            elif plan and plan["current_underwriting"]:
+                total = plan["seller_price"] + plan["assignment_fee"]
+                price_basis = "proposed seller price plus assignment fee"
+            else:
+                total = result["scenarios"]["base"]["buyer_acquisition_ceiling"]
+                price_basis = "underwriting buyer ceiling; no proposed terms yet"
             repair = inputs["buyer_repairs"]
             candidates = []
             for row in connection.execute("SELECT * FROM buyers WHERE status='active' ORDER BY created_at DESC,id"):
@@ -461,7 +450,7 @@ class Application:
                     "eligible_on_recorded_criteria": not any(r != "funding evidence requires current owner verification" for r in reasons),
                     "funding_verified_currently": verification_recent,
                     "reasons": reasons,
-                    "comparison": {"market": location, "buyer_total_price": money(total),
+                    "comparison": {"market": location, "buyer_total_price": money(total), "price_basis": price_basis,
                                    "buyer_max_total_price": buyer["max_total_price"],
                                    "repair_estimate": money(repair), "buyer_max_repairs": buyer["max_repairs"]},
                 })

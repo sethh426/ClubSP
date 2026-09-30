@@ -52,3 +52,32 @@ The outcome quality score combines observed numeric error with the confidence
 entered for its evidence. It does not verify the evidence or change future
 estimates. The snapshot references record which facts were present when an
 estimate was saved.
+
+## Deal Operations and money
+
+All new writes retain the same JSON, Host/Origin and local-only controls.
+
+| Route | Fields and result |
+| --- | --- |
+| POST /api/deals | property_id, strategy; creates a deal and eight operation tasks |
+| POST /api/deals/{id}/underwriting | Property type, basis and every cost/value input; saves scenario version |
+| POST /api/deals/{id}/financial-plan | seller_price, assignment_fee, planned_cash_at_risk, max_cash_at_risk, basis; records fixed-price forecasts and stage blockers |
+| POST /api/deals/{id}/ledger | UUID entry_key, kind, category, positive dollar amount (max 2 decimals), occurred_on, note, evidence_reference; retry-safe cash record |
+| POST /api/deals/{id}/reconciliation | owner_confirmed_complete=true, note, evidence_reference; requires ended deal, resolved escrow and received funds for completed deals |
+| POST /api/deals/{id}/tasks | operation (1–18), title, owner, expected_result, kind, blocking_stage, optional due_on |
+| POST /api/tasks/{id}/status | status=open/done, note, completion evidence_reference |
+| POST /api/tasks/{id}/schedule | owner, due_on (or empty), note |
+| POST /api/deals/{id}/stage | Stage plus note; contracted/completed need owner confirmation and evidence; finance/task gates enforced |
+| POST /api/buyers | Name, markets, strategies, types, price/repair limits and owner funding status |
+| POST /api/deals/{id}/buyer-matches | Empty object; assignment compares proposed seller price + fee when recorded, resale compares expected exit price |
+
+Ledger kinds: expense, income, escrow_deposit, escrow_return, escrow_applied,
+escrow_forfeit. A correction includes reversal_of and repeats the original kind,
+category and amount with a new entry_key and correction evidence. A reversal
+cannot leave escrow negative at any recorded date. Same-key retries return the
+same record; conflicting reuse is rejected. Evidence references are private
+record identifiers, not downloaded or independently verified documents.
+
+GET /api/state now includes each deal's finance/tasks/history, the 18 Operations,
+Indianapolis business date and a scorecard. A changed ledger invalidates the old
+reconciliation; historical records stay intact.

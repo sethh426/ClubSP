@@ -1,6 +1,6 @@
 # ClubSP
 
-A working local property workspace for evidence, estimates, outcomes, and learning.
+A working local property workspace for deal operations, evidence, underwriting, cash at risk, actual costs and receipts, and profit reconciliation.
 
 ## Run the app
 
@@ -35,18 +35,44 @@ making it accessible remotely.
    funding reference; run matching to compare stated criteria.
 5. Move deal stages with notes. Contracted and completed stages require your
    confirmation plus an evidence reference.
-6. Track ordinary sale-price, repair-cost, and days-to-close estimates, then record
-   outcomes and review the estimate error.
+6. Save proposed seller terms and your peak owner cash exposure/limit. Contracted
+   stages check the current plan, underwriting ceiling, net target and cash limit.
+7. Use **Operations & exceptions** to assign owners/deadlines, record completion
+   evidence and resolve the required diligence, agreement and closing tasks.
+8. Record actual costs, receipts and earnest-money movements. Correct mistakes by
+   reversing the original entry, preserving the audit record.
+9. After completion or loss, resolve escrow and confirm all costs/receipts are
+   recorded; reconcile actual contribution against the fixed-price forecast.
+10. Track ordinary estimates and their actual outcomes in the learning workspace.
 
 Facts and outcomes are manually entered. Source URLs are saved references;
 the app does not fetch or verify their content. Estimates are supplied by you,
 not generated valuations. Learning records track numeric accuracy and evidence
 confidence; this is not model training or a calibrated probability.
 
-SQLite stores properties and all six memory collections. Outcome resolution is
+SQLite stores properties, deals, operation tasks, money/reconciliation records and all six memory collections. Outcome resolution is
 transactional: source, observation, prediction update, and learning record either
 all commit or all roll back. Concurrent duplicate outcomes cannot create duplicate
 learning records. Restarting the app preserves history and subject indexes.
+
+## Cash and Operations
+
+The ledger stores money in integer cents and distinguishes paid expenses, actual
+income, escrow deposits, refunds, applications and forfeitures. Deposits are cash
+at risk while held; they become costs only when applied or forfeited. An applied
+purchase deposit is recorded separately from the remaining cash purchase payment.
+
+Recorded contribution is **pre-tax** and excludes overhead unless you enter its
+allocation. The portfolio scorecard includes only current owner-confirmed
+reconciliations in reconciled contribution. Costs from lost deals count too.
+Corrections invalidate old reconciliations until reviewed again. Reconciliations
+are record comparisons, not independent bank verification or model training.
+
+The 18 Operations catalog shows the expected process and current capability.
+Every deal has eight initial tasks; the recorded underwriting, money plan and
+reconciliation complete their own tasks. Other reviews require owner-entered
+completion evidence. Deadline/exception visibility is local; no email reminders
+or external jobs run yet.
 
 ## Test
 
@@ -83,9 +109,8 @@ by Git so property data stays out of source control.
 
 ## Next integrations
 
-Live property-data ingestion, independent funding verification, cash-at-risk and
-actual-versus-forecast ledgers, task/exception management, MCP transport, outreach,
-and signed document/transaction execution remain future work.
+Live property-data ingestion, independent funding verification, MCP transport,
+outreach, and signed document/transaction execution remain future work.
 The full-snapshot persistence adapter suits a small local workspace; larger
 datasets need targeted queries, migrations, and a production database strategy.
 

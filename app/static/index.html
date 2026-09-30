@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ClubSP — Property Workspace</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="/workspace.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -25,6 +26,8 @@
       <article><span>Open estimates</span><strong id="count-open">0</strong></article>
       <article><span>Recorded outcomes</span><strong id="count-outcomes">0</strong></article>
     </section>
+    <section id="money-scorecard" class="metrics money-scorecard" aria-label="Money and operation totals"></section>
+    <details class="panel operations-guide"><summary>18 Operations · What happens from research to reconciled profit</summary><p class="muted small">Capability labels show which steps the current app supports. Manual reviews remain owner tasks.</p><div id="operations-catalog"></div></details>
     <div class="layout">
       <aside>
         <section class="panel">

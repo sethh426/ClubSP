@@ -119,6 +119,43 @@ class Database:
                     body TEXT NOT NULL,
                     PRIMARY KEY (collection, id)
                 );
+                CREATE TABLE IF NOT EXISTS financial_plans (
+                    id TEXT PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES deals(id),
+                    underwriting_id TEXT NOT NULL REFERENCES underwritings(id),
+                    seller_price_cents INTEGER NOT NULL, assignment_fee_cents INTEGER NOT NULL,
+                    planned_cash_at_risk_cents INTEGER NOT NULL, max_cash_at_risk_cents INTEGER NOT NULL,
+                    offer_ceiling_cents INTEGER NOT NULL, desired_net_cents INTEGER NOT NULL,
+                    basis TEXT NOT NULL, created_at TEXT NOT NULL, forecasts_json TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS ledger_entries (
+                    id TEXT PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES deals(id),
+                    entry_key TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, category TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL CHECK(amount_cents > 0), occurred_on TEXT NOT NULL,
+                    note TEXT NOT NULL, evidence_reference TEXT NOT NULL,
+                    reversal_of TEXT UNIQUE REFERENCES ledger_entries(id), created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS reconciliations (
+                    id TEXT PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES deals(id),
+                    plan_id TEXT REFERENCES financial_plans(id), ledger_digest TEXT NOT NULL,
+                    actual_net_cents INTEGER NOT NULL, forecast_net_cents INTEGER, variance_cents INTEGER,
+                    evidence_reference TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id TEXT PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES deals(id),
+                    operation INTEGER NOT NULL CHECK(operation BETWEEN 1 AND 18), title TEXT NOT NULL,
+                    owner TEXT NOT NULL, expected_result TEXT NOT NULL, due_on TEXT NOT NULL,
+                    blocking_stage TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL,
+                    system_key TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                    UNIQUE(deal_id,system_key)
+                );
+                CREATE TABLE IF NOT EXISTS task_events (
+                    id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id),
+                    status_before TEXT NOT NULL, status_after TEXT NOT NULL, note TEXT NOT NULL,
+                    evidence_reference TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ledger_deal ON ledger_entries(deal_id,occurred_on,created_at);
+                CREATE INDEX IF NOT EXISTS tasks_deal ON tasks(deal_id,status);
+                CREATE INDEX IF NOT EXISTS plans_deal ON financial_plans(deal_id,created_at);
             """)
 
     @contextmanager
@@ -126,6 +163,7 @@ class Database:
         connection = sqlite3.connect(self.path, timeout=15)
         connection.row_factory = sqlite3.Row
         try:
+            connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
             memory = MemoryStore()
             for row in connection.execute("SELECT collection, body FROM memory ORDER BY rowid"):

@@ -1,6 +1,6 @@
 const { test, expect } = require("@playwright/test");
 
-test("property evidence, estimate, and outcome work through the browser", async ({ page, request }, testInfo) => {
+test("deal evidence, money, operations, and reconciliation work through the browser", async ({ page, request }, testInfo) => {
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   const before = await (await request.get("/api/state")).json();
@@ -51,6 +51,8 @@ test("property evidence, estimate, and outcome work through the browser", async 
   await dealStart.locator('[name="strategy"]').selectOption("assignment");
   await dealStart.getByRole("button", { name: "Start deal" }).click();
   const underwriting = page.locator(".underwrite-form");
+  const assumptions = {property_type:"single_family",expected_exit_price:"240000",buyer_repairs:"30000",buyer_funding_holding:"8000",buyer_closing:"5000",buyer_selling_costs:"10000",buyer_minimum_profit:"42000",target_assignment_fee:"20000",owner_transaction_costs:"4000",partner_payout_allowance:"2000",contingency:"2000",desired_owner_net:"10000"};
+  for (const [name,value] of Object.entries(assumptions)) await underwriting.locator('[name="'+name+'"]').fill(value);
   await underwriting.locator('[name="basis"]').fill("Browser test assumptions; not a live valuation.");
   await underwriting.getByRole("button", { name: "Save underwriting scenarios" }).click();
   await expect(page.locator("#deal-board")).toContainText("Owner max contract:");
@@ -65,6 +67,44 @@ test("property evidence, estimate, and outcome work through the browser", async 
   await page.getByRole("button", { name: "Run buyer matching" }).click();
   await expect(page.locator("#deal-board")).toContainText("Browser Buyer");
   await expect(page.locator("#deal-board")).toContainText("Funding evidence needs current owner review");
+
+  const plan = page.locator(".money-plan-form");
+  for (const [name,value] of Object.entries({seller_price:"125000",assignment_fee:"20000",planned_cash_at_risk:"6000",max_cash_at_risk:"10000"})) await plan.locator('[name="'+name+'"]').fill(value);
+  await plan.locator('[name="basis"]').fill("Synthetic owner terms, funds and expenses");
+  await plan.getByRole("button", { name: "Save proposed terms" }).click();
+  await expect(page.locator(".fixed-forecasts")).toContainText("Net contribution: $12,000.00");
+  const ledger = page.locator(".ledger-form");
+  await ledger.locator('[name="category"]').selectOption("transaction");
+  await ledger.locator('[name="amount"]').fill("4000");
+  await ledger.locator('[name="evidence_reference"]').fill("synthetic-bank-payment");
+  await ledger.locator('[name="note"]').fill("Synthetic transaction cost actually paid");
+  await ledger.getByRole("button", { name: "Record cash movement" }).click();
+  await expect(page.locator(".finance-risk")).toContainText("Cash at risk now: $4,000.00");
+  const task = page.locator(".task-form");
+  await task.locator("..").locator("summary").click();
+  await task.locator('[name="title"]').fill("Synthetic title hold");
+  await task.locator('[name="expected_result"]').fill("Owner reviewed evidence");
+  await task.locator('[name="operation"]').selectOption("13");
+  await task.locator('[name="kind"]').selectOption("exception");
+  await task.locator('[name="blocking_stage"]').selectOption("any");
+  await task.getByRole("button", { name: "Save operation task" }).click();
+  const exception = page.locator(".operation-tasks .evidence-row").filter({hasText:"Synthetic title hold"});
+  await exception.getByText("Record completion", {exact:true}).click();
+  await exception.locator('.task-resolution-form [name="note"]').fill("Resolved using synthetic evidence");
+  await exception.locator('.task-resolution-form [name="evidence_reference"]').fill("synthetic-title-review");
+  await exception.getByRole("button", {name:"Complete task",exact:true}).click();
+  await expect(exception.locator(".pill")).toHaveText("done");
+  const stage = page.locator("#deal-board > .inline-form");
+  await stage.locator('[name="stage"]').selectOption("lost");
+  await stage.locator('[name="note"]').fill("Synthetic seller chose another solution");
+  await stage.getByRole("button", {name:"Save stage"}).click();
+  const recon = page.locator(".reconciliation-form");
+  await recon.locator('[name="note"]').fill("All costs entered; synthetic failed deal");
+  await recon.locator('[name="evidence_reference"]').fill("synthetic-complete-costs");
+  await recon.locator('input[type="checkbox"]').check();
+  await recon.getByRole("button", {name:"Reconcile deal"}).click();
+  await expect(page.locator(".reconciliation-status")).toContainText("Reconciled · actual -$4,000.00");
+  await expect(page.locator("#money-scorecard")).toContainText("Reconciled contribution");
 
   await page.reload();
   await expect(page.locator("#property-title")).toHaveText(address);

@@ -220,6 +220,14 @@ def test_deal_stages_require_evidence_and_only_follow_allowed_edges(tmp_path):
     app.advance_deal(deal["id"], {"stage": "offer_decision", "note": "Owner reviewed scenarios"})
     with pytest.raises(ValueError, match="owner confirmation"):
         app.advance_deal(deal["id"], {"stage": "contracted", "note": "Signed"})
+    app.save_financial_plan(deal["id"], {
+        "seller_price": 125000, "assignment_fee": 20000,
+        "planned_cash_at_risk": 6000, "max_cash_at_risk": 10000,
+        "basis": "Owner-reviewed synthetic terms and cash budget",
+    })
+    for task in app.state()["deals"][0]["tasks"]:
+        if task["blocking_stage"] == "contracted":
+            app.resolve_task(task["id"], {"status": "done", "note": "Owner review complete", "evidence_reference": "fixture-review"})
     app.advance_deal(deal["id"], {
         "stage": "contracted", "note": "Owner confirmed", "owner_confirmed_signed": True,
         "evidence_reference": "private-doc:contract-1",
