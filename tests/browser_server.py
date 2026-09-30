@@ -4,6 +4,7 @@ import argparse
 from app.server import create_server
 from app.service import Application
 from tests.research_fixture import SyntheticParcelAdapter
+from tests.knowledge_fixture import SyntheticKnowledgeAdapter
 
 
 def main():
@@ -13,6 +14,9 @@ def main():
     args = parser.parse_args()
     app = Application(args.db)
     app.research_adapter = SyntheticParcelAdapter()
+    app.knowledge_adapter = SyntheticKnowledgeAdapter()
+    app.knowledge_adapter.failures = {"email_rules"}
+    app.knowledge_inline = True
     server = create_server(args.db, args.port, application=app)
     try:
         server.serve_forever()

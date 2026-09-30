@@ -51,6 +51,9 @@ making it accessible remotely.
     conversations, and save confirmed priorities separately from hypotheses.
 12. Request a local reply draft, review/edit it, and practice synthetic objections
     in the sales training section.
+13. Use **Update Knowledge** to check selected public sources, review a bounded
+    preview against the original, publish your internal note, and restore or
+    withdraw versions when needed.
 
 Facts and outcomes can be manually entered. The official parcel adapter fetches
 only its fixed county endpoint; other source URLs are saved references and their
@@ -131,6 +134,41 @@ failure overrides the 10/12 practice threshold. Scores are owner assessments,
 not automated grading, model training or proof of sales effectiveness. The
 curriculum remains an internal draft pending review for external use.
 
+## Button-triggered knowledge checks
+
+The Update Knowledge panel registers eight fixed public sources across sales,
+market context, compliance, financing education, closing, business planning and
+property-service metadata. A button starts one durable, bounded source-check run;
+opening the app does not start research. Requests use a six-second timeout, 1 MiB
+response limit, no redirects/retries, a twenty-attempt daily knowledge budget and
+a twenty-four-hour cache. These limits are separate from the parcel lookup budget.
+
+The app compares content/section fingerprints, saves a short preview, reported
+publication date when present, actual retrieval time and per-source success or
+failure. A cached check keeps its original retrieval date. Cancel stops later
+requests; an in-flight request may finish before the worker stops. Restart marks
+interrupted runs failed and never resumes external research silently.
+
+This release is **source checking plus owner-authored review**, not automatic
+research synthesis. Open the original source, write a bounded paraphrased note
+and its applicability/limits, and save review evidence. Compliance notes require
+a professional-review reference; that is an entered record, not independent
+certification. Retrieval, publication and effective dates are separate. Failed
+or changed sources do not replace active notes or certify jurisdiction coverage.
+
+Published notes retain versions, reviewer evidence, withdrawal/restore events and
+source-change/staleness flags. Training can show related internal notes, and a
+published/changed active version invalidates old reply context. No refresh sends
+email, changes a saved deal assumption or grants contract/payment authority.
+
+Public source pages were located through research tools. Direct runtime fetches
+of several pages and the later metadata check were blocked in this execution
+environment; those failures are retained. Source extraction and the complete
+workflow are validated offline with explicitly synthetic pages. Run the app with
+working source access and compare returned pages before publishing real notes.
+Licensed comps/local time series, current assignment/disclosure applicability,
+tax/accounting and transaction-specific reviews remain coverage gaps.
+
 ## Test
 
 ```sh
@@ -189,7 +227,7 @@ integrations are implemented.
 - [Sales and communication training](docs/SALES_AND_COMMUNICATION_TRAINING.md)
 - [Research source register](docs/SOURCE_REGISTER.md)
 
-Researched knowledge refresh is specified as an explicit **Update Knowledge**
-button, without continuous background research. Email/reply/closing events remain
-operational events. Live external actions require configured providers and the
-applicable operating authority and policies.
+**Update Knowledge** now starts bounded source checks and an owner-review
+workflow, without continuous background research. Automatic synthesis and legal
+execution-policy updates remain future work. Live external actions require
+configured providers and the applicable operating authority and policies.

@@ -16,6 +16,7 @@ ASSETS = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/workspace.js": ("workspace.js", "text/javascript; charset=utf-8"),
     "/communications.js": ("communications.js", "text/javascript; charset=utf-8"),
+    "/knowledge.js": ("knowledge.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 MAX_BODY = 65536
@@ -119,6 +120,19 @@ def handler_for(application):
                     result = application.create_contact(data)
                 elif path == "/api/training/practice":
                     result = application.save_practice(data)
+                elif path == "/api/knowledge/update":
+                    result = application.start_knowledge_update(data)
+                elif path.startswith("/api/knowledge/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 5:
+                        raise LookupError("Route not found")
+                    routes = {("runs", "cancel"): application.cancel_knowledge_update,
+                              ("snapshots", "review"): application.review_knowledge_snapshot,
+                              ("items", "version"): application.change_knowledge_version}
+                    action = routes.get((parts[2], parts[4]))
+                    if action is None:
+                        raise LookupError("Route not found")
+                    result = action(parts[3], data)
                 elif path.startswith("/api/contacts/"):
                     parts = path.strip("/").split("/")
                     routes = {"permission": application.set_contact_permission, "messages": application.record_message,

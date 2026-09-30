@@ -1,6 +1,12 @@
 # Knowledge and Automation Specification
 
-Status: target architecture; these capabilities are not yet runtime features.
+Status: target architecture with a runtime source-check/review subset.
+Implemented: explicit source checks, fixed allowlist/budgets/cache, short previews
+and fingerprints, per-source failure, cancel/restart handling, owner-authored
+reviewed notes, versions/withdrawal/restore and audit history. Conversation/reply
+and internal owner-assessed training foundations are also implemented.
+Automatic extraction/synthesis of business claims, active execution-policy
+promotion, mail transport, MCP and transaction automation remain target features.
 Business goal: Seth's own completed, profitable property transactions.
 Research mode: manual button only. Operational events remain event-driven.
 
@@ -39,6 +45,8 @@ when only local documents were reloaded.
 Request contract: request_id, domains, jurisdictions, source_allowlist,
 active_version, maximum_cost, initiated_by, initiated_at.
 Starting requires an explicit user event; there is no research cron/poll loop.
+The current browser observes the explicitly started job's status; those local
+status requests never fetch sources or initiate another research run.
 
 Run states: requested, validating, researching, extracting, comparing,
 review_required, published, partially_complete, failed, cancelled.
@@ -52,6 +60,9 @@ General research summaries can publish under the configured validation policy.
 Changes to legal applicability, contract language or financial execution rules
 remain staged until the appropriate reviewer approves the specific version.
 Unknown/conflicting applicability blocks the dependent action.
+Current published items are internal interpretations/process/metadata notes.
+They never clear an execution gate. Compliance publication requires an entered
+professional-review reference; the app does not authenticate or certify it.
 
 A refresh never silently sends emails, makes offers, changes live signed terms,
 updates private deal facts from aggregate statistics, or grants new tool powers.

@@ -8,7 +8,7 @@ from .validation import deal_exists, text_field
 
 OPERATIONS = [
     ("Command and economics", "Set proposed terms, profit targets and your cash exposure limit.", "available"),
-    ("Knowledge and research", "Refresh sourced business knowledge with an explicit review step.", "planned"),
+    ("Knowledge and research", "Check selected public sources with Update Knowledge; review internal notes, keep versions and roll back. Automated synthesis and execution-policy changes remain pending.", "partial"),
     ("Market selection", "Choose a market using demand, cost and jurisdiction evidence.", "manual"),
     ("Buyer demand", "Record buy boxes and review current funding evidence.", "available"),
     ("Property sourcing", "Look up an exact Allen County parcel and review identity before accepting sourced evidence. Automated lead discovery remains pending.", "partial"),

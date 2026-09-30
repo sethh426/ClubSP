@@ -171,11 +171,12 @@ class CommunicationsMixin:
         plans = [r["id"] for r in connection.execute("SELECT f.id FROM financial_plans f JOIN deals d ON d.id=f.deal_id WHERE d.property_id=? ORDER BY f.created_at,f.id", (contact["property_id"],))]
         underwritings = [r["id"] for r in connection.execute("SELECT u.id FROM underwritings u JOIN deals d ON d.id=u.deal_id WHERE d.property_id=? ORDER BY u.created_at,u.id", (contact["property_id"],))]
         stages = [tuple(r) for r in connection.execute("SELECT id,stage FROM deals WHERE property_id=? ORDER BY id", (contact["property_id"],))]
+        knowledge_ids = [r["id"] for r in connection.execute("SELECT id FROM knowledge_items WHERE status='active' ORDER BY id")]
         context = {"contact_id": contact["id"], "contact_updated_at": contact["updated_at"],
                    "latest_message_id": latest["id"] if latest else None,
                    "incoming_message_id": incoming["id"] if incoming else None,
                    "profile_id": profile["id"] if profile else None, "plan_ids": plans,
-                   "underwriting_ids": underwritings, "deal_stages": stages}
+                   "underwriting_ids": underwritings, "deal_stages": stages, "knowledge_item_ids": knowledge_ids}
         digest = hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest()
         return context, digest, incoming
 
