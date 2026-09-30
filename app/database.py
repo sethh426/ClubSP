@@ -156,6 +156,14 @@ class Database:
                 CREATE INDEX IF NOT EXISTS ledger_deal ON ledger_entries(deal_id,occurred_on,created_at);
                 CREATE INDEX IF NOT EXISTS tasks_deal ON tasks(deal_id,status);
                 CREATE INDEX IF NOT EXISTS plans_deal ON financial_plans(deal_id,created_at);
+                CREATE TABLE IF NOT EXISTS research_snapshots (
+                    id TEXT PRIMARY KEY, property_id TEXT NOT NULL REFERENCES properties(id),
+                    provider_id TEXT NOT NULL, parcel_key TEXT NOT NULL, status TEXT NOT NULL,
+                    request_day TEXT NOT NULL, source_url TEXT NOT NULL, record_json TEXT NOT NULL,
+                    identity_json TEXT NOT NULL, fact_ids_json TEXT NOT NULL, error TEXT NOT NULL,
+                    review_note TEXT NOT NULL, reviewed_at TEXT, created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS research_property ON research_snapshots(property_id,parcel_key,created_at);
             """)
 
     @contextmanager

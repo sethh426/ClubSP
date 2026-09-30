@@ -11,7 +11,7 @@ module.exports = defineConfig({
     { name: "mobile", use: { browserName: "chromium", viewport: { width: 390, height: 844 } } },
   ],
   webServer: {
-    command: "python -m app.server --port 8765 --db data/browser-test.db",
+    command: "python -m tests.browser_server --port 8765 --db data/browser-test.db",
     url: "http://127.0.0.1:8765/api/health",
     reuseExistingServer: false,
     timeout: 30000,

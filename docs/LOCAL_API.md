@@ -81,3 +81,18 @@ record identifiers, not downloaded or independently verified documents.
 GET /api/state now includes each deal's finance/tasks/history, the 18 Operations,
 Indianapolis business date and a scorecard. A changed ledger invalidates the old
 reconciliation; historical records stay intact.
+
+## Official property research
+
+| Route | Fields and result |
+| --- | --- |
+| POST /api/properties/{id}/research | parcel_key; one exact Allen County lookup, or cached snapshot; returned facts remain pending |
+| POST /api/research/{id}/review | decision=accept/reject, note; acceptance requires owner_confirmed_identity=true, confidence (default 0.8), and mismatch_explanation when identity fields differ or are missing |
+
+GET /api/state includes `research` snapshots and the fixed `providers` registry.
+Only keys containing eighteen digits starting with `02` are supported. The
+property must be in Indiana. Pending/accepted snapshots are cached for 24 hours;
+the daily workspace limit is twenty requests including failures. Acceptance is
+idempotent and imports only available fields with provenance. A pending snapshot
+older than seven days must be refreshed before acceptance. Rejection imports no
+facts. Records do not authorize outreach or establish title or valuation.

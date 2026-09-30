@@ -15,6 +15,23 @@ before activation.
 | S6b | [Zillow Research data](https://www.zillow.com/research/data/) | Aggregate local-market context | Reviewed catalog; not a substitute for licensed property comps or bulk listing rights |
 | S7 | [Postmark inbound parsing docs](https://postmarkapp.com/developer/user-guide/inbound/parse-an-email) | Example inbound email transport design | Reviewed technical capability only; cold-outreach permission NOT established |
 | S8 | [CFPB Closing Disclosure explainer](https://www.consumerfinance.gov/owning-a-home/closing-disclosure/) | Settlement review concepts for applicable loans | Reviewed; loan-specific form/timing must not be applied to every cash/assignment transaction |
+| S9 | [Allen County iMap](https://www.acimap.us/) / [parcel layer](https://gis.acimap.us/services/rest/services/CFW/Parcels_With_Ownership_Information/MapServer/0) | Exact parcel identity, reported owner-of-record/site address, transfer date and record year | Implemented bounded adapter; metadata and live no-match protocol checked; positive records require owner identity review; no bulk-export rights assumed |
+
+## Active parcel adapter
+
+The fixed S9 query endpoint requests only the parcel key and eight selected owner/
+site-record fields. Mailing addresses and contact details are not requested.
+No credential or paid service is used. Limits: one exact Allen County key per
+command, 20 attempts per workspace business day, 24-hour cache, 10-second timeout,
+512 KiB maximum response, no redirects or retries. Provider failures are retained
+and do not import facts. All returned records require manual identity acceptance;
+ambiguous/no-match responses remain unaccepted. Save original URL, retrieval
+time, content hash and record reference. Positive-record automated tests are
+synthetic, not a completed real-property diligence sample.
+
+This is owner-of-record evidence, not a title search, appraisal, comparable-sale
+source, seller-authority verification or contact-consent record. Broader source
+rights and geography remain setup work.
 
 ## Seller research interpretation
 
@@ -51,7 +68,8 @@ after coverage/cost comparison. Verify mailbox API/provider rules, e-sign/title
 partners, funding availability, required contact policies and relevant privacy,
 recording, advertising, reporting and tax requirements.
 
-No paid service has been purchased or integrated by this playbook. No outreach
+No paid service has been purchased or integrated. The bounded public S9 adapter
+is active only when explicitly requested. No outreach
 has been authorized or sent. Actual API budget and source selection remain setup work.
 
 ## Refresh policy

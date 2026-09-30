@@ -28,7 +28,9 @@ making it accessible remotely.
 ## Use the workspace
 
 1. Add a property with its address, city, state, and optional ZIP code.
-2. Record facts with a source name, optional URL, and confidence.
+2. Record facts with a source name, optional URL, and confidence. For an Allen
+   County, Indiana property, use **Official property record** to look up its exact
+   18-digit parcel key, compare the returned identity and accept or reject it.
 3. Start an assignment or resale deal, enter your assumptions, and review downside,
    base, and upside scenarios. These are manual estimates, not valuations or offers.
 4. Add buyers with their markets, strategy, price/repair limits, and owner-reviewed
@@ -45,8 +47,9 @@ making it accessible remotely.
    recorded; reconcile actual contribution against the fixed-price forecast.
 10. Track ordinary estimates and their actual outcomes in the learning workspace.
 
-Facts and outcomes are manually entered. Source URLs are saved references;
-the app does not fetch or verify their content. Estimates are supplied by you,
+Facts and outcomes can be manually entered. The official parcel adapter fetches
+only its fixed county endpoint; other source URLs are saved references and their
+content is not fetched. Estimates are supplied by you,
 not generated valuations. Learning records track numeric accuracy and evidence
 confidence; this is not model training or a calibrated probability.
 
@@ -73,6 +76,26 @@ Every deal has eight initial tasks; the recorded underwriting, money plan and
 reconciliation complete their own tasks. Other reviews require owner-entered
 completion evidence. Deadline/exception visibility is local; no email reminders
 or external jobs run yet.
+
+## Official parcel research
+
+The first adapter covers Allen County, Indiana through its official iMap service.
+Enter a parcel key starting with `02`, optionally separated by hyphens. One exact
+record is requested with a ten-second timeout, a response-size limit, no automatic
+retries, twenty requests per business day and a twenty-four-hour cache. No API key
+or paid provider is required. Failed attempts also use the daily budget.
+
+Reported owner-of-record, site address, transfer date and record year are staged
+for review. Compare the parcel and address before accepting; explain identity
+discrepancies or reject the record. Acceptance saves source URL, retrieval time,
+content hash and facts while preserving superseded evidence. Missing fields stay
+unknown. These records do not establish current title, seller authority, contact
+permission, property value or comparable sales.
+
+County metadata and a live no-match query were checked. Positive-record behavior
+is tested with explicitly synthetic records; a real parcel must still be compared
+with the original record. Browser CI uses an injected test adapter and never
+queries real owners or consumes the live request budget.
 
 ## Test
 
@@ -109,7 +132,7 @@ by Git so property data stays out of source control.
 
 ## Next integrations
 
-Live property-data ingestion, independent funding verification, MCP transport,
+General lead sourcing, licensed comps, independent funding verification, MCP transport,
 outreach, and signed document/transaction execution remain future work.
 The full-snapshot persistence adapter suits a small local workspace; larger
 datasets need targeted queries, migrations, and a production database strategy.
