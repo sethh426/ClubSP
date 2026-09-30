@@ -20,12 +20,19 @@ request budgets, caching and recorded failures. Service metadata and a live
 no-match protocol were checked; positive records use synthetic test fixtures
 until a real owner-reviewed parcel is entered.
 
-Partially implemented: property research, seller/contact CRM, buyer packets, independent funding
+Implemented in the conversation/training release: property-linked contacts,
+role/permission evidence, manual conversation history, retry-safe messages,
+matching-email suppression and draft cancellation, confirmed/hypothesis seller
+profiles, latest-contact pain-point counts, local template reply drafts with
+context invalidation and immutable owner review, twelve synthetic lessons and
+persisted six-dimension owner self-assessment.
+
+Partially implemented: property research, communication CRM, buyer packets, independent funding
 checks, licensed comps, professional title review and document workflows. Tasks
 are local records; external email reminders and workers are not connected.
 
-Not implemented: autonomous property sourcing/comps, email integrations, suggested replies,
-training UI, researched knowledge refresh, MCP transport, public hosting, or
+Not implemented: autonomous property sourcing/comps, email integrations, AI-generated
+replies/automatic grading, researched knowledge refresh, MCP transport, public hosting, or
 transaction execution. The Operations documentation remains a target build
 specification for those capabilities.
 
@@ -60,8 +67,8 @@ milestones, manual assignment/resale scenarios, and buyer criteria matching. The
 owner still makes all decisions; the calculator is not a valuation and does not
 make or transmit offers.
 
-Next, add seller conversation records, grounded reply suggestions and internal
-training, then licensed market evidence. Keep outreach
+Next, add the button-triggered knowledge source/review workflow and licensed
+market evidence. Keep outreach
 automation behind a separate compliance gate until research and economics are
 dependable. Knowledge refresh remains button-triggered and reviewable.
 

@@ -164,6 +164,52 @@ class Database:
                     review_note TEXT NOT NULL, reviewed_at TEXT, created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS research_property ON research_snapshots(property_id,parcel_key,created_at);
+                CREATE TABLE IF NOT EXISTS contacts (
+                    id TEXT PRIMARY KEY, property_id TEXT NOT NULL REFERENCES properties(id),
+                    name TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
+                    role_reference TEXT NOT NULL, permission_status TEXT NOT NULL,
+                    permission_reference TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS contact_events (
+                    id TEXT PRIMARY KEY, contact_id TEXT NOT NULL REFERENCES contacts(id),
+                    status_before TEXT NOT NULL, status_after TEXT NOT NULL,
+                    note TEXT NOT NULL, evidence_reference TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS suppressions (
+                    email TEXT PRIMARY KEY, contact_id TEXT NOT NULL REFERENCES contacts(id),
+                    reason TEXT NOT NULL, evidence_reference TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS conversation_messages (
+                    id TEXT PRIMARY KEY, contact_id TEXT NOT NULL REFERENCES contacts(id),
+                    message_key TEXT NOT NULL UNIQUE, direction TEXT NOT NULL, channel TEXT NOT NULL,
+                    category TEXT NOT NULL, body TEXT NOT NULL, evidence_reference TEXT NOT NULL,
+                    occurred_on TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS seller_profiles (
+                    id TEXT PRIMARY KEY, contact_id TEXT NOT NULL REFERENCES contacts(id),
+                    status TEXT NOT NULL, goal TEXT NOT NULL, timing TEXT NOT NULL,
+                    condition_notes TEXT NOT NULL, authority_notes TEXT NOT NULL,
+                    alternatives TEXT NOT NULL, priority TEXT NOT NULL, pain_points_json TEXT NOT NULL,
+                    evidence_reference TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS reply_drafts (
+                    id TEXT PRIMARY KEY, contact_id TEXT NOT NULL REFERENCES contacts(id),
+                    message_id TEXT NOT NULL REFERENCES conversation_messages(id),
+                    context_hash TEXT NOT NULL, context_json TEXT NOT NULL,
+                    category TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL,
+                    status TEXT NOT NULL, final_body TEXT NOT NULL, review_note TEXT NOT NULL,
+                    reviewed_at TEXT, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS practice_attempts (
+                    id TEXT PRIMARY KEY, attempt_key TEXT NOT NULL UNIQUE,
+                    scenario_id TEXT NOT NULL, curriculum_version TEXT NOT NULL,
+                    response TEXT NOT NULL, assessment_json TEXT NOT NULL,
+                    review_note TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS contact_property ON contacts(property_id,created_at);
+                CREATE INDEX IF NOT EXISTS message_contact ON conversation_messages(contact_id,created_at);
+                CREATE INDEX IF NOT EXISTS profile_contact ON seller_profiles(contact_id,created_at);
+                CREATE INDEX IF NOT EXISTS draft_contact ON reply_drafts(contact_id,created_at);
             """)
 
     @contextmanager

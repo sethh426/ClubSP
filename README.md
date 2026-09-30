@@ -1,6 +1,7 @@
 # ClubSP
 
-A working local property workspace for deal operations, evidence, underwriting, cash at risk, actual costs and receipts, and profit reconciliation.
+A working local property workspace for deal operations, official parcel evidence,
+underwriting, owner cash and profit, seller conversations and sales practice.
 
 ## Run the app
 
@@ -46,6 +47,10 @@ making it accessible remotely.
 9. After completion or loss, resolve escrow and confirm all costs/receipts are
    recorded; reconcile actual contribution against the fixed-price forecast.
 10. Track ordinary estimates and their actual outcomes in the learning workspace.
+11. Add seller/decision-participant contacts, record permission evidence and actual
+    conversations, and save confirmed priorities separately from hypotheses.
+12. Request a local reply draft, review/edit it, and practice synthetic objections
+    in the sales training section.
 
 Facts and outcomes can be manually entered. The official parcel adapter fetches
 only its fixed county endpoint; other source URLs are saved references and their
@@ -97,6 +102,35 @@ is tested with explicitly synthetic records; a real parcel must still be compare
 with the original record. Browser CI uses an injected test adapter and never
 queries real owners or consumes the live request budget.
 
+## Seller conversations and training
+
+Contacts begin with unknown permission. Owner/representative roles and permitted
+contact require evidence references. Incoming messages are entered manually with
+their channel, date and source reference. Explicit stop/wrong-person categories
+and a bounded set of stop phrases suppress the contact, cancel all its drafts and
+suppress matching email addresses across properties. There is no suppression
+reset in this release. The phrase check is not a complete language classifier;
+record ambiguous refusals as stop requests rather than assuming eligibility.
+
+Save seller goals, timing, condition, decision participants, alternatives and
+priorities with a confirmed/hypothesis basis. The pain-point view counts each
+contact's latest profile once and excludes hypotheses from confirmed counts.
+It describes your records, not local market prevalence or causes of a sale.
+
+Reply suggestions use internal local templates and the recorded concern category,
+with conversation/profile/deal/financial references. They do not call an AI model,
+invent terms or send email. Changed context invalidates a previous draft; owner
+review requires current context and permission evidence. Reviewed text and notes
+remain in history even if a later stop request voids the draft. A reviewed draft
+is not a campaign clearance or completed message.
+
+Twelve synthetic lessons cover discovery, price, timing, trust, role, authority,
+condition, funding, paperwork, stop requests, legal questions and payment changes.
+Record a practice response and your six-dimension self-assessment. A recorded hard
+failure overrides the 10/12 practice threshold. Scores are owner assessments,
+not automated grading, model training or proof of sales effectiveness. The
+curriculum remains an internal draft pending review for external use.
+
 ## Test
 
 ```sh
@@ -133,7 +167,7 @@ by Git so property data stays out of source control.
 ## Next integrations
 
 General lead sourcing, licensed comps, independent funding verification, MCP transport,
-outreach, and signed document/transaction execution remain future work.
+email delivery/inbound sync, and signed document/transaction execution remain future work.
 The full-snapshot persistence adapter suits a small local workspace; larger
 datasets need targeted queries, migrations, and a production database strategy.
 
