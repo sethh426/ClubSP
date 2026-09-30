@@ -14,6 +14,7 @@ STATIC = Path(__file__).with_name("static")
 ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/workspace.js": ("workspace.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 MAX_BODY = 65536
@@ -103,6 +104,11 @@ def handler_for(application):
                     result = application.create_deal(data)
                 elif path == "/api/buyers":
                     result = application.create_buyer(data)
+                elif path.startswith("/api/tasks/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 4 or parts[3] not in {"status", "schedule"}:
+                        raise LookupError("Route not found")
+                    result = application.resolve_task(parts[2], data) if parts[3] == "status" else application.schedule_task(parts[2], data)
                 elif path.startswith("/api/deals/"):
                     parts = path.strip("/").split("/")
                     if len(parts) != 4:
@@ -113,6 +119,14 @@ def handler_for(application):
                         result = application.underwrite(parts[2], data)
                     elif parts[3] == "buyer-matches" and data == {}:
                         result = application.match_buyers(parts[2])
+                    elif parts[3] == "financial-plan":
+                        result = application.save_financial_plan(parts[2], data)
+                    elif parts[3] == "ledger":
+                        result = application.record_ledger_entry(parts[2], data)
+                    elif parts[3] == "reconciliation":
+                        result = application.reconcile_deal(parts[2], data)
+                    elif parts[3] == "tasks":
+                        result = application.create_task(parts[2], data)
                     else:
                         raise LookupError("Route not found")
                 elif path.startswith("/api/predictions/") and path.endswith("/outcome"):

@@ -30,6 +30,7 @@ jobs:
       - run: npm install --no-save @playwright/test@1.55.1
       - run: npx playwright install --with-deps chromium
       - run: node --check app/static/app.js
+      - run: node --check app/static/workspace.js
       - run: npx playwright test
       - uses: actions/upload-artifact@v4
         if: always()
