@@ -86,3 +86,23 @@ datasets need targeted queries, migrations, and a production database strategy.
 
 See [architecture](docs/ARCHITECTURE.md), [integration strategy](docs/INTEGRATIONS.md),
 and [local API](docs/LOCAL_API.md).
+
+## Personal acquisition and resale operations
+
+ClubSP is Seth's personal system for finding, evaluating, acquiring/assigning,
+and reselling property opportunities. The business goal is completed transactions
+and reconciled net profit, not selling software subscriptions.
+
+Start with the [Master Operations Playbook](docs/MASTER_OPERATIONS_PLAYBOOK.md).
+It defines 18 Operations and the target autopilot; it does not claim future
+integrations are implemented.
+
+- [Implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md)
+- [Knowledge and automation specification](docs/KNOWLEDGE_AND_AUTOMATION_SPEC.md)
+- [Sales and communication training](docs/SALES_AND_COMMUNICATION_TRAINING.md)
+- [Research source register](docs/SOURCE_REGISTER.md)
+
+Researched knowledge refresh is specified as an explicit **Update Knowledge**
+button, without continuous background research. Email/reply/closing events remain
+operational events. Live external actions require configured providers and the
+applicable operating authority and policies.
