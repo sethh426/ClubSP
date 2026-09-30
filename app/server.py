@@ -96,6 +96,16 @@ def handler_for(application):
                 path = urlsplit(self.path).path
                 if path == "/api/properties":
                     result = application.create_property(data)
+                elif path.startswith("/api/properties/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 4 or parts[3] != "research":
+                        raise LookupError("Route not found")
+                    result = application.lookup_parcel(parts[2], data)
+                elif path.startswith("/api/research/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 4 or parts[3] != "review":
+                        raise LookupError("Route not found")
+                    result = application.review_research(parts[2], data)
                 elif path == "/api/facts":
                     result = application.record_fact(data)
                 elif path == "/api/predictions":
@@ -151,8 +161,8 @@ def handler_for(application):
     return Handler
 
 
-def create_server(database_path, port=8000):
-    return ThreadingHTTPServer(("127.0.0.1", port), handler_for(Application(database_path)))
+def create_server(database_path, port=8000, application=None):
+    return ThreadingHTTPServer(("127.0.0.1", port), handler_for(application or Application(database_path)))
 
 
 def main():

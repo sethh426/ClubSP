@@ -13,6 +13,8 @@ from .validation import text_field, number_field, list_field, property_exists, d
 from .deal_finance import FinanceMixin
 from .operations import OperationsMixin, OPERATIONS, business_today
 from .money import cents
+from .research import ResearchMixin
+from .providers import PROVIDER
 
 
 DEAL_STAGES = (
@@ -81,7 +83,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(FinanceMixin, OperationsMixin):
+class Application(FinanceMixin, OperationsMixin, ResearchMixin):
     def __init__(self, path):
         self.database = Database(path)
         with self.database.session(write=True) as (connection, _):
@@ -105,6 +107,8 @@ class Application(FinanceMixin, OperationsMixin):
             })
             result["deals"] = self._list_deals(connection)
             result["today"] = business_today().isoformat()
+            result["research"] = self._research_snapshots(connection)
+            result["providers"] = [PROVIDER]
             result["operations"] = [{"number": i + 1, "name": op[0], "expectation": op[1], "capability": op[2]} for i, op in enumerate(OPERATIONS)]
             result["scorecard"] = {
                 "reconciled_net_contribution": money(sum(

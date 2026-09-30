@@ -132,3 +132,41 @@ function renderOperations(deal, box) {
   });panel.append(list);
   const audit=workspaceDetails("Deal stage history");deal.events.forEach(e=>audit.append(node("p",readable(e.stage_before)+" → "+readable(e.stage_after)+" · "+e.note+" · "+date(e.created_at),"small")));panel.append(audit);box.append(panel);
 }
+
+function renderResearch() {
+  const box=$("property-research");box.replaceChildren();
+  const provider=state.providers[0];
+  box.append(node("p","OPERATIONS 05–06 / OFFICIAL RECORDS","eyebrow"),node("h2","Research a parcel"));
+  box.append(node("p",provider.name+" · exact-key lookup · "+provider.daily_request_limit+" requests/day · "+provider.cache_hours+"h cache","muted small"));
+  const link=node("a","Open official iMap portal");link.href=provider.home;link.target="_blank";link.rel="noopener noreferrer";box.append(link);
+  box.append(node("p",provider.limits,"muted small"));
+  const f=node("form",undefined,"parcel-research-form workspace-form");
+  const key=workspaceField(f,"parcel_key","Allen County parcel key (18 digits; hyphens allowed)");key.maxLength=30;key.placeholder="02-…";
+  workspaceSubmit(f,"Look up official record");
+  f.addEventListener("submit",e=>{e.preventDefault();runForm(f,()=>api("/api/properties/"+selected+"/research",values(f)),"Lookup saved. Review the returned identity before accepting evidence.");});box.append(f);
+  const snapshots=state.research.filter(s=>s.property_id===selected);
+  snapshots.forEach(snapshot=>{
+    const card=node("article",undefined,"evidence-row research-snapshot");
+    card.append(node("strong",snapshot.parcel_key+" · "+readable(snapshot.status)),node("p","Retrieved: "+date(snapshot.created_at),"muted small"));
+    if(snapshot.error)card.append(node("p",snapshot.error,"note"));
+    if(snapshot.status==="no_match")card.append(node("p","No exact parcel record was returned. Confirm the key in the official portal.","muted small"));
+    if(snapshot.status==="ambiguous")card.append(node("p","Multiple records were returned. Resolve identity using the official record source before importing.","muted small"));
+    if(snapshot.record){
+      Object.entries(snapshot.record).forEach(([key,value])=>card.append(node("p",readable(key)+": "+value,"small")));
+      Object.entries(snapshot.identity).forEach(([key,value])=>card.append(node("p",readable(key)+" · entered: "+value.entered+" · reported: "+(value.reported||"unknown")+" · "+(value.matches?"matches normalized text":"requires identity review"),"muted small")));
+    }
+    if(snapshot.status==="pending"){
+      const form=node("form",undefined,"research-review-form workspace-form");
+      workspaceSelect(form,"decision","Review decision",[["accept","Accept as sourced evidence"],["reject","Reject this match"]]);
+      workspaceField(form,"note","Review basis / discrepancy notes","textarea");
+      const needsExplanation=Object.values(snapshot.identity).some(v=>!v.matches);
+      if(needsExplanation)workspaceField(form,"mismatch_explanation","Explain the identity mismatch before accepting","textarea","",false);
+      const confidence=workspaceField(form,"confidence","Your evidence confidence (0–1)","number","0.8");confidence.max="1";
+      const label=node("label",undefined,"check-label"),check=node("input");check.type="checkbox";label.append(check,document.createTextNode(" I compared and confirmed this parcel is the selected property"));form.append(label);
+      workspaceSubmit(form,"Save source review");form.addEventListener("submit",e=>{e.preventDefault();const v=values(form);v.owner_confirmed_identity=check.checked;v.confidence=Number(v.confidence);runForm(form,()=>api("/api/research/"+snapshot.id+"/review",v),"Source review recorded.");});card.append(form);
+    }
+    if(snapshot.review_note)card.append(node("p","Review: "+snapshot.review_note,"small"));
+    if(snapshot.status==="accepted")card.append(node("p",snapshot.fact_ids.length+" sourced facts accepted; original history retained.","muted small"));
+    box.append(card);
+  });
+}

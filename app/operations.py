@@ -11,7 +11,7 @@ OPERATIONS = [
     ("Knowledge and research", "Refresh sourced business knowledge with an explicit review step.", "planned"),
     ("Market selection", "Choose a market using demand, cost and jurisdiction evidence.", "manual"),
     ("Buyer demand", "Record buy boxes and review current funding evidence.", "available"),
-    ("Property sourcing", "Find and identify properties through approved data sources.", "planned"),
+    ("Property sourcing", "Look up an exact Allen County parcel and review identity before accepting sourced evidence. Automated lead discovery remains pending.", "partial"),
     ("Evidence and diligence", "Attach provenance and resolve ownership, condition and evidence gaps.", "available"),
     ("Qualification and pain points", "Confirm the seller's role, goal, constraints and fit without assumptions.", "manual"),
     ("Communication", "Use reviewed outreach channels and respect consent and suppression rules.", "planned"),

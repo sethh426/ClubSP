@@ -106,6 +106,18 @@ test("deal evidence, money, operations, and reconciliation work through the brow
   await expect(page.locator(".reconciliation-status")).toContainText("Reconciled · actual -$4,000.00");
   await expect(page.locator("#money-scorecard")).toContainText("Reconciled contribution");
 
+  const lookup = page.locator(".parcel-research-form");
+  await lookup.locator('[name="parcel_key"]').fill("029999999999999999");
+  await lookup.getByRole("button", {name:"Look up official record"}).click();
+  await expect(page.locator(".research-snapshot")).toContainText("SYNTHETIC TEST OWNER");
+  const review=page.locator(".research-review-form");
+  await review.locator('[name="note"]').fill("Synthetic identity review for browser fixture");
+  await review.locator('[name="mismatch_explanation"]').fill("Synthetic test adapter has an intentionally different example address");
+  await review.locator('input[type="checkbox"]').check();
+  await review.getByRole("button",{name:"Save source review"}).click();
+  await expect(page.locator(".research-snapshot")).toContainText("sourced facts accepted");
+  await expect(page.locator("#facts")).toContainText("recorded owner name: SYNTHETIC TEST OWNER");
+
   await page.reload();
   await expect(page.locator("#property-title")).toHaveText(address);
   await expect(page.locator("#facts")).toContainText("sqft: 1800");

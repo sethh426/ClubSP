@@ -211,7 +211,7 @@ function render() {
   if (!property) return;
   $("property-title").textContent = property.address;
   $("property-location").textContent = property.city + ", " + property.state + (property.zip ? " " + property.zip : "");
-  renderFacts(); renderPredictions(); renderLearning(); renderDealBoard(); renderBuyers();
+  renderFacts(); renderPredictions(); renderLearning(); renderDealBoard(); renderBuyers(); renderResearch();
 }
 async function refresh() {
   state = await api("/api/state");

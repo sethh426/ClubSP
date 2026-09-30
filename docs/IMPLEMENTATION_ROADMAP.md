@@ -13,11 +13,18 @@ entries and append-only reversals, completion/loss reconciliation, current-only
 portfolio contribution totals, 18 Operations catalog, seeded/custom tasks,
 exceptions, owner/deadline assignments and evidence-gated stage reviews.
 
-Partially implemented: seller/contact CRM, buyer packets, independent funding
+Implemented in the parcel research release: an exact Allen County official
+parcel-key lookup, fixed provider registry, normalized identity comparison,
+pending acceptance/rejection, source provenance, historical fact supersession,
+request budgets, caching and recorded failures. Service metadata and a live
+no-match protocol were checked; positive records use synthetic test fixtures
+until a real owner-reviewed parcel is entered.
+
+Partially implemented: property research, seller/contact CRM, buyer packets, independent funding
 checks, licensed comps, professional title review and document workflows. Tasks
 are local records; external email reminders and workers are not connected.
 
-Not implemented: live property sourcing/comps, email integrations, suggested replies,
+Not implemented: autonomous property sourcing/comps, email integrations, suggested replies,
 training UI, researched knowledge refresh, MCP transport, public hosting, or
 transaction execution. The Operations documentation remains a target build
 specification for those capabilities.
@@ -53,8 +60,8 @@ milestones, manual assignment/resale scenarios, and buyer criteria matching. The
 owner still makes all decisions; the calculator is not a valuation and does not
 make or transmit offers.
 
-Next, add one official property research adapter with identity confirmation,
-provenance and bounded requests, then licensed market evidence. Keep outreach
+Next, add seller conversation records, grounded reply suggestions and internal
+training, then licensed market evidence. Keep outreach
 automation behind a separate compliance gate until research and economics are
 dependable. Knowledge refresh remains button-triggered and reviewable.
 
