@@ -278,3 +278,18 @@ def test_negative_underwriting_values_are_rejected_without_mutating_deal(tmp_pat
         app.underwrite(deal["id"], underwriting_payload(buyer_repairs=-1))
     assert app.state()["deals"][0]["underwriting"] is None
     assert app.state()["deals"][0]["stage"] == "research"
+
+
+def test_unprofitable_deal_cannot_be_marked_contracted(tmp_path):
+    app = Application(tmp_path / "app.db")
+    prop = create_property(app)
+    deal = app.create_deal({"property_id": prop["id"], "strategy": "assignment"})
+    app.underwrite(deal["id"], underwriting_payload(
+        desired_owner_net=100000, expected_exit_price=100000,
+    ))
+    app.advance_deal(deal["id"], {"stage": "offer_decision", "note": "Reviewed poor case"})
+    with pytest.raises(ValueError, match="profitable base underwriting"):
+        app.advance_deal(deal["id"], {
+            "stage": "contracted", "note": "Should remain blocked",
+            "owner_confirmed_signed": True, "evidence_reference": "contract-ref",
+        })

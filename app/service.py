@@ -307,6 +307,12 @@ class Application:
             if target not in STAGE_NEXT[current]:
                 raise ValueError(f"Cannot move a {current} deal to {target}")
             if target == "contracted":
+                underwriting = connection.execute(
+                    "SELECT result_json FROM underwritings WHERE deal_id=? ORDER BY created_at DESC,id LIMIT 1",
+                    (str(deal["id"]),),
+                ).fetchone()
+                if underwriting is None or not json.loads(underwriting["result_json"])["scenarios"]["base"]["profitable"]:
+                    raise ValueError("A profitable base underwriting is required before a deal can be contracted")
                 if data.get("owner_confirmed_signed") is not True or not evidence:
                     raise ValueError("Moving to contracted requires owner confirmation and a signed-agreement reference")
             if target == "completed" and (data.get("owner_confirmed_closed") is not True or not evidence):
