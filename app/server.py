@@ -146,6 +146,14 @@ def handler_for(application, gmail):
                     self.end_headers()
                     self.wfile.write(body)
                     return
+                elif path == "/api/gmail/refresh":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "Refresh Gmail from the ClubSP workspace"})
+                        return
+                    if data != {}:
+                        raise ValueError("Refresh request must be empty")
+                    gmail.ensure_access_token(force=True)
+                    result = gmail.status(self.gmail_origin())
                 elif path == "/api/gmail/disconnect":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "Open Disconnect from the ClubSP workspace"})
