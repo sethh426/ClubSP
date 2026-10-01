@@ -16,10 +16,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!response.ok) throw new Error("Connection status unavailable");
     const data = await response.json();
     callback.textContent = data.redirect_uri;
+    document.getElementById("gmail-setup").textContent = data.authorization_mode === "private_https"
+      ? "Open this workspace at its configured HTTPS address with your private connection enabled."
+      : "Local authorization requires this browser and ClubSP to run on the same computer. Phone access needs a configured private HTTPS callback.";
     status.textContent = data.connected
       ? "Authorized mailbox: " + data.email + (data.access_token_expired ? " · Access token expired; refresh integration pending." : " · Read-only access.")
       : data.configured ? "Ready for Google authorization: " + data.expected_email : "Google credentials or expected mailbox are missing from private configuration.";
-    connect.disabled = !data.configured;
+    const correctOrigin = data.authorization_mode !== "private_https"
+      || location.origin === new URL(data.redirect_uri).origin;
+    connect.disabled = !data.configured || !correctOrigin;
     disconnect.hidden = !data.connected;
   }
   async function post(path) {

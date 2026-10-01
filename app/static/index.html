@@ -26,11 +26,12 @@
     <details class="panel"><summary>Gmail · Connect your mailbox</summary>
       <p id="gmail-status" role="status">Checking connection…</p>
       <p id="gmail-result" role="status"></p>
-      <p class="muted small">Local authorization only. Read-only permission; no messages sent or imported. Save this exact authorized redirect URI in your Google client:</p>
+      <p class="muted small">Read-only authorization; no messages sent or imported. Save this exact authorized redirect URI in your Google client:</p>
+      <p id="gmail-setup" class="muted small"></p>
       <p><code id="gmail-callback"></code></p>
       <button id="gmail-connect" class="button" type="button" disabled>Connect Gmail</button>
       <button id="gmail-disconnect" class="button" type="button" hidden>Remove local connection</button>
-      <p class="muted small">Removing the local connection does not revoke Google permission. Revoke it separately in your Google Account. Localhost must run on the computer opening this workspace—not on your phone.</p>
+      <p class="muted small">Removing the local connection does not revoke Google permission. Revoke it separately in your Google Account.</p>
     </details>
     <section class="metrics" aria-label="Workspace totals">
       <article><span>Properties</span><strong id="count-properties">0</strong></article>

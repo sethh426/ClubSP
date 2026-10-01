@@ -1,6 +1,6 @@
-# Gmail connection: local authorization release
+# Gmail connection: local or private HTTPS authorization
 
-This release builds a local Connect Gmail button and browser callback. It does
+This release builds a Connect Gmail button and browser callback for same-computer local access or an explicitly configured private HTTPS reverse proxy. It does
 not send email, import conversations, refresh expired access tokens, or run
 follow-ups. Those integrations are separate work. No background mailbox calls
 occur. Only explicit authorization exchanges a code and reads the mailbox
@@ -19,10 +19,36 @@ profile; inbox contents are not fetched.
 5. Run `python -m app.server`, open `http://127.0.0.1:8000`, expand Gmail, and
    click Connect Gmail. Approve Google's read-only permission for your mailbox.
 
-Localhost refers to the device opening the browser. This callback does not work
-from an iPhone when ClubSP is running on a different computer. A mobile/public
-release needs authenticated HTTPS hosting and a production callback; this
-release deliberately keeps the server loopback-only.
+Localhost refers to the device opening the browser. The default local callback does
+not work from an iPhone when ClubSP is running on a different computer.
+
+## Private server accessed from a phone
+
+1. Provide a domain you control and a valid browser-trusted TLS certificate.
+   With a VPN-only server, DNS-01 certificate validation can avoid public HTTP
+   access. Automate certificate renewal with your DNS provider's supported API;
+   manual DNS validation alone does not provide automatic renewal.
+2. Bind the HTTPS reverse proxy only to the VPN interface and restrict VPN peers
+   to the owner. A configured HTTPS callback alone is not access control.
+3. Set `CLUBSP_GMAIL_ORIGIN=https://clubsp.online` (substitute your chosen domain)
+   in the ignored private `.env` or process environment, alongside the three
+   Google settings. Only a canonical HTTPS domain origin with no port, path,
+   query, fragment or credentials is accepted. An invalid setting fails startup.
+4. The proxy must reject unknown Host and Origin values before forwarding to
+   `127.0.0.1:8000`. Forward Host as `127.0.0.1:8000`; map only your allowed
+   browser HTTPS Origin to `http://127.0.0.1:8000`. Never blindly replace all
+   Origins with the trusted value. Do not forward arbitrary public traffic.
+   Disable or redact callback query-string access logs.
+5. Register `https://clubsp.online/auth/gmail/callback` in the Google web client.
+   Keep existing callback URLs required by your other apps.
+6. Restart ClubSP and open its configured HTTPS URL with WireGuard enabled.
+   The Connect button stays disabled at a different browser origin. The browser
+   state cookie is Secure, HttpOnly and SameSite=Lax in private HTTPS mode;
+   the backend remains loopback-only and never trusts forwarded headers to
+   choose an OAuth callback.
+
+This mode supports owner-only private hosting. Public multiuser access, mailbox
+import, sending, refresh and scheduled follow-ups remain separate work.
 
 Tokens are saved separately at `data/private/gmail-token.json` with owner-only
 file permissions. They are not included in state APIs, rendered pages, or logs.

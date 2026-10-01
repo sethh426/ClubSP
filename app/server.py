@@ -59,7 +59,12 @@ def handler_for(application, gmail):
             }
 
         def gmail_origin(self):
-            return "http://" + self.headers["Host"]
+            return gmail.oauth_origin or "http://" + self.headers["Host"]
+
+        def gmail_cookie(self, value, max_age):
+            secure = "; Secure" if gmail.oauth_origin else ""
+            return ("clubsp_gmail=" + value + "; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age="
+                    + str(max_age) + secure)
 
         def redirect(self, target, cookie):
             self.send_response(303)
@@ -78,7 +83,7 @@ def handler_for(application, gmail):
             if path == "/api/gmail/status":
                 self.send_json(200, gmail.status(self.gmail_origin()))
             elif path == CALLBACK:
-                clear_cookie = "clubsp_gmail=; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=0"
+                clear_cookie = self.gmail_cookie("", 0)
                 try:
                     if len(self.path) > 8192:
                         raise ValueError("Google callback is too large")
@@ -131,7 +136,7 @@ def handler_for(application, gmail):
                     raise ValueError("Request body must be a JSON object")
                 path = urlsplit(self.path).path
                 if path == "/api/gmail/connect":
-                    if origin != self.gmail_origin():
+                    if origin != "http://" + self.headers["Host"]:
                         self.send_json(403, {"error": "Open Connect Gmail from the ClubSP workspace"})
                         return
                     if data != {}:
@@ -142,12 +147,12 @@ def handler_for(application, gmail):
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(body)))
                     self.send_header("Cache-Control", "no-store")
-                    self.send_header("Set-Cookie", "clubsp_gmail=" + state + "; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=600")
+                    self.send_header("Set-Cookie", self.gmail_cookie(state, 600))
                     self.end_headers()
                     self.wfile.write(body)
                     return
                 elif path == "/api/gmail/disconnect":
-                    if origin != self.gmail_origin():
+                    if origin != "http://" + self.headers["Host"]:
                         self.send_json(403, {"error": "Open Disconnect from the ClubSP workspace"})
                         return
                     if data != {}:
