@@ -166,3 +166,99 @@ def test_disconnect_cancels_inflight_connection(tmp_path):
     with pytest.raises(ValueError, match="cancelled"):
         finish(connection)
     assert not connection.path.exists()
+
+
+@pytest.mark.parametrize("origin", ["http://clubsp.online", "https://10.66.66.1",
+    "https://127.0.0.1", "https://localhost", "https://owner@clubsp.online",
+    "https://clubsp.online/", "https://clubsp.online/path", "https://clubsp.online?x=1",
+    "https://clubsp.online#fragment", "https://clubsp.online:443", "https://-bad.online",
+    "https://bad_.online", "https://clubsp.online\\evil"])
+def test_private_origin_rejects_noncanonical_or_ip_configuration(tmp_path, origin):
+    with pytest.raises(ValueError):
+        GmailConnection(tmp_path, config=dict(CONFIG, CLUBSP_GMAIL_ORIGIN=origin))
+
+
+def test_private_https_flow_uses_only_configured_origin(tmp_path):
+    connection, calls = make_connection(tmp_path)
+    connection.oauth_origin = "https://clubsp.online"
+    origin = connection.oauth_origin
+    url, state = connection.begin(origin)
+    query = parse_qs(urlsplit(url).query)
+    assert query["redirect_uri"] == [origin + "/auth/gmail/callback"]
+    assert query["code_challenge_method"] == ["S256"]
+    for untrusted in [ORIGIN, "https://other.online", origin + "/path"]:
+        with pytest.raises(ValueError):
+            connection.begin(untrusted)
+    with pytest.raises(ValueError):
+        connection.complete({"state": state, "code": "code"}, "wrong-browser", origin)
+    assert not calls
+    assert connection.complete({"state": state, "code": "code"}, state, origin) == "owner@example.test"
+    assert calls[0][1]["data"]["redirect_uri"] == origin + "/auth/gmail/callback"
+    assert connection.status(origin)["authorization_mode"] == "private_https"
+    with pytest.raises(ValueError):
+        connection.complete({"state": state, "code": "code"}, state, origin)
+
+
+def test_private_callback_cannot_be_used_at_another_origin(tmp_path):
+    connection, calls = make_connection(tmp_path)
+    connection.oauth_origin = "https://clubsp.online"
+    _, state = connection.begin(connection.oauth_origin)
+    with pytest.raises(ValueError):
+        connection.complete({"state": state, "code": "code"}, state, "https://other.online")
+    assert not calls
+
+
+def test_dotenv_reads_private_origin_without_overriding_environment(tmp_path, monkeypatch):
+    path = tmp_path / "env"
+    path.write_text("CLUBSP_GMAIL_ORIGIN=https://clubsp.online\n")
+    monkeypatch.delenv("CLUBSP_GMAIL_ORIGIN", raising=False)
+    load_local_environment(path)
+    import os
+    assert os.environ["CLUBSP_GMAIL_ORIGIN"] == "https://clubsp.online"
+    monkeypatch.setenv("CLUBSP_GMAIL_ORIGIN", "https://different.online")
+    load_local_environment(path)
+    assert os.environ["CLUBSP_GMAIL_ORIGIN"] == "https://different.online"
+
+
+def test_http_private_origin_keeps_host_origin_and_browser_state_checks(tmp_path):
+    import threading
+    from urllib.request import Request, build_opener, HTTPRedirectHandler
+    from urllib.error import HTTPError
+    from app.server import create_server
+    connection, calls = make_connection(tmp_path / "private")
+    connection.oauth_origin = "https://clubsp.online"
+    server = create_server(tmp_path / "app.db", port=0, gmail=connection)
+    local = "http://127.0.0.1:" + str(server.server_address[1])
+    worker = threading.Thread(target=server.serve_forever)
+    worker.start()
+    class StopRedirect(HTTPRedirectHandler):
+        def redirect_request(self, *args):
+            return None
+    client = build_opener(StopRedirect())
+    try:
+        with client.open(Request(local + "/api/gmail/status", headers={"X-Forwarded-Host": "evil.online"})) as response:
+            status = json.load(response)
+        assert status["redirect_uri"] == "https://clubsp.online/auth/gmail/callback"
+        for headers in [{}, {"Origin": "https://evil.online"}, {"Origin": local, "Host": "evil.online"}]:
+            with pytest.raises(HTTPError) as rejected:
+                client.open(Request(local + "/api/gmail/connect", data=b"{}",
+                    headers={"Content-Type": "application/json", **headers}))
+            assert rejected.value.code == 403
+        # Simulate only headers already validated/replaced by the private HTTPS proxy.
+        with client.open(Request(local + "/api/gmail/connect", data=b"{}",
+                headers={"Content-Type": "application/json", "Origin": local})) as response:
+            result = json.load(response)
+            cookie = response.headers["Set-Cookie"]
+        assert "; Secure" in cookie and "HttpOnly" in cookie and "SameSite=Lax" in cookie
+        query = parse_qs(urlsplit(result["authorization_url"]).query)
+        state = query["state"][0]
+        assert query["redirect_uri"] == ["https://clubsp.online/auth/gmail/callback"]
+        with pytest.raises(HTTPError) as redirect:
+            client.open(Request(local + "/auth/gmail/callback?state=" + state + "&code=code",
+                headers={"Cookie": cookie.split(";")[0]}))
+        assert redirect.value.headers["Location"] == "/?gmail=connected"
+        assert "; Secure" in redirect.value.headers["Set-Cookie"]
+        assert connection.status(connection.oauth_origin)["connected"]
+        assert len(calls) == 2
+    finally:
+        server.shutdown(); server.server_close(); worker.join()

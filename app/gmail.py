@@ -1,10 +1,12 @@
-"""Local, read-only Gmail authorization. No send or inbox import operations."""
+"""Owner-only, read-only Gmail authorization. No send or inbox import operations."""
 from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import tempfile
@@ -17,14 +19,30 @@ SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 CALLBACK = "/auth/gmail/callback"
 
 
+def configured_https_origin(value):
+    """Accept one explicit canonical HTTPS domain; never infer it from headers."""
+    if not value:
+        return ""
+    parts = urlsplit(value)
+    host = parts.hostname or ""
+    if (parts.scheme != "https" or value != "https://" + host or len(host) > 253
+            or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+", host)):
+        raise ValueError("CLUBSP_GMAIL_ORIGIN must be an HTTPS domain origin without a port or path")
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return value
+    raise ValueError("CLUBSP_GMAIL_ORIGIN requires a domain, not an IP address")
+
+
 def load_local_environment(path):
-    """Read only explicit Google settings; never execute a dotenv file."""
+    """Read only explicit authorization settings; never execute a dotenv file."""
     path = Path(path)
     if not path.exists():
         return
     for line in path.read_text().splitlines():
         key, sep, value = line.partition("=")
-        if sep and key in {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL"}:
+        if sep and key in {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL", "CLUBSP_GMAIL_ORIGIN"}:
             os.environ.setdefault(key, value.strip())
 
 
@@ -60,6 +78,7 @@ class GmailConnection:
         self.client_id = config.get("GOOGLE_CLIENT_ID", "")
         self.client_secret = config.get("GOOGLE_CLIENT_SECRET", "")
         self.expected_email = config.get("GOOGLE_MAILBOX_EMAIL", "").strip().lower()
+        self.oauth_origin = configured_https_origin(config.get("CLUBSP_GMAIL_ORIGIN", "").strip())
         self.path = Path(directory) / "gmail-token.json"
         self.request = request or google_request
         self.clock = clock or time.time
@@ -71,7 +90,8 @@ class GmailConnection:
         result = {"configured": bool(self.client_id and self.client_secret and self.expected_email),
                   "connected": False, "sending_enabled": False, "sync_enabled": False,
                   "redirect_uri": origin + CALLBACK, "scope": "Read-only Gmail",
-                  "expected_email": self.expected_email}
+                  "expected_email": self.expected_email,
+                  "authorization_mode": "private_https" if self.oauth_origin else "local"}
         try:
             saved = json.loads(self.path.read_text())
             if isinstance(saved, dict) and isinstance(saved.get("email"), str) and saved["email"].lower() == self.expected_email and saved.get("client_fingerprint") == self.fingerprint():
@@ -85,8 +105,16 @@ class GmailConnection:
         return hashlib.sha256(self.client_id.encode()).hexdigest()
 
     def begin(self, origin):
-        if urlsplit(origin).hostname not in {"127.0.0.1", "localhost"} or urlsplit(origin).scheme != "http":
-            raise ValueError("This release supports a local connection only")
+        parts = urlsplit(origin)
+        if self.oauth_origin:
+            trusted = origin == self.oauth_origin
+        else:
+            trusted = (parts.hostname in {"127.0.0.1", "localhost"}
+                       and parts.scheme == "http" and not parts.username
+                       and not parts.password and not parts.path
+                       and not parts.query and not parts.fragment)
+        if not trusted:
+            raise ValueError("Use the configured Gmail authorization origin")
         if not self.status(origin)["configured"]:
             raise ValueError("Configure the Google client and expected mailbox before connecting")
         state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
