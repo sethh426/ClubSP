@@ -130,3 +130,28 @@ test("deal evidence, money, operations, and reconciliation work through the brow
   expect(errors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("workspace.png"), fullPage: true });
 });
+
+test("workspace loads and saves without the secure-context randomUUID API", async ({ page }, testInfo) => {
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, "randomUUID", { value: undefined, configurable: true });
+  });
+  await page.goto("/");
+  await expect(page.locator("#connection")).toHaveText("Saved locally");
+  expect(await page.evaluate(() => typeof crypto.randomUUID)).toBe("undefined");
+  await expect(page.locator(".knowledge-update-form")).toHaveCount(1);
+  await expect(page.locator(".practice-form")).toHaveCount(1);
+  const address = "Private HTTP " + testInfo.project.name + " " + Date.now();
+  const form = page.locator("#property-form");
+  await form.locator('[name="address"]').fill(address);
+  await form.locator('[name="city"]').fill("Fort Wayne");
+  await form.locator('[name="state"]').fill("IN");
+  await form.locator('[name="zip"]').fill("46802");
+  await form.getByRole("button", { name: "Save property" }).click();
+  await expect(page.locator("#property-title")).toHaveText(address);
+  await page.reload();
+  await expect(page.locator("#connection")).toHaveText("Saved locally");
+  await expect(page.locator("#property-list")).toContainText(address);
+  expect(errors).toEqual([]);
+});
