@@ -24,7 +24,7 @@ def load_local_environment(path):
         return
     for line in path.read_text().splitlines():
         key, sep, value = line.partition("=")
-        if sep and key in {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL"}:
+        if sep and key in {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL", "GOOGLE_REDIRECT_URI"}:
             os.environ.setdefault(key, value.strip())
 
 
@@ -60,17 +60,28 @@ class GmailConnection:
         self.client_id = config.get("GOOGLE_CLIENT_ID", "")
         self.client_secret = config.get("GOOGLE_CLIENT_SECRET", "")
         self.expected_email = config.get("GOOGLE_MAILBOX_EMAIL", "").strip().lower()
+        self.external_callback = config.get("GOOGLE_REDIRECT_URI", "").strip()
+        if self.external_callback:
+            parsed = urlsplit(self.external_callback)
+            if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+                    or parsed.path != CALLBACK or parsed.query or parsed.fragment):
+                raise ValueError("GOOGLE_REDIRECT_URI must be an HTTPS Gmail callback URL")
         self.path = Path(directory) / "gmail-token.json"
         self.request = request or google_request
         self.clock = clock or time.time
         self.pending = {}
         self.generation = 0
         self.lock = threading.Lock()
+        self.refresh_lock = threading.Lock()
+
+    def callback_uri(self, origin):
+        return self.external_callback or origin + CALLBACK
 
     def status(self, origin):
         result = {"configured": bool(self.client_id and self.client_secret and self.expected_email),
                   "connected": False, "sending_enabled": False, "sync_enabled": False,
-                  "redirect_uri": origin + CALLBACK, "scope": "Read-only Gmail",
+                  "redirect_uri": self.callback_uri(origin), "scope": "Read-only Gmail",
+                  "refresh_enabled": True,
                   "expected_email": self.expected_email}
         try:
             saved = json.loads(self.path.read_text())
@@ -95,9 +106,9 @@ class GmailConnection:
             self.pending = {k: v for k, v in self.pending.items() if v[0] > self.clock()}
             if len(self.pending) >= 32:
                 raise ValueError("Too many connection attempts; wait ten minutes")
-            self.pending[state] = (self.clock() + 600, verifier, origin + CALLBACK, self.generation)
+            self.pending[state] = (self.clock() + 600, verifier, self.callback_uri(origin), self.generation)
         return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode({
-            "client_id": self.client_id, "redirect_uri": origin + CALLBACK,
+            "client_id": self.client_id, "redirect_uri": self.callback_uri(origin),
             "response_type": "code", "scope": SCOPE, "state": state,
             "code_challenge": challenge, "code_challenge_method": "S256",
             "access_type": "offline", "prompt": "consent", "login_hint": self.expected_email,
@@ -109,7 +120,7 @@ class GmailConnection:
             raise ValueError("Connection session mismatch. Start again from ClubSP.")
         with self.lock:
             pending = self.pending.pop(state, None)
-        if not pending or pending[0] <= self.clock() or pending[2] != origin + CALLBACK:
+        if not pending or pending[0] <= self.clock() or pending[2] != self.callback_uri(origin):
             raise ValueError("Connection session expired or already used. Start again.")
         if params.get("error"):
             raise ValueError("Gmail permission was not granted. No connection was saved.")
@@ -138,6 +149,10 @@ class GmailConnection:
             raise ValueError("The selected mailbox does not match the configured ClubSP mailbox")
         saved = {"email": self.expected_email, "access_token": access, "refresh_token": refresh,
                  "expires_at": self.clock() + lifetime, "client_fingerprint": self.fingerprint(), "scope": SCOPE}
+        self._save(saved, pending[3])
+        return self.expected_email
+
+    def _save(self, saved, generation, expected=None):
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd, temp = tempfile.mkstemp(dir=self.path.parent, prefix=".gmail-")
         try:
@@ -146,13 +161,56 @@ class GmailConnection:
                 stream.flush()
                 os.fsync(stream.fileno())
             with self.lock:
-                if pending[3] != self.generation:
+                if generation != self.generation:
                     raise ValueError("Connection was cancelled. Start again.")
+                if expected is not None and (not self.path.exists() or self.path.read_bytes() != expected):
+                    raise ValueError("Connection changed during refresh. Try again.")
                 os.replace(temp, self.path)
         finally:
             if os.path.exists(temp):
                 os.unlink(temp)
-        return self.expected_email
+
+    def ensure_access_token(self, force=False):
+        """Refresh on demand; never return credentials through a public route."""
+        with self.refresh_lock:
+            with self.lock:
+                try:
+                    original = self.path.read_bytes()
+                    saved = json.loads(original)
+                    if (not isinstance(saved, dict) or saved.get("email") != self.expected_email
+                            or saved.get("client_fingerprint") != self.fingerprint()
+                            or saved.get("scope") != SCOPE
+                            or not all(isinstance(saved.get(k), str) and saved[k]
+                                       for k in ("access_token", "refresh_token"))
+                            or not isinstance(saved.get("expires_at"), (int, float))):
+                        raise ValueError()
+                except (OSError, ValueError, TypeError):
+                    raise ValueError("Connect Gmail before refreshing access") from None
+                generation = self.generation
+            if not force and saved["expires_at"] > self.clock() + 60:
+                return saved["access_token"]
+            tokens = self.request("https://oauth2.googleapis.com/token", data={
+                "client_id": self.client_id, "client_secret": self.client_secret,
+                "refresh_token": saved["refresh_token"], "grant_type": "refresh_token",
+            })
+            try:
+                access = tokens["access_token"]
+                lifetime = int(tokens["expires_in"])
+                if not isinstance(access, str) or not access or not 0 < lifetime <= 86400:
+                    raise ValueError()
+                if "scope" in tokens and (not isinstance(tokens["scope"], str) or SCOPE not in tokens["scope"].split()):
+                    raise ValueError()
+                refresh = tokens.get("refresh_token", saved["refresh_token"])
+                if not isinstance(refresh, str) or not refresh:
+                    raise ValueError()
+            except (KeyError, ValueError, TypeError):
+                raise ValueError("Google returned invalid refreshed access; reconnect Gmail") from None
+            profile = self.request("https://gmail.googleapis.com/gmail/v1/users/me/profile", token=access)
+            if str(profile.get("emailAddress", "")).lower() != self.expected_email:
+                raise ValueError("The selected mailbox does not match the configured ClubSP mailbox")
+            saved.update(access_token=access, refresh_token=refresh, expires_at=self.clock() + lifetime)
+            self._save(saved, generation, expected=original)
+            return access
 
     def disconnect(self):
         with self.lock:
