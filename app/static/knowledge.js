@@ -6,7 +6,15 @@ function watchKnowledgeRun(runId, attempts = 0) {
   // These requests only observe the explicit run; they never start source checks.
   setTimeout(async()=>{
     try{
-      const latest=await api("/api/state");state.knowledge=latest.knowledge;renderKnowledge();
+      // A queued observer must not rebuild review forms after the run has
+      // finished or overwrite a newer owner-action refresh with an old response.
+      const before=state.knowledge;
+      const current=before.runs.find(r=>r.id===runId);
+      if(!current||!["requested","running"].includes(current.status)){
+        observedKnowledgeRuns.delete(runId);return;
+      }
+      const latest=await api("/api/state");
+      if(state.knowledge===before){state.knowledge=latest.knowledge;renderKnowledge();}
       const run=state.knowledge.runs.find(r=>r.id===runId);
       if(run&&["requested","running"].includes(run.status)&&attempts<60)watchKnowledgeRun(runId,attempts+1);
       else observedKnowledgeRuns.delete(runId);

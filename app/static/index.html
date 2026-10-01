@@ -9,6 +9,7 @@
   <script src="/communications.js" defer></script>
   <script src="/knowledge.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/gmail.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -22,6 +23,15 @@
       <a class="button primary" href="#new-property">+ Add property</a>
     </section>
     <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+    <details class="panel"><summary>Gmail · Connect your mailbox</summary>
+      <p id="gmail-status" role="status">Checking connection…</p>
+      <p id="gmail-result" role="status"></p>
+      <p class="muted small">Local authorization only. Read-only permission; no messages sent or imported. Save this exact authorized redirect URI in your Google client:</p>
+      <p><code id="gmail-callback"></code></p>
+      <button id="gmail-connect" class="button" type="button" disabled>Connect Gmail</button>
+      <button id="gmail-disconnect" class="button" type="button" hidden>Remove local connection</button>
+      <p class="muted small">Removing the local connection does not revoke Google permission. Revoke it separately in your Google Account. Localhost must run on the computer opening this workspace—not on your phone.</p>
+    </details>
     <section class="metrics" aria-label="Workspace totals">
       <article><span>Properties</span><strong id="count-properties">0</strong></article>
       <article><span>Sourced facts</span><strong id="count-facts">0</strong></article>

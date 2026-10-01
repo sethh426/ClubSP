@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie, CookieError
 import json
 from pathlib import Path
 import sqlite3
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 from .database import dumps
 from .service import Application
+from .gmail import GmailConnection, load_local_environment, CALLBACK
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
@@ -17,6 +19,7 @@ ASSETS = {
     "/workspace.js": ("workspace.js", "text/javascript; charset=utf-8"),
     "/communications.js": ("communications.js", "text/javascript; charset=utf-8"),
     "/knowledge.js": ("knowledge.js", "text/javascript; charset=utf-8"),
+    "/gmail.js": ("gmail.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 MAX_BODY = 65536
@@ -26,7 +29,7 @@ def reject_constant(value):
     raise ValueError("Nonfinite JSON numbers are not supported")
 
 
-def handler_for(application):
+def handler_for(application, gmail):
     class Handler(BaseHTTPRequestHandler):
         def send_content(self, code, body, content_type="application/json; charset=utf-8"):
             if isinstance(body, str):
@@ -55,12 +58,43 @@ def handler_for(application):
                 f"127.0.0.1:{port}", f"localhost:{port}",
             }
 
+        def gmail_origin(self):
+            return "http://" + self.headers["Host"]
+
+        def redirect(self, target, cookie):
+            self.send_response(303)
+            self.send_header("Location", target)
+            self.send_header("Set-Cookie", cookie)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def do_GET(self):
             if not self.valid_host():
                 self.send_json(403, {"error": "Use the local application URL"})
                 return
             path = urlsplit(self.path).path
-            if path in ASSETS:
+            if path == "/api/gmail/status":
+                self.send_json(200, gmail.status(self.gmail_origin()))
+            elif path == CALLBACK:
+                clear_cookie = "clubsp_gmail=; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=0"
+                try:
+                    if len(self.path) > 8192:
+                        raise ValueError("Google callback is too large")
+                    query = parse_qs(urlsplit(self.path).query, keep_blank_values=True, max_num_fields=12)
+                    if any(len(values) != 1 for values in query.values()):
+                        raise ValueError("Duplicate callback parameters")
+                    cookie = SimpleCookie(self.headers.get("Cookie", ""))
+                    browser_state = cookie.get("clubsp_gmail")
+                    gmail.complete({k: v[0] for k, v in query.items()},
+                                   browser_state.value if browser_state else "", self.gmail_origin())
+                    self.redirect("/?gmail=connected", clear_cookie)
+                except (ValueError, TypeError, CookieError):
+                    self.redirect("/?gmail=failed", clear_cookie)
+                except OSError:
+                    self.redirect("/?gmail=storage_failed", clear_cookie)
+            elif path in ASSETS:
                 name, content_type = ASSETS[path]
                 self.send_content(200, (STATIC / name).read_bytes(), content_type)
             elif path == "/api/health":
@@ -96,7 +130,31 @@ def handler_for(application):
                 if not isinstance(data, dict):
                     raise ValueError("Request body must be a JSON object")
                 path = urlsplit(self.path).path
-                if path == "/api/properties":
+                if path == "/api/gmail/connect":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "Open Connect Gmail from the ClubSP workspace"})
+                        return
+                    if data != {}:
+                        raise ValueError("Connection request must be empty")
+                    url, state = gmail.begin(self.gmail_origin())
+                    self.send_response(200)
+                    body = dumps({"authorization_url": url}).encode()
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Set-Cookie", "clubsp_gmail=" + state + "; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=600")
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                elif path == "/api/gmail/disconnect":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "Open Disconnect from the ClubSP workspace"})
+                        return
+                    if data != {}:
+                        raise ValueError("Disconnect request must be empty")
+                    gmail.disconnect()
+                    result = {"connected": False, "google_permission_revoked": False}
+                elif path == "/api/properties":
                     result = application.create_property(data)
                 elif path.startswith("/api/properties/"):
                     parts = path.strip("/").split("/")
@@ -186,14 +244,18 @@ def handler_for(application):
                 self.send_json(503, {"error": "Database temporarily unavailable"})
 
         def log_message(self, format, *args):
-            # Log routes/statuses without request payloads or stored evidence.
-            super().log_message(format, *args)
+            # Never log OAuth codes/state or provider response material.
+            if urlsplit(self.path).path == CALLBACK:
+                super().log_message("Gmail OAuth callback handled")
+            else:
+                super().log_message(format, *args)
 
     return Handler
 
 
-def create_server(database_path, port=8000, application=None):
-    return ThreadingHTTPServer(("127.0.0.1", port), handler_for(application or Application(database_path)))
+def create_server(database_path, port=8000, application=None, gmail=None):
+    connection = gmail or GmailConnection(Path(database_path).parent / "private")
+    return ThreadingHTTPServer(("127.0.0.1", port), handler_for(application or Application(database_path), connection))
 
 
 def main():
@@ -201,6 +263,7 @@ def main():
     parser.add_argument("--db", default="data/clubsp.sqlite3", help="SQLite database file")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
+    load_local_environment(Path(__file__).resolve().parent.parent / ".env")
     server = create_server(args.db, args.port)
     print(f"ClubSP is running at http://127.0.0.1:{server.server_address[1]}", flush=True)
     try:
