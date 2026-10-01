@@ -1,5 +1,10 @@
 # ClubSP
 
+Gmail local authorization is available through the **Gmail · Connect your mailbox**
+panel. See [Gmail setup](docs/GMAIL.md) for the exact callback, Google test-user
+configuration, private token storage, and limitations. Email sending, conversation
+import, token refresh, and follow-ups are not enabled by this release.
+
 A working local property workspace for deal operations, official parcel evidence,
 underwriting, owner cash and profit, seller conversations and sales practice.
 
