@@ -11,6 +11,7 @@ from urllib.parse import urlsplit, parse_qs
 from .database import dumps
 from .service import Application
 from .gmail import GmailConnection, load_local_environment, CALLBACK
+from .funding import FundingBook
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
@@ -22,6 +23,9 @@ ASSETS = {
     "/knowledge.js": ("knowledge.js", "text/javascript; charset=utf-8"),
     "/gmail.js": ("gmail.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/funding": ("funding.html", "text/html; charset=utf-8"),
+    "/funding.js": ("funding.js", "text/javascript; charset=utf-8"),
+    "/funding.css": ("funding.css", "text/css; charset=utf-8"),
 }
 MAX_BODY = 65536
 
@@ -31,6 +35,7 @@ def reject_constant(value):
 
 
 def handler_for(application, gmail):
+    funding = FundingBook(application.database)
     class Handler(BaseHTTPRequestHandler):
         def send_content(self, code, body, content_type="application/json; charset=utf-8"):
             if isinstance(body, str):
@@ -103,6 +108,11 @@ def handler_for(application, gmail):
             elif path == "/api/state":
                 try:
                     self.send_json(200, application.state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/funding":
+                try:
+                    self.send_json(200, funding.state(application.state()))
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
             else:
@@ -235,6 +245,8 @@ def handler_for(application, gmail):
                         result = application.match_buyers(parts[2])
                     elif parts[3] == "financial-plan":
                         result = application.save_financial_plan(parts[2], data)
+                    elif parts[3] == "funding":
+                        result = funding.save(parts[2], data)
                     elif parts[3] == "ledger":
                         result = application.record_ledger_entry(parts[2], data)
                     elif parts[3] == "reconciliation":
