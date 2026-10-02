@@ -1,11 +1,11 @@
-# Gmail connection: read-only authorization and token refresh
+# Gmail connection: read-only authorization and manual previews
 
 This release builds a local Connect Gmail button and browser callback. It does
 not send email, import conversations, or run follow-ups. No background mailbox
 calls occur. Explicit authorization and Refresh Gmail access read the mailbox
-profile; inbox contents are not fetched. The refresh helper renews tokens on
+profile. Manual Sync previews fetches headers and short snippets. The refresh helper renews tokens on
 demand when expired or within sixty seconds of expiry; the button forces a
-refresh to verify the saved grant. Future inbox operations can use that helper.
+refresh to verify the saved grant. Manual sync uses that helper.
 
 ## Setup on the computer running ClubSP
 
@@ -47,9 +47,25 @@ Token refresh cannot bypass that limit or revoked permission; reconnect when
 necessary. Failed refresh preserves the previous file and returns a sanitized
 error. Concurrent refreshes are serialized; disconnect or replacement during
 refresh prevents stale credentials from being written back. No tokens are
-returned by `/api/gmail/refresh`, and a matching Origin is required. Inbox sync
-and sending remain disabled. Automated tests use synthetic provider responses;
-real refresh must still be verified by the owner after deployment.
+returned by `/api/gmail/refresh`, and a matching Origin is required. Sending
+and automatic sync remain disabled. Automated tests use synthetic provider responses.
+
+## Manual message previews
+
+Click Sync previews to save five or ten messages matching a Gmail search query.
+The default is `in:inbox newer_than:30d`. Next batch continues that search;
+changing the query starts a new search. No mailbox fetch runs on page load.
+Only sender, recipient, subject, received date, and a short snippet are stored;
+full bodies and attachments are not downloaded and messages are not marked read.
+Duplicate mailbox/message IDs are skipped. A failed batch saves no partial results.
+
+Previews stay unlinked until you select a saved contact with the sender's email.
+Linking associates the preview with that contact's property; it creates no facts,
+conversations, contact permissions, or follow-ups. Open original in Gmail to review
+the full message. Remove preview deletes only the local copy and does not alter Gmail.
+The app displays the newest 100 saved previews and caps storage at 1,000.
+Disconnect removes credentials but retains saved previews; remove those separately.
+Treat database backups as private because they can contain email previews.
 
 References: https://developers.google.com/identity/protocols/oauth2/web-server
 and https://developers.google.com/workspace/gmail/api/auth/scopes

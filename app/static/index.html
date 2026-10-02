@@ -26,11 +26,21 @@
     <details class="panel"><summary>Gmail · Connect your mailbox</summary>
       <p id="gmail-status" role="status">Checking connection…</p>
       <p id="gmail-result" role="status"></p>
-      <p class="muted small">Read-only permission; no messages sent or imported. Save this exact authorized redirect URI in your Google client:</p>
+      <p class="muted small">Read-only permission; sending is disabled. Message previews are fetched only when you press Sync previews. Save this exact authorized redirect URI in your Google client:</p>
       <p><code id="gmail-callback"></code></p>
       <button id="gmail-connect" class="button" type="button" disabled>Connect Gmail</button>
       <button id="gmail-refresh" class="button" type="button" hidden>Refresh Gmail access</button>
       <button id="gmail-disconnect" class="button" type="button" hidden>Remove local connection</button>
+      <form id="gmail-sync-form" hidden>
+        <label>Gmail search <input name="query" maxlength="500" value="in:inbox newer_than:30d" required></label>
+        <label>Previews per batch <select name="limit"><option value="5">5</option><option value="10">10</option></select></label>
+        <button class="button" type="submit">Sync previews</button>
+        <button id="gmail-next" class="button" type="button" hidden>Fetch next batch</button>
+      </form>
+      <p class="muted small">Only headers and short previews are saved; attachments and full bodies are not fetched. Linking a preview does not verify property facts or grant permission to contact anyone. Removing the connection keeps saved previews; use Remove preview to delete them locally.</p>
+      <button id="gmail-inbox-reload" class="button" type="button">Reload saved previews</button>
+      <p id="gmail-inbox-count" class="muted small"></p>
+      <div id="gmail-inbox"></div>
       <p class="muted small">Removing the local connection does not revoke Google permission. Revoke it separately in your Google Account. Testing-mode Gmail grants normally expire after seven days and require reconnecting.</p>
     </details>
     <section class="metrics" aria-label="Workspace totals">
