@@ -207,7 +207,15 @@ by Git so property data stays out of source control.
 - `app/static/`: responsive browser workspace
 - `tests/`: domain, persistence, HTTP, concurrency, and browser tests
 
-## Next integrations
+## Opportunity queue
+
+The evidence-backed queue assesses entered pre-contract deals against your saved
+buy box and cash/downside review limits. It explains missing evidence, conflicting
+facts, changed underwriting context, current buyer-criteria fit and next reviews.
+It does not source leads or authorize offers, messages or spending. See
+[opportunity queue scope and limitations](docs/OPPORTUNITY_QUEUE.md).
+
+## Remaining integrations
 
 General lead sourcing, licensed comps, independent funding verification, MCP transport,
 email delivery/inbound sync, and signed document/transaction execution remain future work.

@@ -18,6 +18,7 @@ from .providers import PROVIDER
 from .communications import CommunicationsMixin
 from .training import TrainingMixin
 from .knowledge import KnowledgeMixin
+from .opportunities import OpportunitiesMixin, property_evidence, canonical
 
 
 DEAL_STAGES = (
@@ -86,7 +87,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin):
+class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin):
     def __init__(self, path):
         self.database = Database(path)
         with self.database.session(write=True) as (connection, _):
@@ -110,6 +111,7 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
                 for name in COLLECTIONS
             })
             result["deals"] = self._list_deals(connection)
+            result["opportunities"] = self._opportunity_state(connection, result["deals"])
             result["today"] = business_today().isoformat()
             result["research"] = self._research_snapshots(connection)
             result["providers"] = [PROVIDER]
@@ -340,14 +342,12 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
                     case[key] *= cost_factor
                 scenarios[name] = calculate_scenario(deal["strategy"], case)
             inputs = {**values, "property_type": property_type, "basis": notes}
-            fact_ids = [str(row[0]) for row in connection.execute(
-                "SELECT id FROM memory WHERE collection='facts' "
-                "AND json_extract(body,'$.subject_id')=? ORDER BY id",
-                (deal["property_id"],),
-            )]
+            evidence = property_evidence(connection, deal["property_id"])
+            fact_ids = [fact["id"] for fact in evidence["facts"]]
             snapshot = {
                 "strategy": deal["strategy"], "scenarios": scenarios,
                 "fact_ids": fact_ids, "formula_version": "assignment-resale-v1",
+                "evidence_digest": evidence["digest"],
                 "warning": (
                     "Manual scenario analysis; exit price and costs are unverified inputs, not an appraisal or offer."
                 ),
@@ -398,74 +398,77 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
                 "max_repairs": repairs, "funding_status": status, "verified_at": verified_at,
                 "verification_reference": reference, "status": "active", "created_at": now}
 
+    def _compare_buyers(self, connection, deal):
+        prop = connection.execute("SELECT * FROM properties WHERE id=?", (deal["property_id"],)).fetchone()
+        uw = connection.execute(
+            "SELECT inputs_json,result_json FROM underwritings WHERE deal_id=? ORDER BY created_at DESC,id LIMIT 1",
+            (str(deal["id"]),),
+        ).fetchone()
+        if uw is None:
+            raise ValueError("Record an underwriting before matching buyers")
+        inputs, result = json.loads(uw["inputs_json"]), json.loads(uw["result_json"])
+        location = " ".join(f"{prop['city']}, {prop['state']}".lower().split())
+        evidence = property_evidence(connection, deal["property_id"])
+        value = evidence["values"].get("property_type")
+        observed_type = canonical(value) if value is not None else None
+        plan = self._finance(connection, deal)["plan"]
+        if deal["strategy"] == "resale":
+            total = inputs["expected_exit_price"]
+            price_basis = "entered resale exit price"
+        elif plan and plan["current_underwriting"]:
+            total = plan["seller_price"] + plan["assignment_fee"]
+            price_basis = "proposed seller price plus assignment fee"
+        else:
+            total = result["scenarios"]["base"]["buyer_acquisition_ceiling"]
+            price_basis = "underwriting buyer ceiling; no proposed terms yet"
+        repair = inputs["buyer_repairs"]
+        candidates = []
+        for row in connection.execute("SELECT * FROM buyers WHERE status='active' ORDER BY created_at DESC,id"):
+            buyer = self._buyer_json(row)
+            reasons = []
+            if result.get("evidence_digest") != evidence["digest"]:
+                reasons.append("underwriting evidence changed or was not tracked; review underwriting")
+            if "property_type" in evidence["conflicts"]:
+                reasons.append("property type has conflicting current evidence")
+            if location not in buyer["locations"]:
+                reasons.append("market does not match")
+            if deal["strategy"] not in buyer["strategies"]:
+                reasons.append("strategy does not match")
+            if total > buyer["max_total_price"]:
+                reasons.append("price exceeds buyer limit")
+            if repair > buyer["max_repairs"]:
+                reasons.append("repair estimate exceeds buyer limit")
+            if buyer["property_types"] and (observed_type is None or observed_type not in buyer["property_types"]):
+                reasons.append("property type is unknown or outside buyer criteria")
+            verification_recent = False
+            if buyer["funding_status"] == "verified" and buyer["verified_at"]:
+                try:
+                    verified = datetime.fromisoformat(buyer["verified_at"].replace("Z", "+00:00"))
+                    if verified.tzinfo is None:
+                        verified = verified.replace(tzinfo=timezone.utc)
+                    age = (datetime.now(timezone.utc) - verified).total_seconds()
+                    verification_recent = 0 <= age <= 30 * 24 * 60 * 60
+                except (ValueError, TypeError):
+                    pass
+            if not verification_recent:
+                reasons.append("funding evidence requires current owner verification")
+            candidates.append({
+                "buyer_id": buyer["id"], "name": buyer["name"], "company": buyer["company"],
+                "eligible_on_recorded_criteria": not any(r != "funding evidence requires current owner verification" for r in reasons),
+                "funding_verified_currently": verification_recent,
+                "reasons": reasons,
+                "comparison": {"market": location, "buyer_total_price": money(total), "price_basis": price_basis,
+                               "buyer_max_total_price": buyer["max_total_price"],
+                               "repair_estimate": money(repair), "buyer_max_repairs": buyer["max_repairs"]},
+            })
+        candidates.sort(key=lambda item: (not item["eligible_on_recorded_criteria"], not item["funding_verified_currently"], item["name"].lower()))
+        return candidates
+
     def match_buyers(self, deal_id):
         now = utc_now().isoformat()
         with self.database.session(write=True) as (connection, _):
             deal = deal_exists(connection, deal_id)
-            prop = connection.execute("SELECT * FROM properties WHERE id=?", (deal["property_id"],)).fetchone()
-            uw = connection.execute(
-                "SELECT inputs_json,result_json FROM underwritings WHERE deal_id=? ORDER BY created_at DESC,id LIMIT 1",
-                (str(deal["id"]),),
-            ).fetchone()
-            if uw is None:
-                raise ValueError("Record an underwriting before matching buyers")
-            inputs, result = json.loads(uw["inputs_json"]), json.loads(uw["result_json"])
-            location = " ".join(f"{prop['city']}, {prop['state']}".lower().split())
-            observed_type = None
-            for row in connection.execute(
-                "SELECT body FROM memory WHERE collection='facts' AND json_extract(body,'$.subject_id')=?",
-                (deal["property_id"],),
-            ):
-                fact = json.loads(row["body"])
-                if fact["attribute"].lower() in {"property_type", "property type"}:
-                    observed_type = str(fact["value"]).lower().replace(" ", "_")
-            plan = self._finance(connection, deal)["plan"]
-            if deal["strategy"] == "resale":
-                total = inputs["expected_exit_price"]
-                price_basis = "entered resale exit price"
-            elif plan and plan["current_underwriting"]:
-                total = plan["seller_price"] + plan["assignment_fee"]
-                price_basis = "proposed seller price plus assignment fee"
-            else:
-                total = result["scenarios"]["base"]["buyer_acquisition_ceiling"]
-                price_basis = "underwriting buyer ceiling; no proposed terms yet"
-            repair = inputs["buyer_repairs"]
-            candidates = []
-            for row in connection.execute("SELECT * FROM buyers WHERE status='active' ORDER BY created_at DESC,id"):
-                buyer = self._buyer_json(row)
-                reasons = []
-                if location not in buyer["locations"]:
-                    reasons.append("market does not match")
-                if deal["strategy"] not in buyer["strategies"]:
-                    reasons.append("strategy does not match")
-                if total > buyer["max_total_price"]:
-                    reasons.append("price exceeds buyer limit")
-                if repair > buyer["max_repairs"]:
-                    reasons.append("repair estimate exceeds buyer limit")
-                if buyer["property_types"] and (observed_type is None or observed_type not in buyer["property_types"]):
-                    reasons.append("property type is unknown or outside buyer criteria")
-                verification_recent = False
-                if buyer["funding_status"] == "verified" and buyer["verified_at"]:
-                    try:
-                        verified = datetime.fromisoformat(buyer["verified_at"].replace("Z", "+00:00"))
-                        if verified.tzinfo is None:
-                            verified = verified.replace(tzinfo=timezone.utc)
-                        age = (datetime.now(timezone.utc) - verified).total_seconds()
-                        verification_recent = 0 <= age <= 30 * 24 * 60 * 60
-                    except (ValueError, TypeError):
-                        pass
-                if not verification_recent:
-                    reasons.append("funding evidence requires current owner verification")
-                candidates.append({
-                    "buyer_id": buyer["id"], "name": buyer["name"], "company": buyer["company"],
-                    "eligible_on_recorded_criteria": not any(r != "funding evidence requires current owner verification" for r in reasons),
-                    "funding_verified_currently": verification_recent,
-                    "reasons": reasons,
-                    "comparison": {"market": location, "buyer_total_price": money(total), "price_basis": price_basis,
-                                   "buyer_max_total_price": buyer["max_total_price"],
-                                   "repair_estimate": money(repair), "buyer_max_repairs": buyer["max_repairs"]},
-                })
-            candidates.sort(key=lambda item: (not item["eligible_on_recorded_criteria"], not item["funding_verified_currently"], item["name"].lower()))
+            candidates = self._compare_buyers(connection, deal)
             run_id = str(uuid4())
             connection.execute(
                 "INSERT INTO buyer_match_runs(id,deal_id,matches_json,created_at) VALUES(?,?,?,?)",
