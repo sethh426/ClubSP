@@ -1,5 +1,55 @@
 "use strict";
 
+function renderOpportunityQueue() {
+  const box = $("opportunity-queue"); box.replaceChildren();
+  const queue = state.opportunities, policy = queue.policy;
+  box.append(node("p", "Estimated portfolio peak cash exposure: " + amount("money", queue.estimated_portfolio_cash_at_risk) +
+    (queue.unknown_exposure_deal_ids.length ? " · Incomplete: " + queue.unknown_exposure_deal_ids.length + " active deal(s) lack plans." : " · Planning sum, not verified available funds."), "muted small"));
+  const details = workspaceDetails("Buy box & opportunity review limits", !policy);
+  const form = node("form", undefined, "workspace-form opportunity-policy-form");
+  workspaceField(form, "markets", "Markets (one city, state per line)", "textarea", policy?.markets.join("\n") || "");
+  workspaceSelect(form, "strategies", "Strategies", [["assignment", "Assignment"], ["resale", "Buy and resell"], ["both", "Both"]], policy?.strategies.length === 2 ? "both" : policy?.strategies[0]);
+  workspaceField(form, "property_types", "Property types (comma separated)", "text", policy?.property_types.join(", ") || "");
+  [["max_seller_price", "Maximum seller price ($)"], ["max_deal_cash_at_risk", "Maximum peak deal cash exposure ($)"],
+   ["max_portfolio_cash_at_risk", "Maximum portfolio cash exposure ($)"], ["min_downside_net", "Minimum downside contribution ($; 0 or greater)"]
+  ].forEach(([name, label]) => workspaceField(form, name, label, "number", policy?.[name] ?? ""));
+  const age = workspaceField(form, "evidence_max_age_days", "Evidence review interval (1–365 days)", "number", policy?.evidence_max_age_days ?? "");
+  age.min = "1"; age.max = "365"; age.step = "1";
+  workspaceField(form, "basis", "Owner policy basis / assumptions", "textarea", policy?.basis || "");
+  workspaceSubmit(form, "Save opportunity policy");
+  form.addEventListener("submit", event => {
+    event.preventDefault(); const data = values(form);
+    data.markets = data.markets.split(/\n/).map(v => v.trim()).filter(Boolean);
+    data.property_types = data.property_types.split(",").map(v => v.trim()).filter(Boolean);
+    data.strategies = data.strategies === "both" ? ["assignment", "resale"] : [data.strategies];
+    ["max_seller_price", "max_deal_cash_at_risk", "max_portfolio_cash_at_risk", "min_downside_net", "evidence_max_age_days"].forEach(k => data[k] = Number(data[k]));
+    runForm(form, () => api("/api/opportunities/policy", data), "Opportunity review policy saved. No external actions authorized.");
+  });
+  details.append(form); box.append(details);
+  if (!queue.items.length) box.append(node("p", "No pre-contract deals to assess. Add a property and start a deal; contracted and ended deals stay in the operations workspace.", "muted small"));
+  queue.items.forEach(item => {
+    const card = node("article", undefined, "estimate-card opportunity-card");
+    const heading = node("div", undefined, "row-head");
+    heading.append(node("h3", item.address), node("span", readable(item.decision), "pill"));
+    card.append(heading, node("p", item.market + " · " + item.strategy + " · " + readable(item.stage), "muted small"));
+    card.append(node("p", "Next review: " + item.next_action));
+    card.append(node("p", "Criteria-fit buyers with current owner-marked funding review: " + item.current_criteria_fit_buyers + ". Not a purchase commitment.", "muted small"));
+    if (item.economics) {
+      const scenarios = node("div", undefined, "scenario-grid");
+      Object.entries(item.economics).forEach(([name, result]) => {
+        const scenario = node("article", undefined, "scenario-card");
+        scenario.append(node("span", readable(name) + " contribution"), node("strong", amount("money", result.net_contribution)));
+        scenarios.append(scenario);
+      });
+      card.append(scenarios, node("p", "Manual, fixed-price, pre-tax scenarios; not expected profit or verified valuation.", "muted small"));
+    }
+    const reasons = node("ul", undefined, "blocker-list"); item.reasons.forEach(reason => reasons.append(node("li", reason))); card.append(reasons);
+    const open = node("button", "Open deal file", "button secondary"); open.type = "button";
+    open.addEventListener("click", () => { selected = item.property_id; selectedDeal = item.deal_id; render(); $("property-title").scrollIntoView({ block: "start" }); });
+    card.append(open); box.append(card);
+  });
+}
+
 function workspaceField(form, name, label, type = "text", value = "", required = true) {
   const wrap = node("label", label);
   const input = node(type === "textarea" ? "textarea" : "input");

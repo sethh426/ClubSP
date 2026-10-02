@@ -174,6 +174,8 @@ def handler_for(application, gmail):
                     result = application.create_deal(data)
                 elif path == "/api/buyers":
                     result = application.create_buyer(data)
+                elif path == "/api/opportunities/policy":
+                    result = application.save_opportunity_policy(data)
                 elif path == "/api/contacts":
                     result = application.create_contact(data)
                 elif path == "/api/training/practice":

@@ -68,6 +68,9 @@ class Database:
                     zip TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS opportunity_policies (
+                    id TEXT PRIMARY KEY, body TEXT NOT NULL, created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS deals (
                     id TEXT PRIMARY KEY,
                     property_id TEXT NOT NULL REFERENCES properties(id),
