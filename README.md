@@ -215,6 +215,13 @@ facts, changed underwriting context, current buyer-criteria fit and next reviews
 It does not source leads or authorize offers, messages or spending. See
 [opportunity queue scope and limitations](docs/OPPORTUNITY_QUEUE.md).
 
+## Candidate intake and sale evidence
+
+Stage authorized CSV exports, review individual candidate identities, and attach
+reviewed completed sales to subject properties. Underwriting captures the current
+sales; changes invalidate saved comparisons and require review before contracting.
+See [source formats, review boundaries and local API](docs/SOURCING.md).
+
 ## Remaining integrations
 
 General lead sourcing, licensed comps, independent funding verification, MCP transport,

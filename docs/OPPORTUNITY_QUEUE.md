@@ -37,8 +37,10 @@ Owner-of-record evidence does not establish signing authority or contact permiss
 
 New underwritings store the digest and IDs of current facts. Changed evidence or a
 legacy underwriting without the digest requires explicit owner review and resaving.
-This tracks property-fact context, **not** per-assumption comp/quote dependencies.
-Comp/repair/funding inputs remain manual. The UI labels the fixed-price scenarios
+The [CSV sourcing workflow](SOURCING.md) also snapshots accepted comparable sales
+for each subject. Missing sales, changed evidence and sales older than a year
+prompt review. This is a subject-level sale set, not per-assumption repair/quote
+dependencies. Comp/repair/funding inputs remain manual. The UI labels the fixed-price scenarios
 pre-tax and unverified; closed sales, inspection scopes and professional reviews
 still need to substantiate them. Stale/future fact dates and stale underwriting
 prompt research. Review intervals are internal policy, not legal deadlines.
@@ -64,6 +66,8 @@ their relevant cash exposure still counts. Existing operating tasks remain their
 management surface. Queue decisions are **advisory**: this release does not change
 existing contract-stage authority, freeze executed terms, or enforce portfolio
 policy on every write. Those controls remain required before external automation.
+The sale-evidence workflow additionally requires a current underwriting evidence
+digest before moving to contracted; see its documented limits on valuation review.
 
 ## API and verification
 
