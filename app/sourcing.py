@@ -121,6 +121,24 @@ class SourcingMixin:
                                 raise ValueError(f"{header} must be a positive finite number (price in cents)") from None
                             row[key] = float(number_value)
                         row["property_class"] = raw_row.get("Property Class", raw_row.get("Class", "")).strip()
+                        # Preserve useful assessor fields in normalized form when present,
+                        # while leaving them advisory rather than feeding them into valuation.
+                        for header, key in (("Acreage", "acreage"), ("Year Built", "year_built"),
+                                            ("Bath", "bath"), ("Price/SqFt", "price_per_sqft"),
+                                            ("Land Value", "land_value"), ("Improvement Value", "improvement_value"),
+                                            ("Total Value", "total_value")):
+                            if header not in raw_row or not raw_row[header].strip():
+                                continue
+                            try:
+                                optional = Decimal(raw_row[header].strip().replace("$", "").replace(",", ""))
+                                if not optional.is_finite() or optional < 0 or optional > Decimal("1000000000"):
+                                    raise InvalidOperation
+                            except InvalidOperation:
+                                raise ValueError(f"{header} must be a finite nonnegative number") from None
+                            row[key] = float(optional)
+                        for header, key in (("Neighborhood Code", "neighborhood_code"), ("Property Code", "property_code")):
+                            if header in raw_row and raw_row[header].strip():
+                                row[key] = raw_row[header].strip()
                     key = (identity(row["parcel_id"]), row.get("sale_date", ""))
                     if key in seen:
                         raise ValueError("Repeated parcel/sale identity within this batch; resolve at source")

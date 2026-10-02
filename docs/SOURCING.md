@@ -11,6 +11,8 @@ This local workflow imports real user-supplied exports; it does not discover liv
 
 The [Allen County sales viewer](https://acimap.us/comps/) offers sales searches and CSV downloads. Its FAQ says exports cover the rows shown, so narrow the search or split results; do not treat an export as a complete county dataset. This importer supports the displayed header names and optional `Property Class`/`Class`. It does not call an undocumented county bulk endpoint or independently certify the file as official. Other export formats require explicit mapping before import.
 
+The displayed export also includes `Acreage`, `Neighborhood Code`, `Property Code`, `Year Built`, `Bath`, `Price/SqFt`, `Land Value`, `Improvement Value` and `Total Value`. The current release retains those cells in each row's raw source record for auditability, while normalizing the core sale fields used by review and underwriting. It intentionally does not turn those optional fields into valuation inputs automatically; the reviewer must decide which fields are relevant and record that basis.
+
 Use one confirmed city per batch. The county export has no required city/state columns; the app does not assume that every Allen County address is in Fort Wayne. Keep parcel IDs as strings, including leading zeros. Sale dates must be ISO `YYYY-MM-DD` or `MM/DD/YYYY`; source dates are ISO. Sale dates cannot follow the source date or lie in the future. Prices must be positive finite amounts with at most two decimals; living area must be positive. Currency symbols and thousands commas are supported. Missing or zero prices/areas stay invalid rather than receiving defaults. Blank ZIP/type/parcel on candidate rows is invalid.
 
 ## Boundaries and provenance

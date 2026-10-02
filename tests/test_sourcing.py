@@ -163,6 +163,20 @@ def test_old_sales_keep_sale_date_not_import_freshness(tmp_path):
     assert any("older than one year" in reason for reason in queue["reasons"])
 
 
+def test_county_optional_assessor_fields_are_normalized_and_retained(tmp_path):
+    app = Application(tmp_path / "intake.db")
+    csv_text = ("Parcel Number,Address,Sale Date,Sale Price,Class,Acreage,Neighborhood Code,Property Code,"
+                "Property Class,Year Built,Living Area,Bath,Price/SqFt,Land Value,Improvement Value,Total Value\n"
+                "9,Comp,2025-01-01,240000,R,0.25,N1,P1,Residential,1980,1800,2,133.33,50000,150000,200000")
+    row = staged_row(app, import_data("county_sales", csv=csv_text))
+    value = row["value"]
+    assert value["acreage"] == 0.25 and value["year_built"] == 1980
+    assert value["bath"] == 2 and value["price_per_sqft"] == 133.33
+    assert value["neighborhood_code"] == "N1" and value["property_code"] == "P1"
+    assert value["land_value"] == 50000 and value["improvement_value"] == 150000
+    assert value["total_value"] == 200000
+
+
 def test_http_intake_review_and_withdraw_routes(http_app):
     code, body, _ = request(http_app, "/api/sourcing/import", import_data())
     assert code == 201
