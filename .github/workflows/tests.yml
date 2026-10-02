@@ -34,7 +34,9 @@ jobs:
       - run: node --check app/static/communications.js
       - run: node --check app/static/knowledge.js
       - run: node --check app/static/gmail.js
+      - run: node --check app/static/funding.js
       - run: npx playwright test
+      - run: npx playwright test -c playwright.funding.config.js
       - uses: actions/upload-artifact@v4
         if: always()
         with:

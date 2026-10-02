@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ClubSP — Funding Desk</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/funding.css">
+  <script src="/funding.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">ClubSP</a><a class="button" href="/">Property workspace</a></header>
+  <main>
+    <section class="intro"><div><p class="eyebrow">PARTNER & LENDER FUNDING</p><h1>A recorded path to funding.</h1><p class="muted">Review the amount, your cash exposure, expiry, and the conditions still standing between a deal and its funding.</p></div></section>
+    <p class="note">These are owner-entered reviews. Passing recorded checks does not establish available funds, loan approval, title clearance, or closing authority. Confirm disbursement with the funder and closing professional. Forecast contribution is an estimate before tax, not money received.</p>
+    <div id="funding-message" class="message" role="status" aria-live="polite" hidden></div>
+    <section id="funding-summary" class="metrics" aria-label="Funding review totals"></section>
+    <section class="panel" aria-label="Deal action shortlist"><h2>Focus next</h2><p id="pipeline-context" class="muted small"></p><ol id="funding-shortlist"></ol></section>
+    <label class="funding-filter">Show deals <select id="funding-filter"><option value="active">Active deals</option><option value="needs_action">Needs action</option><option value="owner_review">Owner review candidates</option><option value="historical">Ended deals</option><option value="all">All deals</option></select></label>
+    <p id="funding-empty" hidden>No deals match this view.</p>
+    <section id="funding-deals" aria-label="Deal funding reviews"><p>Loading funding reviews…</p></section>
+  </main>
+</body>
+</html>

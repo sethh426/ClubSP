@@ -1,0 +1,9 @@
+.funding-deal { min-width: 0; overflow-wrap: anywhere; }
+.funding-deal .workspace-form { margin-top: 1.5rem; }
+.funding-deal .finance-risk { color: var(--mint); }
+.funding-deal .funding-needs-review { color: #e5ad87; }
+.funding-deal .blocker-list { margin: 1rem 0; }
+.funding-deal .evidence-row p { white-space: pre-wrap; }
+.funding-deal[hidden] { display: none; }
+.funding-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin: 1.5rem 0; }
+#funding-shortlist { overflow-wrap: anywhere; }
