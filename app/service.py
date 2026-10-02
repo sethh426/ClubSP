@@ -18,6 +18,7 @@ from .providers import PROVIDER
 from .communications import CommunicationsMixin
 from .training import TrainingMixin
 from .knowledge import KnowledgeMixin
+from .gmail_inbox import GmailInboxMixin
 
 
 DEAL_STAGES = (
@@ -86,9 +87,10 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin):
+class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, GmailInboxMixin):
     def __init__(self, path):
         self.database = Database(path)
+        self._initialize_gmail_inbox()
         with self.database.session(write=True) as (connection, _):
             self._recover_knowledge_runs(connection)
             for deal in connection.execute("SELECT id FROM deals").fetchall():

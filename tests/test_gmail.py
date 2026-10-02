@@ -44,7 +44,8 @@ def test_token_private_persistent_and_never_returned(tmp_path):
     assert finish(connection) == "owner@example.test"
     assert stat.S_IMODE(connection.path.stat().st_mode) == 0o600
     status = connection.status(ORIGIN)
-    assert status["connected"] and not status["sending_enabled"] and not status["sync_enabled"]
+    assert status["connected"] and not status["sending_enabled"] and status["sync_enabled"]
+    assert not status["automatic_sync"]
     assert "synthetic-access" not in json.dumps(status)
     assert "synthetic-refresh" not in json.dumps(status)
     assert len(calls) == 2

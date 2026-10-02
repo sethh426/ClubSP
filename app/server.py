@@ -11,6 +11,7 @@ from urllib.parse import urlsplit, parse_qs
 from .database import dumps
 from .service import Application
 from .gmail import GmailConnection, load_local_environment, CALLBACK
+from .gmail_inbox import sync_previews
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
@@ -77,6 +78,11 @@ def handler_for(application, gmail):
             path = urlsplit(self.path).path
             if path == "/api/gmail/status":
                 self.send_json(200, gmail.status(self.gmail_origin()))
+            elif path == "/api/gmail/inbox":
+                try:
+                    self.send_json(200, application.gmail_inbox())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == CALLBACK:
                 clear_cookie = "clubsp_gmail=; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=0"
                 try:
@@ -154,6 +160,19 @@ def handler_for(application, gmail):
                         raise ValueError("Refresh request must be empty")
                     gmail.ensure_access_token(force=True)
                     result = gmail.status(self.gmail_origin())
+                elif path == "/api/gmail/sync":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "Sync Gmail from the ClubSP workspace"})
+                        return
+                    result = sync_previews(gmail, application, data)
+                elif path.startswith("/api/gmail/previews/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 5 or parts[4] != "review":
+                        raise LookupError("Route not found")
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "Review Gmail from the ClubSP workspace"})
+                        return
+                    result = application.review_gmail_preview(parts[3], data)
                 elif path == "/api/gmail/disconnect":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "Open Disconnect from the ClubSP workspace"})

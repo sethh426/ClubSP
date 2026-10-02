@@ -73,13 +73,15 @@ class GmailConnection:
         self.generation = 0
         self.lock = threading.Lock()
         self.refresh_lock = threading.Lock()
+        self.sync_lock = threading.Lock()
 
     def callback_uri(self, origin):
         return self.external_callback or origin + CALLBACK
 
     def status(self, origin):
         result = {"configured": bool(self.client_id and self.client_secret and self.expected_email),
-                  "connected": False, "sending_enabled": False, "sync_enabled": False,
+                  "connected": False, "sending_enabled": False, "sync_enabled": True,
+                  "automatic_sync": False, "sync_mode": "manual_previews",
                   "redirect_uri": self.callback_uri(origin), "scope": "Read-only Gmail",
                   "refresh_enabled": True,
                   "expected_email": self.expected_email}
