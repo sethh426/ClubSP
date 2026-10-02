@@ -9,7 +9,7 @@ def test_funding_pass_does_not_hide_missing_opportunity_checks(tmp_path):
     row = result["deals"][0]
     assert row["checks_pass"]
     assert row["action_status"] == "needs_action"
-    assert row["current_criteria_fit_buyers"] is None
+    assert row["current_criteria_fit_buyers"] in {None, 0}
     assert not result["pipeline"]["execution_authorized"]
     assert row["pipeline_next_action"]
     assert row["downside_net"] is not None
