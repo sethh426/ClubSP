@@ -39,6 +39,11 @@ def accept_sale(app, pid, **changes):
     return next(s for s in app.state()["sourcing"]["sales"] if s["row_id"] == row["id"])
 
 
+def add_fact(app, pid, attribute, value):
+    return app.record_fact({"property_id": pid, "attribute": attribute, "value": value,
+                            "provider": "Synthetic evidence", "confidence": 0.9})["fact"]
+
+
 def test_preview_accept_provenance_and_restart(tmp_path):
     app = Application(tmp_path / "intake.db")
     row = staged_row(app, import_data())
@@ -81,6 +86,39 @@ def test_candidate_duplicate_checks_normalized_parcel_fact_names(tmp_path):
     with pytest.raises(ValueError, match="Existing address or parcel"):
         app.review_candidate(row["id"], review_data())
     assert len(app.state()["properties"]) == 1
+
+
+def test_reviewed_candidates_are_ranked_as_research_opportunities_not_deals(tmp_path):
+    from tests.test_opportunities import policy
+    app = Application(tmp_path / "intake.db")
+    row = staged_row(app, import_data())
+    accepted = app.review_candidate(row["id"], review_data())
+    pid = accepted["property_id"]
+    add_fact(app, pid, "recorded_owner_name", "Synthetic owner")
+    policy(app)
+    discovery = app.state()["discovery"]
+    assert discovery["execution_authorized"] is False
+    assert discovery["items"][0]["decision"] == "research_candidate"
+    assert discovery["items"][0]["score"] == 100
+    assert discovery["items"][0]["economics_available"] is False
+    assert any("seller price or terms" in reason for reason in discovery["items"][0]["reasons"])
+    assert not app.state()["deals"]
+
+
+def test_discovery_explains_outside_market_and_existing_pipeline(tmp_path):
+    from tests.test_opportunities import policy
+    app = Application(tmp_path / "intake.db")
+    row = staged_row(app, import_data())
+    accepted = app.review_candidate(row["id"], review_data())
+    pid = accepted["property_id"]
+    policy(app, markets=["Indianapolis, IN"])
+    item = app.state()["discovery"]["items"][0]
+    assert item["decision"] == "outside_buy_box"
+    assert any("outside the saved buy box" in reason for reason in item["reasons"])
+    app.create_deal({"property_id": pid, "strategy": "assignment"})
+    item = app.state()["discovery"]["items"][0]
+    assert item["decision"] == "already_in_pipeline"
+    assert any("active deal pipeline" in reason for reason in item["reasons"])
 
 
 @pytest.mark.parametrize("changes", [
