@@ -39,6 +39,81 @@ def sale_snapshot(connection, property_id):
 
 
 class SourcingMixin:
+    def _discovery_state(self, connection):
+        """Rank reviewed candidate properties for research; never invent economics."""
+        policy_row = connection.execute("SELECT body FROM opportunity_policies ORDER BY rowid DESC LIMIT 1").fetchone()
+        policy = json.loads(policy_row["body"]) if policy_row else None
+        from .opportunities import canonical, property_evidence
+        from datetime import datetime, timezone
+        now = utc_now()
+        existing = {str(row["property_id"]): row["stage"] for row in connection.execute(
+            "SELECT property_id,stage FROM deals WHERE stage NOT IN ('completed','lost')")}
+        candidates = []
+        rows = connection.execute(
+            "SELECT r.body,b.body AS batch_body FROM sourcing_rows r JOIN sourcing_batches b ON b.id=r.batch_id "
+            "WHERE r.status='accepted' ORDER BY r.rowid DESC")
+        for record in rows:
+            row, batch = json.loads(record["body"]), json.loads(record["batch_body"])
+            if batch.get("kind") != "candidates" or not row.get("review", {}).get("property_id"):
+                continue
+            property_id = row["review"]["property_id"]
+            prop = connection.execute("SELECT * FROM properties WHERE id=?", (property_id,)).fetchone()
+            if prop is None:
+                continue
+            evidence = property_evidence(connection, property_id)
+            reasons, outside, score = [], [], 0
+            market = " ".join(f"{prop['city']}, {prop['state']}".lower().split())
+            ptype = evidence["values"].get("property_type")
+            if not policy:
+                reasons.append("Save a buy-box policy before ranking this candidate")
+            else:
+                if market in policy["markets"]:
+                    score += 40
+                else:
+                    outside.append("Market is outside the saved buy box")
+                if ptype and canonical(ptype) in policy["property_types"]:
+                    score += 25
+                elif ptype:
+                    outside.append("Property type is outside the saved buy box")
+                else:
+                    reasons.append("Record an unambiguous property type")
+            if evidence["values"].get("recorded_owner_name"):
+                score += 15
+            else:
+                reasons.append("Confirm owner-of-record evidence")
+            if evidence["values"].get("parcel_id"):
+                score += 10
+            else:
+                reasons.append("Confirm parcel identity")
+            try:
+                source_date = datetime.fromisoformat(batch["source_date"]).replace(tzinfo=timezone.utc)
+                age_days = max(0, (now - source_date).days)
+            except (ValueError, TypeError, KeyError):
+                age_days = None
+            if age_days is not None and age_days <= (policy["evidence_max_age_days"] if policy else 30):
+                score += 10
+            else:
+                reasons.append("Refresh the candidate source record")
+            if property_id in existing:
+                reasons.append("Already in an active deal pipeline")
+            if not evidence["values"].get("asking_price"):
+                reasons.append("Capture seller price or terms before economics can be tested")
+            decision = "outside_buy_box" if outside else "research_candidate"
+            if property_id in existing:
+                decision = "already_in_pipeline"
+            candidates.append({"property_id": property_id, "address": prop["address"], "market": market,
+                               "property_type": ptype, "score": score, "decision": decision,
+                               "reasons": outside + reasons,
+                               "source": {"provider": batch["provider"], "url": batch["source_url"],
+                                          "as_of": batch["source_date"], "batch_id": batch["id"]},
+                               "economics_available": False,
+                               "scope": "Research candidate only; no seller motivation, valuation, offer or execution authority"})
+        order = {"research_candidate": 0, "already_in_pipeline": 1, "outside_buy_box": 2}
+        candidates.sort(key=lambda item: (order[item["decision"]], -item["score"], item["address"], item["property_id"]))
+        return {"items": candidates, "policy_id": policy["id"] if policy else None,
+                "execution_authorized": False,
+                "scope": "Reviewed candidate imports only; no autonomous discovery or external actions"}
+
     def import_candidates(self, data):
         kind = text_field(data, "kind", 20)
         if kind not in {"candidates", "county_sales"}:

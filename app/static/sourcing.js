@@ -11,6 +11,20 @@ function sourcingCheck(form, name, label) {
 }
 function renderSourcing() {
   const box = $("sourcing-workspace"); box.replaceChildren();
+  const discovery = workspaceDetails("Research opportunities from reviewed candidates", true);
+  discovery.append(node("p", "Ranked by saved buy-box fit and evidence completeness. These are research candidates, not verified deals or profit predictions.", "muted small"));
+  if (!state.discovery.items.length) discovery.append(node("p", "No reviewed candidate properties yet. Import and accept a candidate row to begin.", "muted small"));
+  state.discovery.items.forEach(item => {
+    const card = node("article", undefined, "evidence-row discovery-card");
+    card.append(node("strong", item.address + " · " + readable(item.decision) + " · " + item.score + "/100"));
+    card.append(node("p", item.market + (item.property_type ? " · " + readable(item.property_type) : ""), "small"));
+    card.append(node("p", item.reasons.length ? item.reasons.join(" · ") : "Ready for owner research", "muted small"));
+    card.append(node("p", "Source: " + item.source.provider + " · as of " + item.source.as_of + ". No automatic economics.", "muted small"));
+    const open = node("button", "Open research file", "button secondary"); open.type = "button";
+    open.addEventListener("click", () => { selected = item.property_id; selectedDeal = null; render(); $("property-title").scrollIntoView({block: "start"}); });
+    card.append(open); discovery.append(card);
+  });
+  box.append(discovery);
   const details = workspaceDetails("Import CSV (up to 50 rows / 45 KB)", !state.sourcing.batches.length);
   const form = node("form", undefined, "workspace-form sourcing-import-form");
   workspaceSelect(form, "kind", "Import type", [["candidates", "Candidate properties"], ["county_sales", "County completed sales"]]);

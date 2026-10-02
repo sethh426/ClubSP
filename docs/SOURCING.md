@@ -27,6 +27,21 @@ Use one confirmed city per batch. The county export has no required city/state c
 
 ## Underwriting dependency
 
+## Research opportunity discovery
+
+Accepted candidate-property rows are ranked in `state.discovery` against the latest
+buy-box policy. The score is an evidence-completeness and policy-fit triage score,
+not a probability of profit. Market fit contributes 40 points, property-type fit
+25, owner evidence 15, parcel identity 10 and a current source date 10. Candidates
+outside the buy box and properties already in an active deal are labeled separately.
+Missing seller price/terms always remains a reason for research; the discovery
+queue never invents a price, seller motivation, valuation or expected return.
+
+Discovery only uses reviewed candidate imports. It does not scrape the viewer,
+contact owners, create deals, spend money or authorize an offer. After a candidate
+is opened, the owner must verify identity, ownership/authority, condition, seller
+terms and comparable evidence before underwriting.
+
 Saving underwriting captures all currently accepted sales for that subject, including source and review metadata, and a deterministic digest. It preserves a historical snapshot if the evidence is later withdrawn. The entered exit price remains manual: there is no automatic average, price adjustment, appraisal or guarantee of saleability.
 
 The advisory opportunity queue requests comparable evidence when none exists, asks for a refresh when any accepted sale is older than 365 days, and invalidates underwriting when the accepted evidence changes or a legacy version did not track it. Buyer comparisons also reject changed/untracked sale evidence. Moving to contracted requires a matching current sale-evidence digest; it does not require a minimum comp count or independently validated valuation. Legacy underwriting must be reviewed and resaved. After resaving underwriting, refresh the financial plan as usual.

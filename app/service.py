@@ -114,6 +114,7 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
             result["deals"] = self._list_deals(connection)
             result["opportunities"] = self._opportunity_state(connection, result["deals"])
             result["sourcing"] = self._sourcing_state(connection)
+            result["discovery"] = self._discovery_state(connection)
             result["today"] = business_today().isoformat()
             result["research"] = self._research_snapshots(connection)
             result["providers"] = [PROVIDER]
