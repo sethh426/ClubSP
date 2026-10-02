@@ -63,6 +63,7 @@ test("seller evidence, current reply review, stop control and synthetic practice
   for (const name of ["listening", "grounding", "clarity", "next_step", "economics", "respect"]) await practice.locator("[name="+name+"]").selectOption("2");
   await practice.locator("[name=review_note]").fill("Synthetic response acknowledges the refusal and contains no continuing solicitation.");
   await practice.getByRole("button", { name: "Save practice & self-assessment" }).click();
+  await expect(page.locator("#message")).toHaveText("Practice and owner self-assessment saved.");
   await training.getByText(/Practice history ·/).click();
   await expect(training.getByText("stop · 12/12 · Practice threshold met", { exact: true }).first()).toBeVisible();
   await training.screenshot({ path: testInfo.outputPath("training.png") });

@@ -134,6 +134,7 @@ class SourcingMixin:
         return {"id": batch_id, "duplicate": False}
 
     def review_candidate(self, row_id, data):
+        from .opportunities import canonical, property_evidence
         action = text_field(data, "action", 20)
         if action not in {"accept", "exclude"}:
             raise ValueError("action must be accept or exclude")
@@ -155,9 +156,8 @@ class SourcingMixin:
                     # Never merge on a similar address or assume parcel ownership.
                     collisions = [p for p in connection.execute("SELECT * FROM properties")
                                   if identity(p["address"]) == identity(value["address"]) and identity(p["city"]) == identity(value["city"]) and identity(p["state"]) == identity(value["state"])]
-                    parcel_matches = connection.execute("SELECT body FROM memory WHERE collection='facts' AND json_extract(body,'$.attribute')='parcel_id'").fetchall()
-                    collision_ids = {p["id"] for p in collisions} | {json.loads(p["body"])["subject_id"] for p in parcel_matches
-                                     if json.loads(p["body"]).get("subject_type") == "property" and identity(json.loads(p["body"])["value"]) == identity(value["parcel_id"])}
+                    collision_ids = {p["id"] for p in collisions} | {str(f.subject_id) for f in memory.facts.values()
+                                     if f.subject_type == "property" and canonical(f.attribute) == "parcel_id" and identity(f.value) == identity(value["parcel_id"])}
                     if collision_ids:
                         raise ValueError("Existing address or parcel found; review the existing property instead of importing a duplicate")
                     property_id = str(uuid4())
@@ -172,8 +172,6 @@ class SourcingMixin:
                 else:
                     property_id = str(property_exists(connection, data.get("property_id")))
                     prop = connection.execute("SELECT * FROM properties WHERE id=?", (property_id,)).fetchone()
-                    from .opportunities import property_evidence
-                    from .opportunities import canonical
                     parcels = [f["value"] for f in property_evidence(connection, property_id)["facts"] if canonical(f["attribute"]) == "parcel_id"]
                     if any(identity(parcel) == identity(value["parcel_id"]) for parcel in parcels) or (identity(prop["address"]) == identity(value["address"]) and identity(prop["city"]) == identity(value["city"]) and identity(prop["state"]) == identity(value["state"])):
                         raise ValueError("The subject property cannot be its own comparable")

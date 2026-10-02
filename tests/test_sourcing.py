@@ -72,6 +72,17 @@ def test_idempotent_concurrent_batch_and_candidate_identity(tmp_path):
     assert len(app.state()["properties"]) == 1
 
 
+def test_candidate_duplicate_checks_normalized_parcel_fact_names(tmp_path):
+    app = Application(tmp_path / "intake.db")
+    prop = app.create_property({"address": "Other address", "city": "Fort Wayne", "state": "IN"})
+    app.record_fact({"property_id": prop["id"], "attribute": "Parcel ID", "value": "00123",
+                     "provider": "Synthetic record", "confidence": 0.5})
+    row = staged_row(app, import_data())
+    with pytest.raises(ValueError, match="Existing address or parcel"):
+        app.review_candidate(row["id"], review_data())
+    assert len(app.state()["properties"]) == 1
+
+
 @pytest.mark.parametrize("changes", [
     {"csv": "address,address\nA,A"}, {"csv": "address,zip,parcel_id,property_type"},
     {"csv": "address,zip,parcel_id,property_type\n" + "A,1,2,T\n" * 51},
