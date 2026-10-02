@@ -33,6 +33,8 @@ def setup_deal(tmp_path):
     pid = app.state()["deals"][0]["property_id"]
     fact(app, pid, "property_type", "single_family")
     fact(app, pid, "recorded_owner_name", "Synthetic Owner")
+    from tests.test_sourcing import accept_sale
+    accept_sale(app, pid)
     app.underwrite(did, app.state()["deals"][0]["underwriting"]["inputs"])
     plan(app, did, seller_price=80000)
     app.create_buyer({"name": "Synthetic buyer", "locations": ["Fort Wayne, IN"],

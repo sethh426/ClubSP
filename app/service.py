@@ -19,6 +19,7 @@ from .communications import CommunicationsMixin
 from .training import TrainingMixin
 from .knowledge import KnowledgeMixin
 from .opportunities import OpportunitiesMixin, property_evidence, canonical
+from .sourcing import SourcingMixin, sale_snapshot
 
 
 DEAL_STAGES = (
@@ -87,7 +88,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin):
+class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin):
     def __init__(self, path):
         self.database = Database(path)
         with self.database.session(write=True) as (connection, _):
@@ -112,6 +113,7 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
             })
             result["deals"] = self._list_deals(connection)
             result["opportunities"] = self._opportunity_state(connection, result["deals"])
+            result["sourcing"] = self._sourcing_state(connection)
             result["today"] = business_today().isoformat()
             result["research"] = self._research_snapshots(connection)
             result["providers"] = [PROVIDER]
@@ -297,6 +299,9 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
                 ).fetchone()
                 if underwriting is None or not json.loads(underwriting["result_json"])["scenarios"]["base"]["profitable"]:
                     raise ValueError("A profitable base underwriting is required before a deal can be contracted")
+                saved = json.loads(underwriting["result_json"])
+                if saved.get("sale_evidence", {}).get("digest") != sale_snapshot(connection, deal["property_id"])["digest"]:
+                    raise ValueError("Review and resave underwriting after comparable-sale evidence changes")
                 if data.get("owner_confirmed_signed") is not True or not evidence:
                     raise ValueError("Moving to contracted requires owner confirmation and a signed-agreement reference")
                 blockers = self._finance(connection, deal)["contract_blockers"]
@@ -348,6 +353,7 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
                 "strategy": deal["strategy"], "scenarios": scenarios,
                 "fact_ids": fact_ids, "formula_version": "assignment-resale-v1",
                 "evidence_digest": evidence["digest"],
+                "sale_evidence": sale_snapshot(connection, deal["property_id"]),
                 "warning": (
                     "Manual scenario analysis; exit price and costs are unverified inputs, not an appraisal or offer."
                 ),
@@ -409,6 +415,7 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
         inputs, result = json.loads(uw["inputs_json"]), json.loads(uw["result_json"])
         location = " ".join(f"{prop['city']}, {prop['state']}".lower().split())
         evidence = property_evidence(connection, deal["property_id"])
+        sales = sale_snapshot(connection, deal["property_id"])
         value = evidence["values"].get("property_type")
         observed_type = canonical(value) if value is not None else None
         plan = self._finance(connection, deal)["plan"]
@@ -428,6 +435,8 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
             reasons = []
             if result.get("evidence_digest") != evidence["digest"]:
                 reasons.append("underwriting evidence changed or was not tracked; review underwriting")
+            if result.get("sale_evidence", {}).get("digest") != sales["digest"]:
+                reasons.append("comparable-sale evidence changed or was not tracked; review underwriting")
             if "property_type" in evidence["conflicts"]:
                 reasons.append("property type has conflicting current evidence")
             if location not in buyer["locations"]:

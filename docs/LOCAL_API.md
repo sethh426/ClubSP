@@ -147,3 +147,12 @@ cannot publish as current. Restart fails unfinished work without external retry.
 An active note change/rollback/withdrawal invalidates old reply context. Related
 sales/operations/compliance notes can appear beside training. References and
 professional review are owner-entered records, not independent verification.
+
+## CSV sourcing and sale evidence
+
+`POST /api/sourcing/import` stages bounded CSV rows; the result is a batch ID and
+duplicate flag. `POST /api/sourcing/rows/{id}/review` accepts or excludes a pending
+row. `POST /api/sourcing/sales/{id}/withdraw` preserves and withdraws an accepted
+sale. `GET /api/state` includes sourcing batches, row errors/reviews and sales.
+See [SOURCING.md](SOURCING.md) for exact schemas, source contracts and evidence
+invalidation. Existing Host/Origin/JSON/body-size checks apply.

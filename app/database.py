@@ -71,6 +71,17 @@ class Database:
                 CREATE TABLE IF NOT EXISTS opportunity_policies (
                     id TEXT PRIMARY KEY, body TEXT NOT NULL, created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS sourcing_batches (
+                    id TEXT PRIMARY KEY, batch_key TEXT NOT NULL UNIQUE, body TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS sourcing_rows (
+                    id TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES sourcing_batches(id),
+                    body TEXT NOT NULL, status TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS sale_evidence (
+                    id TEXT PRIMARY KEY, property_id TEXT NOT NULL REFERENCES properties(id),
+                    body TEXT NOT NULL, status TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS deals (
                     id TEXT PRIMARY KEY,
                     property_id TEXT NOT NULL REFERENCES properties(id),

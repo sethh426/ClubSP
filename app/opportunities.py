@@ -7,6 +7,7 @@ from uuid import uuid4
 from core.memory.models import utc_now
 from .money import cents, dollars
 from .validation import list_field, text_field
+from .sourcing import sale_snapshot
 
 
 def canonical(value):
@@ -115,11 +116,20 @@ class OpportunitiesMixin:
                 if exposure > cents(policy["max_portfolio_cash_at_risk"]):
                     blockers.append("Estimated portfolio cash exposure exceeds the policy limit")
             uw, finance = deal["underwriting"], deal["finance"]
+            sales = sale_snapshot(connection, prop["id"])
+            if not sales["items"]:
+                gaps.append("Review comparable-sale evidence for the manual exit-price assumption")
+            elif any((now.date() - datetime.fromisoformat(s["sale"]["sale_date"]).date()).days > 365 for s in sales["items"]):
+                gaps.append("Review comparable sales older than one year; refresh the exit-price evidence")
+            if sales["conflicts"]:
+                blockers.append("Resolve conflicting comparable-sale prices")
             plan = finance["plan"]
             buyer_candidates = []
             if not uw:
                 gaps.append("Record sourced underwriting assumptions")
             else:
+                if uw["result"].get("sale_evidence", {}).get("digest") != sales["digest"]:
+                    gaps.append("Comparable-sale evidence changed or was not tracked; review and resave underwriting")
                 if uw["result"].get("evidence_digest") != evidence["digest"]:
                     gaps.append("Underwriting evidence changed or was not tracked; review and resave underwriting")
                 if policy and not recent(uw["created_at"], policy["evidence_max_age_days"], now):

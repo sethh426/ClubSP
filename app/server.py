@@ -17,6 +17,7 @@ ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/workspace.js": ("workspace.js", "text/javascript; charset=utf-8"),
+    "/sourcing.js": ("sourcing.js", "text/javascript; charset=utf-8"),
     "/communications.js": ("communications.js", "text/javascript; charset=utf-8"),
     "/knowledge.js": ("knowledge.js", "text/javascript; charset=utf-8"),
     "/gmail.js": ("gmail.js", "text/javascript; charset=utf-8"),
@@ -176,6 +177,18 @@ def handler_for(application, gmail):
                     result = application.create_buyer(data)
                 elif path == "/api/opportunities/policy":
                     result = application.save_opportunity_policy(data)
+                elif path == "/api/sourcing/import":
+                    result = application.import_candidates(data)
+                elif path.startswith("/api/sourcing/rows/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 5 or parts[4] != "review":
+                        raise LookupError("Route not found")
+                    result = application.review_candidate(parts[3], data)
+                elif path.startswith("/api/sourcing/sales/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 5 or parts[4] != "withdraw":
+                        raise LookupError("Route not found")
+                    result = application.withdraw_sale(parts[3], data)
                 elif path == "/api/contacts":
                     result = application.create_contact(data)
                 elif path == "/api/training/practice":

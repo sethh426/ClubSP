@@ -177,6 +177,8 @@ function renderDealBoard() {
   const underwriting=node("form",undefined,"underwrite-form");
   const fields=[["property_type","Property type","single_family","text"],["expected_exit_price","Expected exit price ($)","250000","number"],["buyer_repairs","Buyer repair estimate ($)","30000","number"],["buyer_funding_holding","Buyer funding / holding ($)","8000","number"],["buyer_closing","Buyer closing costs ($)","5000","number"],["buyer_selling_costs","Buyer selling costs ($)","10000","number"],["buyer_minimum_profit","Buyer minimum profit ($)","40000","number"],["target_assignment_fee","Target assignment fee ($)","20000","number"],["owner_transaction_costs","Your transaction costs ($)","4000","number"],["partner_payout_allowance","Partner payout allowance ($)","0","number"],["contingency","Contingency ($)","5000","number"],["desired_owner_net","Desired net to you ($)","10000","number"],["basis","Assumptions / evidence basis","Enter sources and what remains unverified.","text"]];
   fields.forEach(([name,label,placeholder,type])=>{const w=node("label",label);const i=type==="text"&&name==="basis"?node("textarea"):node("input");i.name=name;i.required=true;i.placeholder=placeholder;if(type==="number"){i.type="number";i.min="0";i.step="0.01";}i.value=deal.underwriting?.inputs[name]??"";w.append(i);underwriting.append(w);});
+  const acceptedSales = state.sourcing.sales.filter(s => s.property_id === deal.property_id && s.status === "accepted");
+  underwriting.append(node("p", "Saving captures " + acceptedSales.length + " currently accepted comparable sale(s). Review these in Candidate intake & comparable-sale evidence. Exit price remains your manual assumption.", "muted small"));
   const uwButton=node("button","Save underwriting scenarios","button primary");uwButton.type="submit";underwriting.append(uwButton);
   underwriting.addEventListener("submit",e=>{e.preventDefault();const v=values(underwriting);fields.filter(f=>f[3]==="number").forEach(f=>v[f[0]]=Number(v[f[0]]));runForm(underwriting,()=>api("/api/deals/"+deal.id+"/underwriting",v),"Underwriting scenarios saved.");});
   if (["contracted","disposition","closing","completed","lost"].includes(deal.stage)) { [...underwriting.elements].forEach(x=>x.disabled=true); }
@@ -201,6 +203,7 @@ function bindDealForms(){
 function render() {
   renderScorecard();
   renderOpportunityQueue();
+  renderSourcing();
   renderSellerInsights(); renderTraining(); renderKnowledge();
   $("count-properties").textContent = state.properties.length;
   $("count-facts").textContent = state.facts.length;
