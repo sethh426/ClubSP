@@ -22,18 +22,6 @@ def notice_blockers(connection, notice, candidate, property_type=None):
         blockers.append('Official notice is stale; check the source again')
     if not datetime.fromisoformat(candidate['bid_start']) <= now < datetime.fromisoformat(candidate['bid_end']):
         blockers.append('Advertised bid window is not currently open')
-    row = connection.execute('SELECT body FROM opportunity_policies ORDER BY rowid DESC LIMIT 1').fetchone()
-    policy = json.loads(row['body']) if row else None
-    if not policy:
-        blockers.append('Save a buy box and risk policy before intake')
-    else:
-        market = ' '.join(f"{candidate['city']}, {candidate['state']}".lower().split())
-        if market not in policy.get('markets', []):
-            blockers.append('Notice market is outside the recorded buy box')
-        if candidate['minimum_bid'] > policy['max_seller_price']:
-            blockers.append('Advertised minimum bid exceeds the recorded seller-price limit')
-        if property_type and '_'.join(property_type.lower().split()) not in policy.get('property_types', []):
-            blockers.append('Reviewed property type is outside the recorded buy box')
     return blockers
 
 
@@ -123,3 +111,26 @@ class DiscoveryIntakeMixin:
             raise ValueError('An existing property has this parcel; review it instead of accepting duplicate intake')
         if value['parcel_id'] not in candidate['parcel_ids']:
             raise ValueError('Reviewed parcel no longer matches the saved notice')
+
+def preliminary_notice_buyers(connection, candidate, property_type=None):
+    """Screen only known notice fields; never imply commitment or full deal fit."""
+    market = ' '.join(f"{candidate['city']}, {candidate['state']}".lower().split())
+    matches = []
+    for row in connection.execute("SELECT * FROM buyers WHERE status='active' ORDER BY created_at DESC,id"):
+        locations = json.loads(row['locations_json'])
+        types = json.loads(row['property_types_json'])
+        outside = []
+        gaps = ['Verify full acquisition price, fees, repairs, strategy, buyer interest and current funding']
+        if market not in locations:
+            outside.append('Market is outside this buyer’s recorded criteria')
+        if candidate['minimum_bid'] > row['max_total_price']:
+            outside.append('Advertised minimum bid exceeds this buyer’s recorded price ceiling')
+        if property_type is None:
+            gaps.append('Property type has not been reviewed')
+        elif types and '_'.join(property_type.lower().split()) not in types:
+            outside.append('Reviewed property type is outside this buyer’s recorded criteria')
+        status = 'outside_recorded_criteria' if outside else 'needs_more_information' if property_type is None else 'possible_fit_on_known_fields'
+        matches.append({'buyer_id': row['id'], 'name': row['name'], 'status': status,
+                        'reasons': outside + gaps, 'funding_status_on_record': row['funding_status'],
+                        'commitment_confirmed': False})
+    return matches

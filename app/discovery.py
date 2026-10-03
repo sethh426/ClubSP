@@ -10,7 +10,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from .providers import NoRedirect, parcel_key
-from .discovery_intake import DiscoveryIntakeMixin, notice_blockers
+from .discovery_intake import DiscoveryIntakeMixin, notice_blockers, preliminary_notice_buyers
 
 SOURCES = {
     'accdc': {'name': 'Allen County ACCDC availability', 'url': 'https://www.allencounty.in.gov/334/ACCDC-Properties'},
@@ -109,8 +109,6 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
     def discovery_state(self):
         now = datetime.now(timezone.utc)
         with self.database.session() as (connection, _):
-            policy_row = connection.execute('SELECT body FROM opportunity_policies ORDER BY rowid DESC LIMIT 1').fetchone()
-            policy = json.loads(policy_row['body']) if policy_row else None
             checks = []
             for source_id, source in SOURCES.items():
                 row = connection.execute('SELECT body FROM discovery_checks WHERE source_id=? ORDER BY rowid DESC LIMIT 1', (source_id,)).fetchone()
@@ -121,8 +119,7 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
                 for candidate in item['candidates']:
                     candidate['intake_blockers'] = notice_blockers(connection, item, candidate)
                     candidate['review_gaps'] = ['Review current sale terms, parcel portions, property type, funding, title, costs and exit demand.']
-                    candidate['within_recorded_price_limit'] = None if not policy else candidate['minimum_bid'] <= policy['max_seller_price']
-                    if candidate['within_recorded_price_limit'] is False: candidate['review_gaps'].append('Advertised minimum bid exceeds the recorded seller-price limit.')
+                    candidate['buyer_criteria'] = preliminary_notice_buyers(connection, candidate)
                     if now >= datetime.fromisoformat(candidate['bid_end']): candidate['review_gaps'].append('Advertised bid period has ended; current availability is unverified.')
                 checks.append(item)
             return {'sources': checks, 'automatic_checks': False, 'creates_deals': False}
