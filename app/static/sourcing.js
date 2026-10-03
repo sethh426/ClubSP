@@ -55,6 +55,11 @@ function renderSourcing() {
       const card = node("article", undefined, "evidence-row sourcing-row");
       card.append(node("strong", "Row " + row.line + " · " + (row.value.address || "Unknown address") + " · " + readable(row.status)));
       card.append(node("p", "Parcel " + (row.value.parcel_id || "unknown") + " · " + batch.city + ", " + batch.state, "small"));
+      if (batch.discovery) {
+        card.append(node("p", "Official notice minimum bid: " + amount("money", batch.discovery.candidate.minimum_bid) + ". This is an advertised floor, not negotiated seller terms.", "note"));
+        card.append(node("p", batch.discovery.candidate.identity_note + " · " + batch.discovery.reviewer + ": " + batch.discovery.note, "small"));
+        card.append(node("p", "Full notice parcels: " + batch.discovery.candidate.parcel_ids.join(", "), "small"));
+      }
       if (batch.kind === "county_sales") card.append(node("p", "Sale " + (row.value.sale_date || "unknown") + " · " + amount("money", row.value.sale_price || 0) + " · " + (row.value.living_area || "unknown") + " sq ft · class " + (row.value.property_class || "unknown"), "small"));
       row.errors.forEach(error => card.append(node("p", error, "note")));
       if (row.status === "pending") {

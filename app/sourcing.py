@@ -243,6 +243,7 @@ class SourcingMixin:
             value = body["value"]
             property_id = None
             if action == "accept":
+                self.validate_discovery_acceptance(connection, batch, value)
                 if data.get("identity_confirmed") is not True:
                     raise ValueError("Confirm parcel, address and market identity before acceptance")
                 if batch["kind"] == "candidates":
@@ -256,7 +257,7 @@ class SourcingMixin:
                     property_id = str(uuid4())
                     connection.execute("INSERT INTO properties(id,address,city,state,zip,created_at) VALUES(?,?,?,?,?,?)",
                                        (property_id, value["address"], value["city"], value["state"], value["zip"], utc_now().isoformat()))
-                    source = memory.add_source(SourceRecord(source_type="reviewed_csv", provider=batch["provider"], url=batch["source_url"],
+                    source = memory.add_source(SourceRecord(source_type="reviewed_official_notice" if batch.get("discovery") else "reviewed_csv", provider=batch["provider"], url=batch["source_url"],
                         published_at=datetime.combine(date.fromisoformat(batch["source_date"]), time(), timezone.utc),
                         raw_reference=f"import:{batch['id']}:row:{row_id}", content_hash=batch["raw_hash"]))
                     for attribute in ("parcel_id", "property_type"):

@@ -23,3 +23,46 @@ test("official notice checks are explicit and safely rendered", async ({ page })
   await expect(link).toHaveAttribute("rel", "noopener noreferrer");
   expect(await page.locator("#discovery-output").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
+
+test("saved notices stage a pending intake only after identity review", async ({ page }) => {
+  let posted;
+  const candidate = {address:"123 Example Road", minimum_bid:100000, availability:"Synthetic notice; verify availability",
+    identity_note:"Review surveyed portions", bid_start:"2026-10-01T11:00:00-04:00", bid_end:"2026-11-30T11:00:00-05:00",
+    parcel_ids:["02-01-01-101-001.000-001"], review_gaps:[], within_recorded_price_limit:true, intake_blockers:[]};
+  const source = {id:"synthetic-check", name:"Synthetic notice", source_id:"north_campus",
+    url:"https://www.allencounty.in.gov/1305/Sale-of-North-Campus-Property", status:"advertised_window", candidates:[candidate]};
+  await page.route("**/api/discovery", route => route.fulfill({json:{sources:[source]}}));
+  await page.route("**/api/discovery/intake", async route => {
+    posted = route.request().postDataJSON();
+    await route.fulfill({json:{id:"synthetic-batch", row_id:"synthetic-row", status:"pending", duplicate:false}});
+  });
+  await page.goto("/");
+  await page.getByText("Official sale-notice discovery", {exact:true}).click();
+  await page.getByText("Stage for identity review", {exact:true}).click();
+  const form = page.locator("#discovery-output form");
+  await form.getByLabel("Verified ZIP").fill("46818");
+  await form.getByLabel("Reviewed property type (must match your buy box)").fill("land");
+  await form.getByLabel("Reviewer", {exact:true}).fill("Synthetic reviewer");
+  await form.getByLabel("Evidence and survey / parcel portion review notes").fill("Synthetic reviewed evidence");
+  expect(posted).toBeUndefined();
+  await form.getByLabel("I checked the address, market, selected parcel and surveyed portions").check();
+  await form.getByRole("button", {name:"Stage pending intake"}).click();
+  await expect(form).toContainText("No property or deal created");
+  expect(posted.check_id).toBe("synthetic-check");
+  expect(posted.candidate_index).toBe(0);
+  expect(posted.identity_confirmed).toBe(true);
+  expect(posted).not.toHaveProperty("minimum_bid");
+  await expect(form.getByRole("link", {name:"Review staged intake"})).toHaveAttribute("href", "/?intake=synthetic-batch#sourcing-workspace");
+});
+test("buy box blockers prevent staging a discovered notice", async ({ page }) => {
+  const candidate = {address:"123 Example Road", minimum_bid:8000000, availability:"Synthetic notice",
+    identity_note:"Review portions", bid_start:"2026-10-01", bid_end:"2026-11-30", parcel_ids:["synthetic"],
+    review_gaps:[], within_recorded_price_limit:false, intake_blockers:["Advertised minimum bid exceeds the recorded seller-price limit"]};
+  await page.route("**/api/discovery", route => route.fulfill({json:{sources:[{
+    name:"Synthetic notice", status:"advertised_window", url:"https://www.allencounty.in.gov/", candidates:[candidate]}]}}));
+  await page.goto("/");
+  await page.getByText("Official sale-notice discovery", {exact:true}).click();
+  await page.getByText("Stage for identity review", {exact:true}).click();
+  await expect(page.locator("#discovery-output")).toContainText("Advertised minimum bid exceeds");
+  await expect(page.getByRole("button", {name:"Stage pending intake"})).toHaveCount(0);
+});
