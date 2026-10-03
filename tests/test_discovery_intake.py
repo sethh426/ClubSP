@@ -103,3 +103,17 @@ def test_intake_endpoint_requires_same_origin(notice_app):
         assert not app.state()['properties'] and not app.state()['deals']
     finally:
         server.shutdown(); server.server_close(); worker.join()
+
+
+def test_existing_parcel_is_detected_across_display_formats(notice_app):
+    from core.memory import Fact, SourceRecord
+    from uuid import UUID
+    app, notice = notice_app
+    staged = app.stage_discovery_intake(payload(notice))
+    existing = app.create_property(dict(address='Different address spelling', city='Fort Wayne', state='IN', zip='46818'))
+    with app.database.session(write=True) as (connection, memory):
+        source = memory.add_source(SourceRecord(source_type='synthetic', provider='Test fixture'))
+        memory.add_fact(Fact(subject_type='property', subject_id=UUID(existing['id']), source_id=source.id, attribute='parcel_id',
+                             value=notice['candidates'][0]['parcel_ids'][0].replace('-', '').replace('.', ''), value_type='text', confidence=0.5))
+    with pytest.raises(ValueError, match='parcel'): app.review_candidate(staged['row_id'], REVIEW)
+    assert len(app.state()['properties']) == 1

@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from core.memory.models import utc_now
 from .sourcing import identity
+from .providers import parcel_key
 from .validation import text_field
 
 
@@ -34,6 +35,20 @@ def notice_blockers(connection, notice, candidate, property_type=None):
         if property_type and '_'.join(property_type.lower().split()) not in policy.get('property_types', []):
             blockers.append('Reviewed property type is outside the recorded buy box')
     return blockers
+
+
+def duplicate_notice_parcel(connection, parcel):
+    expected = parcel_key(parcel.replace('.', ''))
+    for row in connection.execute("SELECT body FROM memory WHERE collection='facts'"):
+        fact = json.loads(row['body'])
+        if fact.get('subject_type') != 'property' or fact.get('status') != 'active' or '_'.join(str(fact.get('attribute', '')).lower().split()) != 'parcel_id':
+            continue
+        try:
+            if parcel_key(str(fact['value']).replace('.', '')) == expected:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 class DiscoveryIntakeMixin:
@@ -79,7 +94,7 @@ class DiscoveryIntakeMixin:
                 return {'id': prior['id'], 'row_id': row['id'], 'duplicate': True, 'status': row['status']}
 
             collision = any(identity(row['address']) == identity(candidate['address']) and identity(row['city']) == identity(candidate['city']) and identity(row['state']) == identity(candidate['state']) for row in connection.execute('SELECT address,city,state FROM properties'))
-            if collision:
+            if collision or duplicate_notice_parcel(connection, reviewed['parcel_id']):
                 raise ValueError('An existing property has this address; review it instead of creating another intake')
             batch_id, row_id = str(uuid4()), str(uuid4())
             now = utc_now().isoformat()
@@ -104,5 +119,7 @@ class DiscoveryIntakeMixin:
         blockers = notice_blockers(connection, notice, candidate, value['property_type'])
         if blockers:
             raise ValueError('; '.join(blockers))
+        if duplicate_notice_parcel(connection, value['parcel_id']):
+            raise ValueError('An existing property has this parcel; review it instead of accepting duplicate intake')
         if value['parcel_id'] not in candidate['parcel_ids']:
             raise ValueError('Reviewed parcel no longer matches the saved notice')
