@@ -21,6 +21,7 @@ ASSETS = {
     "/sourcing.js": ("sourcing.js", "text/javascript; charset=utf-8"),
     "/communications.js": ("communications.js", "text/javascript; charset=utf-8"),
     "/knowledge.js": ("knowledge.js", "text/javascript; charset=utf-8"),
+    "/discovery.js": ("discovery.js", "text/javascript; charset=utf-8"),
     "/gmail.js": ("gmail.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/funding": ("funding.html", "text/html; charset=utf-8"),
@@ -81,7 +82,9 @@ def handler_for(application, gmail):
                 self.send_json(403, {"error": "Use the local application URL"})
                 return
             path = urlsplit(self.path).path
-            if path == "/api/gmail/status":
+            if path == "/api/discovery":
+                self.send_json(200, application.discovery_state())
+            elif path == "/api/gmail/status":
                 self.send_json(200, gmail.status(self.gmail_origin()))
             elif path == CALLBACK:
                 clear_cookie = "clubsp_gmail=; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=0"
@@ -141,7 +144,12 @@ def handler_for(application, gmail):
                 if not isinstance(data, dict):
                     raise ValueError("Request body must be a JSON object")
                 path = urlsplit(self.path).path
-                if path == "/api/gmail/connect":
+                if path == "/api/discovery/check":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.check_discovery(data)
+                elif path == "/api/gmail/connect":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "Open Connect Gmail from the ClubSP workspace"})
                         return
