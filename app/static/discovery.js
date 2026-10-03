@@ -4,6 +4,42 @@ document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("discovery-form");
   const result = document.getElementById("discovery-result");
   function node(tag, text) { const item = document.createElement(tag); item.textContent = text; return item; }
+  function intakeForm(source, candidate, index) {
+    const box = node("details", ""); box.append(node("summary", "Stage for identity review"));
+    const blockers = candidate.intake_blockers || [];
+    if (blockers.length) {
+      for (const blocker of blockers) box.append(node("p", blocker));
+      const policy = node("a", "Review buy box and risk policy"); policy.href = "#opportunity-queue"; box.append(policy);
+      return box;
+    }
+    const review = node("form", ""); review.className = "workspace-form";
+    function field(name, label, tag = "input") {
+      const wrap = node("label", label), input = node(tag, ""); input.name = name; input.required = true;
+      wrap.append(input); review.append(wrap); return input;
+    }
+    const parcel = field("parcel_id", "Reviewed parcel named in this notice", "select");
+    for (const id of candidate.parcel_ids) { const option = node("option", id); option.value = id; parcel.append(option); }
+    field("zip", "Verified ZIP").pattern = "[0-9]{5}(-[0-9]{4})?";
+    field("property_type", "Reviewed property type (must match your buy box)");
+    field("reviewer", "Reviewer"); field("note", "Evidence and survey / parcel portion review notes", "textarea");
+    const confirm = field("identity_confirmed", "I checked the address, market, selected parcel and surveyed portions"); confirm.type = "checkbox";
+    const button = node("button", "Stage pending intake"); button.type = "submit"; button.className = "button";
+    const status = node("p", ""); status.setAttribute("role", "status"); review.append(button, status);
+    review.addEventListener("submit", async event => {
+      event.preventDefault(); button.disabled = true;
+      const data = Object.fromEntries(new FormData(review)); data.identity_confirmed = confirm.checked;
+      data.check_id = source.id; data.candidate_index = index;
+      try {
+        const response = await fetch("/api/discovery/intake", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
+        const saved = await response.json(); if (!response.ok) throw new Error(saved.error || "Intake failed");
+        status.textContent = saved.duplicate ? "This notice already has a staged intake." : "Pending intake saved. No property or deal created.";
+        const link = node("a", "Review staged intake"); link.href = "/?intake=" + encodeURIComponent(saved.id) + "#sourcing-workspace"; status.append(" ", link);
+      } catch (error) { status.textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+    box.append(node("p", "All notice parcels and terms are retained. This selection does not establish ownership, seller authority, or that a whole parcel is offered."), review);
+    return box;
+  }
   async function reload() {
     const response = await fetch("/api/discovery");
     if (!response.ok) throw new Error("Notice status unavailable");
@@ -14,12 +50,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (source.fetched_at) card.append(node("p", "Checked: " + source.fetched_at));
       if (source.excerpt) card.append(node("p", source.excerpt));
       const link = node("a", "Review official source"); link.href = source.url; link.target = "_blank"; link.rel = "noopener noreferrer"; card.append(link);
-      for (const candidate of source.candidates) {
+      for (const [index, candidate] of source.candidates.entries()) {
         card.append(node("h4", candidate.address), node("p", "Advertised minimum bid: $" + candidate.minimum_bid.toLocaleString("en-US")), node("p", candidate.availability), node("p", candidate.identity_note));
         card.append(node("p", "Bid window: " + candidate.bid_start + " to " + candidate.bid_end));
         card.append(node("p", "Parcels: " + candidate.parcel_ids.join(", ")));
         for (const gap of candidate.review_gaps) card.append(node("p", gap));
         if (candidate.within_recorded_price_limit === null) card.append(node("p", "Save your buy box to compare the advertised price against your limit."));
+        card.append(intakeForm(source, candidate, index));
       }
       output.append(card);
     }

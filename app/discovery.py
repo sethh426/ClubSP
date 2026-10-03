@@ -10,6 +10,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from .providers import NoRedirect, parcel_key
+from .discovery_intake import DiscoveryIntakeMixin, notice_blockers
 
 SOURCES = {
     'accdc': {'name': 'Allen County ACCDC availability', 'url': 'https://www.allencounty.in.gov/334/ACCDC-Properties'},
@@ -71,7 +72,7 @@ def fetch_notice(url):
     return raw.decode('utf-8')
 
 
-class DiscoveryMixin:
+class DiscoveryMixin(DiscoveryIntakeMixin):
     def _initialize_discovery(self):
         self.discovery_lock = threading.Lock()
         self.discovery_fetch = fetch_notice
@@ -118,6 +119,7 @@ class DiscoveryMixin:
                     item['stale'] = (now - datetime.fromisoformat(item['fetched_at'])).total_seconds() >= 86400
                     if item['status'] == 'running': item['status'] = 'incomplete_check'
                 for candidate in item['candidates']:
+                    candidate['intake_blockers'] = notice_blockers(connection, item, candidate)
                     candidate['review_gaps'] = ['Review current sale terms, parcel portions, property type, funding, title, costs and exit demand.']
                     candidate['within_recorded_price_limit'] = None if not policy else candidate['minimum_bid'] <= policy['max_seller_price']
                     if candidate['within_recorded_price_limit'] is False: candidate['review_gaps'].append('Advertised minimum bid exceeds the recorded seller-price limit.')

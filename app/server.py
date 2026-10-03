@@ -144,7 +144,12 @@ def handler_for(application, gmail):
                 if not isinstance(data, dict):
                     raise ValueError("Request body must be a JSON object")
                 path = urlsplit(self.path).path
-                if path == "/api/discovery/check":
+                if path == "/api/discovery/intake":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.stage_discovery_intake(data)
+                elif path == "/api/discovery/check":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
                         return
