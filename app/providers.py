@@ -1,9 +1,9 @@
 """A fixed, bounded, read-only public record adapter. No arbitrary URLs."""
 from datetime import datetime, timezone
-import json
 import re
-from urllib.parse import urlencode
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler
+from pydantic import BaseModel, ConfigDict, Field
+from .provider_http import BoundedJSONTransport
 
 
 COUNTY_LAYER = "https://gis.acimap.us/services/rest/services/CFW/Parcels_With_Ownership_Information/MapServer/0"
@@ -44,32 +44,42 @@ def normalized_address(value):
 
 
 class NoRedirect(HTTPRedirectHandler):
+    """Used by the existing bounded HTML source adapters."""
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise ValueError("Provider redirected; review the configured endpoint")
 
 
+class ParcelFeature(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore", allow_inf_nan=False)
+    attributes: dict[str, str | int | float | None]
+
+
+class ParcelResponse(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore")
+    features: list[ParcelFeature] = Field(max_length=2)
+    exceededTransferLimit: bool = False
+
+
 class AllenCountyAdapter:
+    def __init__(self, *, transport=None):
+        self.transport = BoundedJSONTransport(COUNTY_LAYER + "/query", transport=transport)
+
     def fetch(self, key):
         key = parcel_key(key)
-        query = urlencode({"where": "GISPublished.SDE.Parcel_Poly.PIN='" + key + "'",
-                           "outFields": ",".join(FIELDS), "returnGeometry": "false", "f": "json"})
-        url = COUNTY_LAYER + "/query?" + query
-        request = Request(url, headers={"User-Agent": "ClubSP/0.1 bounded parcel research", "Accept": "application/json"})
-        with build_opener(NoRedirect()).open(request, timeout=10) as response:
-            body = response.read(524289)
-            if len(body) > 524288:
-                raise ValueError("Provider response exceeds the single-record size limit")
-            payload = json.loads(body)
-        if not isinstance(payload, dict) or payload.get("error"):
+        url, payload = self.transport.fetch({
+            "where": "GISPublished.SDE.Parcel_Poly.PIN='" + key + "'",
+            "outFields": ",".join(FIELDS), "returnGeometry": "false", "f": "json"})
+        if payload.get("error"):
             raise ValueError("Provider returned an error; no evidence was imported")
-        features = payload.get("features")
-        if not isinstance(features, list) or len(features) > 2:
-            raise ValueError("Provider response is malformed or ambiguous")
+        parsed = ParcelResponse.model_validate(payload)
+        if parsed.exceededTransferLimit:
+            raise ValueError("Provider truncated the response; identity is ambiguous")
+        features = parsed.features
         if not features:
             return {"url": url, "record": None, "status": "no_match"}
         if len(features) != 1:
             return {"url": url, "record": None, "status": "ambiguous"}
-        attrs = features[0].get("attributes")
+        attrs = features[0].attributes
         if not isinstance(attrs, dict) or "GISPublished.SDE.Parcel_Poly.PIN" not in attrs:
             raise ValueError("Provider schema changed; parcel identity field is missing")
         if parcel_key(str(attrs["GISPublished.SDE.Parcel_Poly.PIN"])) != key:
@@ -83,6 +93,8 @@ class AllenCountyAdapter:
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
                     raise ValueError("Provider transfer date is malformed")
                 value = datetime.fromtimestamp(value / 1000, timezone.utc).date().isoformat()
+                if value > datetime.now(timezone.utc).date().isoformat():
+                    raise ValueError("Provider transfer date is in the future")
             if isinstance(value, str):
                 value = value.strip()
                 if len(value) > 1000:

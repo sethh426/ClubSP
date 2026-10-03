@@ -296,6 +296,14 @@ class SourcingMixin:
         return {"id": sale_id, "status": "withdrawn"}
 
     def _sourcing_state(self, connection):
-        return {"batches": [json.loads(r["body"]) for r in connection.execute("SELECT body FROM sourcing_batches ORDER BY rowid DESC")],
+        from .comparables import comparable_screen
+        from .opportunities import property_evidence
+        policy_row = connection.execute("SELECT body FROM opportunity_policies ORDER BY rowid DESC LIMIT 1").fetchone()
+        max_age = json.loads(policy_row["body"])["evidence_max_age_days"] if policy_row else 30
+        screens = [comparable_screen(dict(prop), property_evidence(connection, prop["id"]),
+                                    sale_snapshot(connection, prop["id"]), evidence_max_age_days=max_age)
+                   for prop in connection.execute("SELECT * FROM properties WHERE id IN (SELECT property_id FROM sale_evidence WHERE status='accepted') ORDER BY id")]
+        return {"comparable_screens": screens,
+                "batches": [json.loads(r["body"]) for r in connection.execute("SELECT body FROM sourcing_batches ORDER BY rowid DESC")],
                 "rows": [{**json.loads(r["body"]), "status": r["status"]} for r in connection.execute("SELECT body,status FROM sourcing_rows ORDER BY rowid DESC")],
                 "sales": [{**json.loads(r["body"]), "status": r["status"]} for r in connection.execute("SELECT body,status FROM sale_evidence ORDER BY rowid DESC")]}

@@ -54,3 +54,54 @@ These checks do not replace valuation review, seller authority, title/contract r
 - `POST /api/sourcing/rows/{id}/review`: `action` (`accept`/`exclude`), `reviewer`, `note`, `evidence_reference`; acceptance also requires boolean `identity_confirmed`; sales require `property_id` and boolean `sale_verified`.
 - `POST /api/sourcing/sales/{id}/withdraw`: `reviewer`, `note`, `evidence_reference`.
 - `GET /api/state`: `sourcing.batches`, `sourcing.rows`, `sourcing.sales`; statuses and review histories are included.
+
+## Comparable suitability screen
+
+`/api/state` now includes `sourcing.comparable_screens` for subjects with accepted
+sale evidence. The source workspace displays an explained screen for each sale.
+It recomputes from current, conflict-resolved subject facts and accepted sales on
+every state read; superseded facts and withdrawn sales cannot remain in the screen.
+Subject and sale digests identify its dependencies. No screen is stored as a fact,
+appraisal, model prediction, or authorization.
+
+Subject facts use the attributes `parcel_id`, `property_class`, `neighborhood_code`,
+`living_area`, `year_built`, `bath`, and `acreage`. Codes must remain text, including
+leading zeros. Numeric facts must be finite numbers, not numeric text or booleans.
+Missing, invalid, conflicting, or stale subject evidence needs review. Freshness
+uses the saved opportunity policy, or 30 days without one.
+
+The initial advisory limits are one year for sale age, the same city/state,
+property class and neighborhood code, area within 25%, year built within 20 years,
+baths within one, and acreage within 50%. They are transparent starting heuristics,
+not calibrated market rules. A zero-acreage subject compares only to zero acreage.
+Self-parcels are excluded even when separators differ. The statuses are
+`screening_fit`, `needs_review`, and `excluded_by_screen`. Historical price per
+square foot is recomputed from price and area rather than trusting a CSV ratio.
+
+This screen does not withdraw accepted evidence, change underwriting, enforce a
+new contract gate, generate an ARV, establish seller motivation, or score profit.
+A screening-fit sale still requires condition, concessions, location and validity
+review. Existing underwriting continues to snapshot all accepted sales; withdraw
+unsuitable sales and resave assumptions through the existing review workflow.
+
+## Provider dependencies and rollout
+
+Install the application with `python -m pip install -e .` before running it.
+HTTPX provides bounded JSON transport for the existing exact-parcel adapter;
+Pydantic validates its response structure and comp measurements. The county
+lookup remains one reviewed record, with its existing persistent daily budget and
+cache. Transport refuses redirects, compressed responses, non-JSON content,
+nonfinite JSON numbers and responses above 512 KiB. Connect/read timeouts and an
+elapsed-time check prevent indefinite streaming; there are no automatic retries.
+Failures are saved by the research workflow without exposing response bodies.
+
+No paid provider is activated by this change. A commercial-provider pilot still
+requires confirmed coverage, account/usage rights, explicit per-request pricing,
+a durable spend reservation and an accepted normalized-evidence contract.
+Do not add a paid key to the public-record adapter or infer a paid-service budget
+from the county request cap.
+
+Documentation used for the transport/schema implementation:
+- https://www.python-httpx.org/advanced/timeouts/
+- https://www.python-httpx.org/advanced/resource-limits/
+- https://docs.pydantic.dev/latest/concepts/strict_mode/

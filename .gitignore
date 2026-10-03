@@ -12,3 +12,8 @@ data/
 node_modules/
 test-results/
 playwright-report/
+
+*.egg-info/
+build/
+dist/
+node_modules
