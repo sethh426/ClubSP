@@ -11,6 +11,7 @@
   <script src="/knowledge.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/gmail.js" defer></script>
+  <script src="/discovery.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -24,6 +25,12 @@
       <a class="button primary" href="#new-property">+ Add property</a>
     </section>
     <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+    <details class="panel"><summary>Official sale-notice discovery</summary>
+      <p>Check official county notices, then review terms and your buy box. Advertised availability is unverified; no deals or offers are created.</p>
+      <form id="discovery-form"><label>Official source <select name="source_id"><option value="accdc">ACCDC availability</option><option value="north_campus">North Campus sale notice</option></select></label><button class="button" type="submit">Check official notice</button></form>
+      <p class="muted small">One page per check; successful checks cached for 24 hours. Maximum six attempts per source per day. No background checks.</p>
+      <p id="discovery-result" role="status"></p><button id="discovery-reload" class="button" type="button">Reload saved checks</button><div id="discovery-output"></div>
+    </details>
     <details class="panel"><summary>Gmail · Connect your mailbox</summary>
       <p id="gmail-status" role="status">Checking connection…</p>
       <p id="gmail-result" role="status"></p>

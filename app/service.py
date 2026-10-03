@@ -19,6 +19,7 @@ from .communications import CommunicationsMixin
 from .training import TrainingMixin
 from .knowledge import KnowledgeMixin
 from .opportunities import OpportunitiesMixin, property_evidence, canonical
+from .discovery import DiscoveryMixin
 from .sourcing import SourcingMixin, sale_snapshot
 
 
@@ -88,9 +89,10 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin):
+class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin):
     def __init__(self, path):
         self.database = Database(path)
+        self._initialize_discovery()
         with self.database.session(write=True) as (connection, _):
             self._recover_knowledge_runs(connection)
             for deal in connection.execute("SELECT id FROM deals").fetchall():
