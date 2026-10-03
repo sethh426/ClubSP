@@ -45,19 +45,19 @@ def test_stage_then_existing_identity_review(notice_app):
     assert not app.state()['deals']
     assert not any(f['attribute'] == 'seller_price' for f in app.state()['facts'])
 
-def test_policy_and_identity_gates(notice_app):
+def test_research_has_identity_gates_but_no_purchase_budget_gate(notice_app):
     app, notice = notice_app; data = payload(notice)
     for changed in [dict(identity_confirmed=False), dict(parcel_id='not-in-notice'), dict(candidate_index=True),
-                    dict(zip='bad'), dict(property_type='condo'), dict(address='forged')]:
+                    dict(zip='bad'), dict(address='forged')]:
         with pytest.raises(ValueError): app.stage_discovery_intake({**data, **changed})
     app.save_opportunity_policy({**POLICY, 'max_seller_price':50000})
-    with pytest.raises(ValueError, match='minimum bid'): app.stage_discovery_intake(data)
-    assert not app.state()['sourcing']['rows']
+    assert app.stage_discovery_intake(data)['status'] == 'pending'
+    assert not app.state()['properties'] and not app.state()['deals']
 
-def test_acceptance_rechecks_policy_and_staleness(notice_app, monkeypatch):
+def test_acceptance_rechecks_staleness_without_financial_policy_gate(notice_app, monkeypatch):
     app, notice = notice_app; staged = app.stage_discovery_intake(payload(notice))
     app.save_opportunity_policy({**POLICY, 'markets':['Other city, IN']})
-    with pytest.raises(ValueError, match='market'): app.review_candidate(staged['row_id'], REVIEW)
+    assert app.discovery_state()['sources'][1]['candidates'][0]['intake_blockers'] == []
     app.save_opportunity_policy(POLICY)
     monkeypatch.setattr(intake, 'utc_now', lambda: NOW + timedelta(days=2))
     with pytest.raises(ValueError, match='stale'): app.review_candidate(staged['row_id'], REVIEW)
@@ -75,11 +75,11 @@ def test_newer_check_requires_restaging_and_refreshes_pending_review(notice_app)
     assert app.state()['sourcing']['batches'][0]['discovery']['check_id'] == new['id']
     assert app.review_candidate(staged['row_id'], REVIEW)['property_id']
 
-def test_before_window_and_missing_policy_are_blocked(notice_app, monkeypatch):
+def test_no_budget_required_but_future_notice_is_blocked(notice_app, monkeypatch):
     app, notice = notice_app
     with app.database.session(write=True) as (connection, _):
         connection.execute('DELETE FROM opportunity_policies')
-    with pytest.raises(ValueError, match='buy box'): app.stage_discovery_intake(payload(notice))
+    assert app.stage_discovery_intake(payload(notice))['status'] == 'pending'
     app.save_opportunity_policy(POLICY)
     monkeypatch.setattr(intake, 'utc_now', lambda: datetime(2026, 9, 30, tzinfo=timezone.utc))
     with pytest.raises(ValueError, match='bid window'): app.stage_discovery_intake(payload(notice))
@@ -117,3 +117,28 @@ def test_existing_parcel_is_detected_across_display_formats(notice_app):
                              value=notice['candidates'][0]['parcel_ids'][0].replace('-', '').replace('.', ''), value_type='text', confidence=0.5))
     with pytest.raises(ValueError, match='parcel'): app.review_candidate(staged['row_id'], REVIEW)
     assert len(app.state()['properties']) == 1
+
+def test_identity_acceptance_without_purchase_budget(notice_app):
+    app, notice = notice_app
+    with app.database.session(write=True) as (connection, _):
+        connection.execute('DELETE FROM opportunity_policies')
+    staged = app.stage_discovery_intake(payload(notice))
+    accepted = app.review_candidate(staged['row_id'], REVIEW)
+    assert accepted['property_id'] and not app.state()['deals']
+
+def test_preliminary_buyer_criteria_do_not_claim_funding_or_block_research(notice_app):
+    app, notice = notice_app
+    common = dict(company='Synthetic', strategies=['assignment'], property_types=['land'],
+                  max_repairs=10000, funding_status='unverified')
+    buyer = app.create_buyer(dict(common, name='Synthetic market buyer', locations=['Fort Wayne, IN'], max_total_price=150000))
+    app.create_buyer(dict(common, name='Synthetic other buyer', locations=['Other city, IN'], max_total_price=50000))
+    candidate = app.discovery_state()['sources'][1]['candidates'][0]
+    profiles = {m['name']:m for m in candidate['buyer_criteria']}
+    assert profiles['Synthetic market buyer']['status'] == 'needs_more_information'
+    assert profiles['Synthetic other buyer']['status'] == 'outside_recorded_criteria'
+    assert all(m['commitment_confirmed'] is False for m in profiles.values())
+    assert candidate['intake_blockers'] == []
+    assert app.stage_discovery_intake(payload(notice))['status'] == 'pending'
+    with app.database.session() as (connection, _):
+        matches = intake.preliminary_notice_buyers(connection, notice['candidates'][0], 'land')
+    assert next(m for m in matches if m['buyer_id'] == buyer['id'])['status'] == 'possible_fit_on_known_fields'

@@ -9,7 +9,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const blockers = candidate.intake_blockers || [];
     if (blockers.length) {
       for (const blocker of blockers) box.append(node("p", blocker));
-      const policy = node("a", "Review buy box and risk policy"); policy.href = "#opportunity-queue"; box.append(policy);
+      const policy = node("a", "Recheck the official source"); policy.href = "#discovery-form"; box.append(policy);
       return box;
     }
     const review = node("form", ""); review.className = "workspace-form";
@@ -20,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const parcel = field("parcel_id", "Reviewed parcel named in this notice", "select");
     for (const id of candidate.parcel_ids) { const option = node("option", id); option.value = id; parcel.append(option); }
     field("zip", "Verified ZIP").pattern = "[0-9]{5}(-[0-9]{4})?";
-    field("property_type", "Reviewed property type (must match your buy box)");
+    field("property_type", "Reviewed property type");
     field("reviewer", "Reviewer"); field("note", "Evidence and survey / parcel portion review notes", "textarea");
     const confirm = field("identity_confirmed", "I checked the address, market, selected parcel and surveyed portions"); confirm.type = "checkbox";
     const button = node("button", "Stage pending intake"); button.type = "submit"; button.className = "button";
@@ -55,7 +55,16 @@ document.addEventListener("DOMContentLoaded", () => {
         card.append(node("p", "Bid window: " + candidate.bid_start + " to " + candidate.bid_end));
         card.append(node("p", "Parcels: " + candidate.parcel_ids.join(", ")));
         for (const gap of candidate.review_gaps) card.append(node("p", gap));
-        if (candidate.within_recorded_price_limit === null) card.append(node("p", "Save your buy box to compare the advertised price against your limit."));
+        card.append(node("h4", "Preliminary buyer criteria"));
+        if (!candidate.buyer_criteria?.length) {
+          card.append(node("p", "No active buyer criteria recorded. Research can continue without a purchase budget."));
+          const buyerLink = node("a", "Add buyer criteria"); buyerLink.href = "#buyer-form"; card.append(buyerLink);
+        }
+        for (const buyer of candidate.buyer_criteria || []) {
+          card.append(node("p", buyer.name + " · " + buyer.status.replaceAll("_", " ")));
+          for (const reason of buyer.reasons) card.append(node("p", reason));
+          card.append(node("p", "Funding status on record: " + buyer.funding_status_on_record + ". No buyer commitment is confirmed."));
+        }
         card.append(intakeForm(source, candidate, index));
       }
       output.append(card);

@@ -79,16 +79,16 @@ def test_origin_required_and_no_network_on_get(tmp_path):
     finally:
         server.shutdown(); server.server_close(); worker.join()
 
-def test_saved_notice_rechecks_price_limit_and_expiry(tmp_path):
+def test_saved_notice_expiry_is_independent_of_purchase_policy(tmp_path):
     app = Application(tmp_path/'app.db')
     app.discovery_fetch = lambda url: NOTICE
     app.check_discovery({'source_id': 'north_campus'})
     def candidate():
         return app.discovery_state()['sources'][1]['candidates'][0]
-    assert candidate()['within_recorded_price_limit'] is None
+    assert 'within_recorded_price_limit' not in candidate()
     with app.database.session(write=True) as (connection, _):
         connection.execute("INSERT INTO opportunity_policies (id, created_at, body) VALUES (?, ?, ?)", ('price-test', datetime.now(timezone.utc).isoformat(), json.dumps({'max_seller_price': 50000})))
-    assert candidate()['within_recorded_price_limit'] is False
+    assert not any('price limit' in blocker for blocker in candidate()['intake_blockers'])
     with app.database.session(write=True) as (connection, _):
         connection.execute("UPDATE opportunity_policies SET body=?", (json.dumps({'max_seller_price': 150000}),))
         row = connection.execute("SELECT id, body FROM discovery_checks").fetchone()
@@ -96,5 +96,6 @@ def test_saved_notice_rechecks_price_limit_and_expiry(tmp_path):
         body['candidates'][0]['bid_end'] = '2000-01-02T00:00:00+00:00'
         connection.execute("UPDATE discovery_checks SET body=? WHERE id=?", (json.dumps(body), row['id']))
     saved = app.discovery_state()['sources'][1]
-    assert saved['stale'] and candidate()['within_recorded_price_limit'] is True
+    assert saved['stale']
+    assert 'within_recorded_price_limit' not in candidate()
     assert any('ended' in gap for gap in candidate()['review_gaps'])
