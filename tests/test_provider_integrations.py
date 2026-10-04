@@ -155,7 +155,7 @@ def test_local_monthly_cap_blocks_before_external_call(tmp_path, monkeypatch):
     }
     app.search_property_provider(payload)
     with pytest.raises(ValueError, match="Local monthly provider request cap"):
-        app.search_property_provider(payload)
+        app.search_property_provider({**payload, "force_refresh": True})
     assert calls == 1
 
 
