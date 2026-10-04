@@ -506,6 +506,8 @@ class ProviderIntegrationMixin:
                 "mandate_ids": [],
                 "buyer_ids": [],
                 "demand_count": 0,
+                "target_units_per_month": 0,
+                "available_reservation_slots": 0,
                 "priority": 0,
                 "representative": intent,
             })
@@ -515,6 +517,8 @@ class ProviderIntegrationMixin:
             if intent["buyer_id"] not in group["buyer_ids"]:
                 group["buyer_ids"].append(intent["buyer_id"])
             group["demand_count"] += 1
+            group["target_units_per_month"] += int(intent.get("target_units_per_month", 1))
+            group["available_reservation_slots"] += int(intent.get("available_reservation_slots", 1))
             group["priority"] = max(group["priority"], intent["priority"])
         search_queue = []
         now = utc_now()
@@ -592,7 +596,12 @@ class ProviderIntegrationMixin:
                         continue
                     if cp_row["available_cents"] / 100 >= required_capital:
                         capital_paths += 1
-            demand_points = min(40, group["demand_count"] * 10)
+            demand_points = min(
+                40,
+                group["demand_count"] * 7
+                + min(group["available_reservation_slots"], 10) * 2
+                + min(group["target_units_per_month"], 10),
+            )
             priority_points = round(group["priority"] * 0.30)
             if cached_age is None:
                 refresh_points = 20
@@ -623,6 +632,8 @@ class ProviderIntegrationMixin:
                 "mandate_ids": group["mandate_ids"],
                 "buyer_ids": group["buyer_ids"],
                 "demand_count": group["demand_count"],
+                "target_units_per_month": group["target_units_per_month"],
+                "available_reservation_slots": group["available_reservation_slots"],
                 "priority": group["priority"],
                 "budget_priority_score": score,
                 "action": action,
@@ -641,7 +652,14 @@ class ProviderIntegrationMixin:
                 },
                 "score_semantics": "Operational search-budget priority only; not a closing probability or investment score.",
             })
-        search_queue.sort(key=lambda item: (-item["budget_priority_score"], -item["demand_count"], -item["priority"], item["queue_id"]))
+        search_queue.sort(key=lambda item: (
+            -item["budget_priority_score"],
+            -item["available_reservation_slots"],
+            -item["target_units_per_month"],
+            -item["demand_count"],
+            -item["priority"],
+            item["queue_id"],
+        ))
         preflight_results = []
         seen_preflight = set()
         for row in connection.execute(
