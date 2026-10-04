@@ -465,6 +465,9 @@ def test_buyer_commitment_reservation_consumes_and_releases_demand_slot(tmp_path
         "expires_at": (now + timedelta(days=30)).isoformat(),
     })
     assert any(x["mandate_id"] == mandate["id"] for x in app.search_intents())
+    before_readiness = app.deal_readiness(deal["id"])
+    assert before_readiness["components"]["demand_commitment"]["deal_specific_reservation"] is False
+    assert any("Reserve an available buyer mandate slot" in x for x in before_readiness["next_actions"])
     reservation = app.reserve_buyer_commitment({
         "deal_id": deal["id"],
         "mandate_id": mandate["id"],
@@ -480,6 +483,8 @@ def test_buyer_commitment_reservation_consumes_and_releases_demand_slot(tmp_path
     assert not any(x["mandate_id"] == mandate["id"] for x in graph["search_intents"])
     readiness = next(x for x in graph["deal_readiness"] if x["deal_id"] == deal["id"])
     assert readiness["active_reservation"]["id"] == reservation["id"]
+    assert readiness["components"]["demand_commitment"]["deal_specific_reservation"] is True
+    assert not any("Reserve an available buyer mandate slot" in x for x in readiness["next_actions"])
 
     released = app.release_buyer_commitment(reservation["id"], {
         "evidence_reference": "synthetic release evidence",
