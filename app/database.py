@@ -172,6 +172,13 @@ class Database:
                 CREATE INDEX IF NOT EXISTS mandates_buyer ON buyer_mandates(buyer_id,status,created_at);
                 CREATE INDEX IF NOT EXISTS capital_status ON capital_profiles(status,created_at);
                 CREATE INDEX IF NOT EXISTS commitment_outcomes_deal ON commitment_outcomes(deal_id,created_at);
+                CREATE TABLE IF NOT EXISTS commitment_outcome_context (
+                    outcome_id TEXT PRIMARY KEY REFERENCES commitment_outcomes(id),
+                    buyer_mandate_id TEXT NOT NULL,
+                    buyer_match_run_id TEXT NOT NULL,
+                    context_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS commitment_outcome_mandate ON commitment_outcome_context(buyer_mandate_id);
                 CREATE TABLE IF NOT EXISTS commitment_events (
                     id TEXT PRIMARY KEY,
                     entity_type TEXT NOT NULL,
