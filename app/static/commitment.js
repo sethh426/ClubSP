@@ -103,6 +103,22 @@ function renderCommitmentGraph() {
   });
   capitalDetails.append(cf); box.append(capitalDetails);
 
+  const intents = workspaceDetails("Demand-first search intents", false);
+  if (!graph.search_intents?.length) {
+    intents.append(node("p","No active mandate search intents yet.","muted small"));
+  } else {
+    intents.append(node("p","These are provider-neutral search instructions generated from current buyer commitments. Future data adapters can consume the same intent shape without changing the core matching logic.","muted small"));
+    graph.search_intents.forEach(item => {
+      const buyer = state.buyers.find(x => x.id === item.buyer_id);
+      const card = node("article", undefined, "evidence-row");
+      card.append(node("strong", item.market + " · " + (buyer ? buyer.name : "Buyer")));
+      card.append(node("p", item.strategies.map(readable).join(", ") + " · max " + amount("money", item.max_total_price) + " · priority " + item.priority, "small"));
+      card.append(node("p", item.property_types.length ? item.property_types.map(readable).join(", ") : "Any recorded property type", "muted small"));
+      intents.append(card);
+    });
+  }
+  box.append(intents);
+
   const reverse = workspaceDetails("Reverse Opportunity Search", graph.reverse_opportunities?.length > 0);
   if (!graph.reverse_opportunities?.length) {
     reverse.append(node("p","No reviewed research candidates currently match a standing buyer mandate.","muted small"));
