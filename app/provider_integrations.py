@@ -223,7 +223,7 @@ class ProviderIntegrationMixin:
                 ctx.__exit__(None, None, None)
         candidates.sort(key=lambda item: (not item["eligible"], len(item["missing_capabilities"]), -item["remaining_local_requests"], item["provider_id"]))
         selected = next((item for item in candidates if item["eligible"]), None)
-        return {"required_capabilities": sorted(required), "selected_provider_id": selected["provider_id"] if selected else None, "candidates": candidates}
+        return {"required_capabilities": sorted(required), "selected_provider_id": selected["provider_id"] if selected else None, "fallback_action": None if selected else "reviewed_csv_import", "candidates": candidates}
 
     def _provider_usage(self, connection, provider_id):
         month = utc_now().strftime("%Y-%m")
@@ -243,11 +243,17 @@ class ProviderIntegrationMixin:
             "SELECT COALESCE(SUM(result_count),0) FROM provider_search_runs WHERE provider_id=? AND status='success' AND substr(created_at,1,7)=?",
             (provider_id, month),
         ).fetchone()[0]
+        zero_results = connection.execute(
+            "SELECT COUNT(*) FROM provider_search_runs WHERE provider_id=? AND status='success' AND result_count=0 AND substr(created_at,1,7)=?",
+            (provider_id, month),
+        ).fetchone()[0]
         return {
             "month": month,
             "attempted_requests": attempted,
             "successful_requests": succeeded,
             "failed_requests": failed,
+            "zero_result_requests": zero_results,
+            "zero_result_rate": (zero_results / succeeded) if succeeded else None,
             "staged_results": int(result_total or 0),
             "results_per_successful_request": (result_total / succeeded) if succeeded else None,
         }
