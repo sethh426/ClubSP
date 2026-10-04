@@ -549,12 +549,23 @@ class CommitmentGraphMixin:
                 (mandate["id"],),
             ).fetchall()
             closed = sum(1 for row in rows if row["outcome"] == "closed")
+            current_month = utc_now().strftime("%Y-%m")
+            closed_this_month = sum(
+                1 for row in rows
+                if row["outcome"] == "closed" and str(row["created_at"]).startswith(current_month)
+            )
+            monthly_target = int(mandate.get("target_units_per_month", 1))
             mandate_reliability.append({
                 "buyer_mandate_id": mandate["id"],
                 "buyer_id": mandate["buyer_id"],
                 "name": mandate["name"],
                 "recorded_outcomes": len(rows),
                 "closed_outcomes": closed,
+                "closed_this_month": closed_this_month,
+                "target_units_per_month": monthly_target,
+                "monthly_target_attainment": (
+                    closed_this_month / monthly_target if monthly_target > 0 else None
+                ),
                 "descriptive_close_rate": (closed / len(rows)) if rows else None,
                 "last_outcome": dict(rows[0]) if rows else None,
                 "calibrated_probability": False,
