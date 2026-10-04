@@ -377,3 +377,47 @@ def test_provider_metrics_follow_reviewed_candidate_into_recorded_close(tmp_path
     assert metrics["deals_created"] == 1
     assert metrics["closed_deals"] == 1
     assert metrics["closed_per_reviewed_candidate"] == 1.0
+
+
+def test_search_budget_queue_prioritizes_shared_uncached_demand(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    first = current_intent(app, buyer["id"])
+    second_buyer = app.create_buyer({
+        "name": "Synthetic Queue Buyer",
+        "company": "Queue Fixture LLC",
+        "locations": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "funding_status": "unverified",
+    })
+    current_intent(app, second_buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    queue = app.state()["provider_integrations"]["search_queue"]
+    item = next(x for x in queue if first["intent_id"] in x["search_intent_ids"])
+    assert item["demand_count"] >= 2
+    assert item["action"] == "search_now"
+    assert item["budget_priority_score"] > 0
+    assert item["rationale"]["demand_points"] >= 20
+    assert "not a closing probability" in item["score_semantics"]
+
+
+def test_search_budget_queue_marks_fresh_search_as_cache_reuse(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    app._provider_fetch = lambda provider, params, api_key: ([synthetic_listing()], provider["endpoint"])
+    app.search_property_provider({
+        "provider_id": "auto",
+        "search_intent_id": intent["intent_id"],
+        "max_results": 50,
+        "confirm_paid_request": True,
+    })
+    item = next(
+        x for x in app.state()["provider_integrations"]["search_queue"]
+        if intent["intent_id"] in x["search_intent_ids"]
+    )
+    assert item["action"] == "reuse_cached"
+    assert item["cached_age_hours"] is not None
+    assert item["rationale"]["refresh_need_points"] < 20
