@@ -172,6 +172,17 @@ class Database:
                 CREATE INDEX IF NOT EXISTS mandates_buyer ON buyer_mandates(buyer_id,status,created_at);
                 CREATE INDEX IF NOT EXISTS capital_status ON capital_profiles(status,created_at);
                 CREATE INDEX IF NOT EXISTS commitment_outcomes_deal ON commitment_outcomes(deal_id,created_at);
+                CREATE TABLE IF NOT EXISTS commitment_events (
+                    id TEXT PRIMARY KEY,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    status_before TEXT NOT NULL,
+                    status_after TEXT NOT NULL,
+                    note TEXT NOT NULL,
+                    evidence_reference TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS commitment_events_entity ON commitment_events(entity_type,entity_id,created_at);
                 CREATE TABLE IF NOT EXISTS memory (
                     collection TEXT NOT NULL,
                     id TEXT NOT NULL,
