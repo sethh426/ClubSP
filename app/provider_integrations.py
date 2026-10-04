@@ -26,7 +26,7 @@ PROVIDERS = {
         "credential_env": "RENTCAST_API_KEY",
         "monthly_cap_env": "CLUBSP_RENTCAST_MONTHLY_REQUEST_CAP",
         "default_monthly_cap": 40,
-        "max_results_per_request": 25,
+        "max_results_per_request": 50,
         "rights_note": (
             "Use is subject to the connected RentCast account and current terms. "
             "ClubSP stages returned records for review and preserves provider provenance."
@@ -62,8 +62,7 @@ def _market_parts(market):
 
 def compile_rentcast_search(intent, max_results=25):
     city, state = _market_parts(intent["market"])
-    if isinstance(max_results, bool) or not isinstance(max_results, int) or not 1 <= max_results <= 25:
-        raise ValueError("max_results must be an integer from 1 to 25")
+    if isinstance(max_results, bool) or not isinstance(max_results, int) or not 1 <= max_results <= 50:\n        raise ValueError("max_results must be an integer from 1 to 50")
     params = {
         "city": city,
         "state": state,
@@ -125,7 +124,7 @@ def _live_rentcast_fetch(provider, params, api_key):
     try:
         import httpx
     except ImportError as exc:
-        raise RuntimeError("Live provider access requires: pip install .[integrations]") from exc
+        raise ValueError("Live provider access requires: pip install .[integrations]") from exc
     timeout = httpx.Timeout(10.0, connect=5.0, read=10.0, write=10.0, pool=5.0)
     with httpx.Client(timeout=timeout, follow_redirects=False) as client:
         response = client.get(
@@ -156,7 +155,22 @@ class ProviderIntegrationMixin:
             "SELECT COUNT(*) FROM provider_search_runs WHERE provider_id=? AND status='success' AND substr(created_at,1,7)=?",
             (provider_id, month),
         ).fetchone()[0]
-        return {"month": month, "attempted_requests": attempted, "successful_requests": succeeded}
+        failed = connection.execute(
+            "SELECT COUNT(*) FROM provider_search_runs WHERE provider_id=? AND status='failed' AND substr(created_at,1,7)=?",
+            (provider_id, month),
+        ).fetchone()[0]
+        result_total = connection.execute(
+            "SELECT COALESCE(SUM(result_count),0) FROM provider_search_runs WHERE provider_id=? AND status='success' AND substr(created_at,1,7)=?",
+            (provider_id, month),
+        ).fetchone()[0]
+        return {
+            "month": month,
+            "attempted_requests": attempted,
+            "successful_requests": succeeded,
+            "failed_requests": failed,
+            "staged_results": int(result_total or 0),
+            "results_per_successful_request": (result_total / succeeded) if succeeded else None,
+        }
 
     def _provider_state(self, connection):
         result = []
