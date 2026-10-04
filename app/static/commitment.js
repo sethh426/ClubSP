@@ -114,6 +114,22 @@ function renderCommitmentGraph() {
   });
   capitalDetails.append(cf); box.append(capitalDetails);
 
+  const plans = workspaceDetails("Shared demand search plans", false);
+  if (!graph.search_plans?.length) {
+    plans.append(node("p","No shared search plans yet.","muted small"));
+  } else {
+    plans.append(node("p","Identical buyer demand is grouped so one provider request can serve multiple mandates instead of spending API quota repeatedly.","muted small"));
+    graph.search_plans.forEach(plan => {
+      const q=plan.query_signature;
+      const card=node("article",undefined,"evidence-row");
+      card.append(node("strong", q.market + " · " + plan.demand_count + " demand path(s)"));
+      card.append(node("p", "Max " + amount("money",q.max_total_price) + " · " + (q.property_types.length ? q.property_types.map(readable).join(", ") : "any property type") + " · priority " + plan.priority, "small"));
+      if(plan.demand_count>1) card.append(node("p","Shared search saves duplicate provider requests for " + plan.demand_count + " matching buyer intents.","muted small"));
+      plans.append(card);
+    });
+  }
+  box.append(plans);
+
   const intents = workspaceDetails("Demand-first search intents", false);
   if (!graph.search_intents?.length) {
     intents.append(node("p","No active mandate search intents yet.","muted small"));
@@ -159,8 +175,11 @@ function renderCommitmentGraph() {
     providerBox.append(node("p","Each search is explicit, cost-capped, and stages results for review. It never creates a deal or contacts a seller.","muted small"));
     if (graph.search_intents?.length) {
       const pf = node("form", undefined, "workspace-form provider-search-form");
-      workspaceSelect(pf, "search_intent_id", "Buyer-derived search intent",
-        graph.search_intents.map(x => [x.intent_id, x.market + " · max " + amount("money",x.max_total_price) + " · priority " + x.priority]));
+      const searchOptions = (graph.search_plans?.length ? graph.search_plans.map(plan => {
+        const representative = graph.search_intents.find(x => x.intent_id === plan.search_intent_ids[0]);
+        return [representative.intent_id, representative.market + " · max " + amount("money",representative.max_total_price) + " · " + plan.demand_count + " demand path(s)"];
+      }) : graph.search_intents.map(x => [x.intent_id, x.market + " · max " + amount("money",x.max_total_price) + " · priority " + x.priority]));
+      workspaceSelect(pf, "search_intent_id", "Buyer-derived search plan", searchOptions);
       workspaceField(pf, "max_results", "Maximum listings to stage (1–50)", "number", "10");
       const confirmLabel=node("label",undefined,"check-label"), confirm=node("input");
       confirm.type="checkbox"; confirm.name="confirm_paid_request"; confirm.required=true;
