@@ -869,6 +869,10 @@ class CommitmentGraphMixin:
             active_reservation = None
         if current_mandates:
             demand = 35
+            if not active_reservation:
+                next_actions.append(
+                    "Reserve an available buyer mandate slot for this deal before treating demand as deal-specific."
+                )
         elif eligible:
             demand = 20
             blockers.append("Eligible buyer criteria exist, but no current standing mandate is recorded.")
@@ -877,7 +881,11 @@ class CommitmentGraphMixin:
             demand = 0
             blockers.append("No current eligible buyer path is recorded.")
             next_actions.append("Run buyer matching and secure a standing mandate before pursuing the deal.")
-        components["demand_commitment"] = {"score": demand, "max": 35}
+        components["demand_commitment"] = {
+            "score": demand,
+            "max": 35,
+            "deal_specific_reservation": bool(active_reservation),
+        }
         score += demand
 
         # Underwriting / economic evidence.
