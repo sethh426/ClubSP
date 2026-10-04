@@ -49,6 +49,14 @@ function renderCommitmentGraph() {
   workspaceField(mf, "property_types", "Property types (comma separated; blank = any)", "text", "", false);
   workspaceField(mf, "max_total_price", "Maximum total price", "number");
   workspaceField(mf, "max_repairs", "Maximum repairs", "number", "0");
+  workspaceField(mf, "min_beds", "Minimum beds (optional)", "number", "", false);
+  workspaceField(mf, "max_beds", "Maximum beds (optional)", "number", "", false);
+  workspaceField(mf, "min_baths", "Minimum baths (optional)", "number", "", false);
+  workspaceField(mf, "max_baths", "Maximum baths (optional)", "number", "", false);
+  workspaceField(mf, "min_sqft", "Minimum square feet (optional)", "number", "", false);
+  workspaceField(mf, "max_sqft", "Maximum square feet (optional)", "number", "", false);
+  workspaceField(mf, "min_year_built", "Minimum year built (optional)", "number", "", false);
+  workspaceField(mf, "max_year_built", "Maximum year built (optional)", "number", "", false);
   workspaceField(mf, "priority", "Priority 0–100", "number", "50");
   workspaceField(mf, "verified_at", "Verified date", "date");
   workspaceField(mf, "expires_at", "Expires date (optional)", "date", "", false);
@@ -66,6 +74,9 @@ function renderCommitmentGraph() {
     v.property_types = v.property_types.split(",").map(x => x.trim()).filter(Boolean);
     v.max_total_price = Number(v.max_total_price);
     v.max_repairs = Number(v.max_repairs);
+    ["min_beds","max_beds","min_baths","max_baths","min_sqft","max_sqft","min_year_built","max_year_built"].forEach(key => {
+      if (v[key] === "") delete v[key]; else v[key] = Number(v[key]);
+    });
     v.priority = Number(v.priority);
     v.verified_at = commitmentDate(v.verified_at);
     v.expires_at = commitmentDate(v.expires_at);
@@ -114,6 +125,11 @@ function renderCommitmentGraph() {
       card.append(node("strong", item.market + " · " + (buyer ? buyer.name : "Buyer")));
       card.append(node("p", item.strategies.map(readable).join(", ") + " · max " + amount("money", item.max_total_price) + " · priority " + item.priority, "small"));
       card.append(node("p", item.property_types.length ? item.property_types.map(readable).join(", ") : "Any recorded property type", "muted small"));
+      const filters = item.filters || {};
+      const filterText = Object.entries(filters).map(([k,v]) => readable(k) + " " + v).join(" · ");
+      if (filterText) card.append(node("p", "Property filters: " + filterText, "muted small"));
+      const route = state.provider_integrations?.routing?.find(x => x.search_intent_id === item.intent_id);
+      if (route) card.append(node("p", route.selected_provider_id ? "Recommended provider: " + readable(route.selected_provider_id) : "No configured provider currently satisfies this intent.", "muted small"));
       intents.append(card);
     });
   }
@@ -149,7 +165,7 @@ function renderCommitmentGraph() {
       pf.addEventListener("submit", e => {
         e.preventDefault();
         const v=values(pf);
-        v.provider_id="rentcast";
+        v.provider_id="auto";
         v.max_results=Number(v.max_results);
         v.confirm_paid_request=confirm.checked;
         runForm(pf,()=>api("/api/providers/search",v),"Provider search completed. Results were staged for review.");
@@ -188,6 +204,8 @@ function renderCommitmentGraph() {
     card.append(node("strong", (b ? b.name : "Buyer") + " · " + m.name));
     card.append(node("p", m.markets.join(" · ") + " · " + m.strategies.join(", ") + " · max " + amount("money",m.max_total_price), "small"));
     card.append(node("p", "Priority " + m.priority + " · " + m.status + " · verified " + new Date(m.verified_at).toLocaleDateString() + (m.expires_at ? " · expires " + new Date(m.expires_at).toLocaleDateString() : ""), "muted small"));
+    const filters = m.filters || {};
+    if (Object.keys(filters).length) card.append(node("p", "Filters: " + Object.entries(filters).map(([k,v]) => readable(k) + " " + v).join(" · "), "muted small"));
     card.append(commitmentStatusControl("buyer-mandates", m, ["active","paused","expired"]));
     mandates.append(card);
   });
