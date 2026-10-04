@@ -607,6 +607,8 @@ class CommitmentGraphMixin:
                 "buyer_ids": [],
                 "priority": 0,
                 "demand_count": 0,
+                "target_units_per_month": 0,
+                "available_reservation_slots": 0,
                 "purpose": "deduplicated buyer-demand provider search",
             })
             plan["search_intent_ids"].append(intent["intent_id"])
@@ -616,8 +618,16 @@ class CommitmentGraphMixin:
                 plan["buyer_ids"].append(intent["buyer_id"])
             plan["priority"] = max(plan["priority"], intent["priority"])
             plan["demand_count"] += 1
+            plan["target_units_per_month"] += int(intent.get("target_units_per_month", 1))
+            plan["available_reservation_slots"] += int(intent.get("available_reservation_slots", 1))
         plans = list(groups.values())
-        plans.sort(key=lambda item: (-item["demand_count"], -item["priority"], item["plan_id"]))
+        plans.sort(key=lambda item: (
+            -item["available_reservation_slots"],
+            -item["target_units_per_month"],
+            -item["demand_count"],
+            -item["priority"],
+            item["plan_id"],
+        ))
         return plans
 
     @staticmethod
