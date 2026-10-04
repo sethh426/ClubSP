@@ -463,12 +463,27 @@ class CommitmentGraphMixin:
         events = [dict(row) for row in connection.execute(
             "SELECT * FROM commitment_events ORDER BY created_at DESC,id LIMIT 250"
         )]
-        reservations = [dict(row) for row in connection.execute(
+        reservations = []
+        reservation_now = datetime.now(timezone.utc)
+        for row in connection.execute(
             """SELECT r.*,m.buyer_id,m.name AS mandate_name
                FROM commitment_reservations r
                JOIN buyer_mandates m ON m.id=r.mandate_id
                ORDER BY r.reserved_at DESC,r.id LIMIT 250"""
-        )]
+        ):
+            item = dict(row)
+            effective_status = item["status"]
+            if effective_status == "active":
+                try:
+                    expiry = datetime.fromisoformat(item["expires_at"])
+                    if expiry.tzinfo is None:
+                        expiry = expiry.replace(tzinfo=timezone.utc)
+                    if expiry < reservation_now:
+                        effective_status = "expired"
+                except (ValueError, TypeError):
+                    effective_status = "expired"
+            item["effective_status"] = effective_status
+            reservations.append(item)
         readiness = [self._deal_readiness(connection, deal) for deal in deals]
         buyer_reliability = []
         for buyer in connection.execute("SELECT id,name,company FROM buyers ORDER BY created_at DESC,id"):
@@ -661,10 +676,20 @@ class CommitmentGraphMixin:
             if capacity_row:
                 item["max_active_reservations"] = capacity_row["max_active_reservations"]
                 item["target_units_per_month"] = capacity_row["target_units_per_month"]
-            active = connection.execute(
-                """SELECT COUNT(*) FROM commitment_reservations
+            active = 0
+            current_time = datetime.now(timezone.utc)
+            for reservation in connection.execute(
+                """SELECT expires_at FROM commitment_reservations
                    WHERE mandate_id=? AND status='active'""", (item["id"],)
-            ).fetchone()[0]
+            ):
+                try:
+                    expiry = datetime.fromisoformat(reservation["expires_at"])
+                    if expiry.tzinfo is None:
+                        expiry = expiry.replace(tzinfo=timezone.utc)
+                except (ValueError, TypeError):
+                    continue
+                if expiry >= current_time:
+                    active += 1
             item["active_reservations"] = active
             item["available_reservation_slots"] = max(0, item["max_active_reservations"] - active)
         return item
