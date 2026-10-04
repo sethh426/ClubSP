@@ -384,6 +384,30 @@ class CommitmentGraphMixin:
         outcome_id = str(uuid4())
         with self.database.session(write=True) as (connection, _):
             deal_exists(connection, deal_id)
+            active_reservation = connection.execute(
+                """SELECT r.*,m.buyer_id
+                   FROM commitment_reservations r
+                   JOIN buyer_mandates m ON m.id=r.mandate_id
+                   WHERE r.deal_id=? AND r.status='active'
+                   ORDER BY r.reserved_at DESC LIMIT 1""",
+                (deal_id,),
+            ).fetchone()
+            if active_reservation:
+                try:
+                    reservation_expiry = datetime.fromisoformat(active_reservation["expires_at"])
+                    if reservation_expiry.tzinfo is None:
+                        reservation_expiry = reservation_expiry.replace(tzinfo=timezone.utc)
+                    if reservation_expiry < utc_now():
+                        active_reservation = None
+                except (ValueError, TypeError):
+                    active_reservation = None
+            if active_reservation:
+                if buyer_mandate_id and buyer_mandate_id != active_reservation["mandate_id"]:
+                    raise ValueError("Recorded buyer mandate conflicts with the deal's active reservation")
+                if buyer_id and buyer_id != active_reservation["buyer_id"]:
+                    raise ValueError("Recorded buyer conflicts with the deal's active reservation")
+                buyer_mandate_id = buyer_mandate_id or active_reservation["mandate_id"]
+                buyer_id = buyer_id or active_reservation["buyer_id"]
             if buyer_id and connection.execute("SELECT id FROM buyers WHERE id=?", (buyer_id,)).fetchone() is None:
                 raise LookupError("Buyer not found")
             if capital_profile_id and connection.execute(
@@ -417,6 +441,13 @@ class CommitmentGraphMixin:
                     evidence_reference, note, now,
                 ),
             )
+            if active_reservation:
+                reservation_status = "converted" if outcome == "closed" else "released"
+                connection.execute(
+                    """UPDATE commitment_reservations
+                       SET status=?,released_at=? WHERE id=?""",
+                    (reservation_status, now, active_reservation["id"]),
+                )
             if buyer_mandate_id or buyer_match_run_id:
                 context = {
                     "buyer_mandate": self._mandate_json(mandate_row, connection) if mandate_row is not None else None,
@@ -437,6 +468,11 @@ class CommitmentGraphMixin:
             "buyer_mandate_id": buyer_mandate_id, "buyer_match_run_id": buyer_match_run_id,
             "capital_profile_id": capital_profile_id, "outcome": outcome,
             "reason_code": reason_code, "evidence_reference": evidence_reference,
+            "reservation_id": active_reservation["id"] if active_reservation else "",
+            "reservation_resolution": (
+                "converted" if active_reservation and outcome == "closed"
+                else "released" if active_reservation else ""
+            ),
             "note": note, "created_at": now,
         }
 
