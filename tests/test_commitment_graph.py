@@ -115,3 +115,45 @@ def test_expired_mandate_does_not_count_as_current(tmp_path):
     result = app.deal_readiness(deal["id"])
     assert result["current_mandate_count"] == 0
     assert any("standing mandate" in item for item in result["blockers"])
+
+
+def test_reverse_candidate_matching_prefers_current_standing_demand(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "name": "Buyer-first search mandate",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "priority": 100,
+        "status": "active",
+        "evidence_reference": "synthetic current mandate",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    with app.database.session() as (connection, _):
+        matches = app.reverse_match_candidate(
+            connection,
+            market="Fort Wayne, IN",
+            property_type="single_family",
+            asking_price=125000,
+        )
+        outside = app.reverse_match_candidate(
+            connection,
+            market="Indianapolis, IN",
+            property_type="single_family",
+            asking_price=125000,
+        )
+        overpriced = app.reverse_match_candidate(
+            connection,
+            market="Fort Wayne, IN",
+            property_type="single_family",
+            asking_price=175000,
+        )
+    assert matches[0]["buyer_id"] == buyer["id"]
+    assert matches[0]["score"] == 100
+    assert outside == []
+    assert overpriced == []
