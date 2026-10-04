@@ -571,6 +571,29 @@ class ProviderIntegrationMixin:
                 "score_semantics": "Operational search-budget priority only; not a closing probability or investment score.",
             })
         search_queue.sort(key=lambda item: (-item["budget_priority_score"], -item["demand_count"], -item["priority"], item["queue_id"]))
+        preflight_results = []
+        seen_preflight = set()
+        for row in connection.execute(
+            "SELECT * FROM provider_search_runs WHERE provider_id IN ({}) AND status='success' ORDER BY created_at DESC,id".format(
+                ",".join("?" for _ in PREFLIGHT_PROVIDERS)
+            ),
+            tuple(PREFLIGHT_PROVIDERS.keys()),
+        ):
+            key = (row["provider_id"], row["search_intent_id"])
+            if key in seen_preflight:
+                continue
+            seen_preflight.add(key)
+            meta = connection.execute(
+                "SELECT metadata_json FROM provider_search_metadata WHERE run_id=?", (row["id"],)
+            ).fetchone()
+            metadata = json.loads(meta["metadata_json"]) if meta else {}
+            preflight_results.append({
+                "run_id": row["id"],
+                "provider_id": row["provider_id"],
+                "search_intent_id": row["search_intent_id"],
+                "total_count": metadata.get("total_count"),
+                "created_at": row["created_at"],
+            })
         preflight = []
         for provider_id, provider in PREFLIGHT_PROVIDERS.items():
             usage = self._provider_usage(connection, provider_id)
@@ -585,7 +608,8 @@ class ProviderIntegrationMixin:
                 "requires_explicit_confirmation": True,
             })
         return {
-            "providers": result, "preflight_providers": preflight, "routing": routing,
+            "providers": result, "preflight_providers": preflight,
+            "preflight_results": preflight_results, "routing": routing,
             "search_queue": search_queue, "creates_deals": False, "automatic_search": False,
         }
 
