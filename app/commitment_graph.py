@@ -48,13 +48,26 @@ def _optional_number(data, key, *, nonnegative=True):
     return number_field(data, key, nonnegative=nonnegative)
 
 
-def _current(record, now):
+def _current(record, now, max_verified_age_days=None):
     if record["status"] != "active":
         return False
     expires_at = record.get("expires_at") or ""
-    if not expires_at:
-        return True
-    return datetime.fromisoformat(expires_at) >= now
+    if expires_at and datetime.fromisoformat(expires_at) < now:
+        return False
+    if max_verified_age_days is not None:
+        verified_at = record.get("verified_at") or ""
+        if not verified_at:
+            return False
+        try:
+            verified = datetime.fromisoformat(verified_at)
+            if verified.tzinfo is None:
+                verified = verified.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            return False
+        age = (now - verified).total_seconds()
+        if age < 0 or age > max_verified_age_days * 24 * 60 * 60:
+            return False
+    return True
 
 
 class CommitmentGraphMixin:
@@ -443,7 +456,7 @@ class CommitmentGraphMixin:
         now = datetime.now(timezone.utc)
         search_intents = []
         for mandate in mandates:
-            if not _current(mandate, now):
+            if not _current(mandate, now, max_verified_age_days=90):
                 continue
             for market in mandate["markets"]:
                 search_intents.append({
@@ -631,7 +644,7 @@ class CommitmentGraphMixin:
         current_mandates = []
         for row in connection.execute("SELECT * FROM buyer_mandates WHERE status='active'"):
             item = self._mandate_json(row)
-            if _current(item, now) and item["buyer_id"] in eligible_ids:
+            if _current(item, now, max_verified_age_days=90) and item["buyer_id"] in eligible_ids:
                 current_mandates.append(item)
         if current_mandates:
             demand = 35
@@ -671,7 +684,7 @@ class CommitmentGraphMixin:
         )]
         current_capital = []
         for item in capital_rows:
-            if not _current(item, now):
+            if not _current(item, now, max_verified_age_days=30):
                 continue
             if item["strategies"] and deal.get("strategy") not in item["strategies"]:
                 continue
