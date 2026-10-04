@@ -31,12 +31,18 @@ The first adapter therefore defaults to **40 attempted requests/month**, configu
 with `CLUBSP_RENTCAST_MONTHLY_REQUEST_CAP`. This is deliberately conservative and
 can be raised by an operator with a paid plan.
 
-### Secondary provider: RealEstateAPI
+### Inventory preflight: RealEstateAPI
 
-RealEstateAPI is attractive for a later adapter because PropertySearch supports
-advanced property/investor filters such as absentee owner, auction, foreclosure,
-REO, vacant, free-and-clear, high-equity, cash-buyer and investor-buyer flags.
-Those can become useful sourcing dimensions after ClubSP proves the first
+ClubSP now uses RealEstateAPI only for an optional **count-mode preflight** before
+record retrieval. PropertySearch count mode can measure how much inventory matches a
+buyer-derived query without importing candidate records. The provider documents count
+mode as 0 credits on paid plans and 1 credit on pay-as-you-go plans, so ClubSP still
+requires explicit confirmation and enforces a local request cap.
+
+RealEstateAPI is also attractive for a later full-record adapter because PropertySearch
+supports advanced property/investor filters such as absentee owner, auction,
+foreclosure, REO, vacant, free-and-clear, high-equity, cash-buyer and investor-buyer
+flags. Those can become useful sourcing dimensions after ClubSP proves the first
 buyer-demand/listing loop.
 
 Those fields should not be added to the Commitment Graph merely because a provider
@@ -94,11 +100,15 @@ not truth, and retain existing evidence/underwriting review boundaries.
 - staging into the existing pending candidate-review workflow;
 - provider quality telemetry: requests, staged candidates, review acceptance,
   downstream deals, and recorded closes.
+- RealEstateAPI count-mode inventory preflight with its own local monthly cap and 24-hour cache;
+- RentCast total-match capture through `includeTotalCount`, so ClubSP can compare staged records with the broader matching inventory.
 
 Environment variables:
 
 - `RENTCAST_API_KEY`
 - `CLUBSP_RENTCAST_MONTHLY_REQUEST_CAP` (default `40`)
+- `REALESTATEAPI_API_KEY`
+- `CLUBSP_REALESTATEAPI_MONTHLY_COUNT_CAP` (default `20`)
 
 The browser sees only whether the credential is configured and the remaining local
 request budget. It never receives the credential value.
