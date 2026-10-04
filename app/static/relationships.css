@@ -1,0 +1,14 @@
+.relationship-card { min-width: 0; overflow-wrap: anywhere; scroll-margin-top: 2rem; }
+.relationship-card[hidden] { display: none; }
+.relationship-toolbar { display: flex; flex-wrap: wrap; gap: .8rem; align-items: center; margin: 1.5rem 0; }
+.relationship-toolbar input { flex: 1; min-width: 0; }
+.relationship-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.relationship-form label { display: grid; gap: .4rem; min-width: 0; }
+.relationship-form textarea { min-height: 6rem; }
+.relationship-form input, .relationship-form textarea, .relationship-form select { width: 100%; min-width: 0; }
+.relationship-form .wide { grid-column: 1 / -1; }
+.relationship-card .relationship-draft textarea { min-height: 12rem; width: 100%; }
+.relationship-card .history-entry { border-top: 1px solid var(--border); padding: 1rem 0; white-space: pre-wrap; }
+.relationship-status { color: var(--mint); }
+.relationship-blocked { color: #e5ad87; }
+@media (max-width: 600px) { .relationship-form { grid-template-columns: minmax(0, 1fr); } .relationship-toolbar select { width: 100%; } }

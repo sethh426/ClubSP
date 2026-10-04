@@ -12,9 +12,13 @@ from .database import dumps
 from .service import Application
 from .gmail import GmailConnection, load_local_environment, CALLBACK
 from .funding import FundingBook
+from .relationships import RelationshipBook
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
+    "/relationships": ("relationships.html", "text/html; charset=utf-8"),
+    "/relationships.js": ("relationships.js", "text/javascript; charset=utf-8"),
+    "/relationships.css": ("relationships.css", "text/css; charset=utf-8"),
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/workspace.js": ("workspace.js", "text/javascript; charset=utf-8"),
@@ -37,6 +41,7 @@ def reject_constant(value):
 
 def handler_for(application, gmail):
     funding = FundingBook(application.database)
+    relationships = RelationshipBook(application)
     class Handler(BaseHTTPRequestHandler):
         def send_content(self, code, body, content_type="application/json; charset=utf-8"):
             if isinstance(body, str):
@@ -113,6 +118,11 @@ def handler_for(application, gmail):
                     self.send_json(200, application.state())
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/relationships":
+                try:
+                    self.send_json(200, relationships.state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/funding":
                 try:
                     self.send_json(200, funding.state(application.state()))
@@ -178,6 +188,13 @@ def handler_for(application, gmail):
                         raise ValueError("Disconnect request must be empty")
                     gmail.disconnect()
                     result = {"connected": False, "google_permission_revoked": False}
+                elif path == "/api/relationships":
+                    result = relationships.save(data)
+                elif path.startswith("/api/relationships/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 4 or parts[3] != "interactions":
+                        raise LookupError("Route not found")
+                    result = relationships.interact(parts[2], data)
                 elif path == "/api/properties":
                     result = application.create_property(data)
                 elif path.startswith("/api/properties/"):

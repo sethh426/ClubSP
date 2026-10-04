@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from core.memory.models import utc_now
 from .operations import business_today
 from .validation import text_field, list_field, property_exists
+from .relationships import email_blocked
 
 
 PAIN_POINTS = {
@@ -70,7 +71,7 @@ class CommunicationsMixin:
             pid = str(property_exists(connection, data.get("property_id")))
             if email and connection.execute("SELECT id FROM contacts WHERE property_id=? AND email=?", (pid, email)).fetchone():
                 raise ValueError("This property already has a contact with that email")
-            suppressed = bool(email and connection.execute("SELECT email FROM suppressions WHERE email=?", (email,)).fetchone())
+            suppressed = email_blocked(connection, email)
             now = utc_now().isoformat()
             record = {"id": str(uuid4()), "property_id": pid, "name": name, "email": email,
                       "role": role, "role_reference": role_reference,
@@ -107,7 +108,7 @@ class CommunicationsMixin:
         evidence = text_field(data, "evidence_reference", 500, required=status != "unknown")
         with self.database.session(write=True) as (connection, _):
             contact = contact_exists(connection, contact_id)
-            if contact["permission_status"] == "suppressed" and status != "suppressed":
+            if (contact["permission_status"] == "suppressed" or email_blocked(connection, contact["email"])) and status != "suppressed":
                 raise ValueError("A recorded suppression cannot be cleared in this release")
             self._set_permission(connection, contact, status, note, evidence)
             return dict(connection.execute("SELECT * FROM contacts WHERE id=?", (contact["id"],)).fetchone())
@@ -220,7 +221,7 @@ class CommunicationsMixin:
         record["review_blockers"] = []
         if not record["current"]:
             record["review_blockers"].append("Conversation, profile, deal or terms changed; generate a current draft")
-        if contact["permission_status"] != "permitted":
+        if contact["permission_status"] != "permitted" or email_blocked(connection, contact["email"]):
             record["review_blockers"].append("Contact permission requires an owner evidence record")
         return record
 
