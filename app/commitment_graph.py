@@ -453,7 +453,7 @@ class CommitmentGraphMixin:
         item["available_amount"] = item.pop("available_cents") / 100
         return item
 
-    def reverse_match_candidate(self, connection, *, market, property_type=None, asking_price=None):
+    def reverse_match_candidate(self, connection, *, market, property_type=None, asking_price=None, beds=None, baths=None, sqft=None, year_built=None):
         """Match a research candidate to current standing demand before a deal exists."""
         now = datetime.now(timezone.utc)
         normalized_market = " ".join(str(market or "").lower().replace(",", " ").split())
@@ -499,6 +499,43 @@ class CommitmentGraphMixin:
                 reasons.append(f"asking price is within mandate by ${price_headroom:,.0f}")
             else:
                 reasons.append("asking price is unknown; price fit is not yet proven")
+            candidate_values = {"beds": beds, "baths": baths, "sqft": sqft, "year_built": year_built}
+            filters = mandate.get("filters", {})
+            range_pairs = {
+                "beds": ("min_beds", "max_beds"),
+                "baths": ("min_baths", "max_baths"),
+                "sqft": ("min_sqft", "max_sqft"),
+                "year_built": ("min_year_built", "max_year_built"),
+            }
+            filter_checks = 0
+            for field, (low_key, high_key) in range_pairs.items():
+                if low_key not in filters and high_key not in filters:
+                    continue
+                value = candidate_values[field]
+                if value in (None, ""):
+                    reasons.append(f"{field} still needs confirmation for mandate fit")
+                    continue
+                try:
+                    numeric = float(value)
+                except (TypeError, ValueError):
+                    reasons.append(f"{field} is malformed and needs review")
+                    continue
+                if low_key in filters and numeric < filters[low_key]:
+                    continue_match = False
+                elif high_key in filters and numeric > filters[high_key]:
+                    continue_match = False
+                else:
+                    continue_match = True
+                if not continue_match:
+                    break
+                filter_checks += 1
+            else:
+                score += min(10, filter_checks * 2)
+                if filter_checks:
+                    reasons.append(f"{filter_checks} optional property filter(s) fit")
+                continue_match = True
+            if not continue_match:
+                continue
             score += round(min(10, mandate["priority"] / 10))
             matches.append({
                 "mandate_id": mandate["id"],
