@@ -323,6 +323,13 @@ class ProviderIntegrationMixin:
             raise ValueError(f"{provider['credential_env']} is not configured")
 
         params = compile_rentcast_search(intent, max_results=max_results)
+        equivalent_intents = []
+        for other in intents.values():
+            try:
+                if compile_rentcast_search(other, max_results=max_results) == params:
+                    equivalent_intents.append(other)
+            except ValueError:
+                continue
         request_json = json.dumps(params, sort_keys=True)
         now_dt = utc_now()
         now = now_dt.isoformat()
@@ -360,12 +367,15 @@ class ProviderIntegrationMixin:
                         }
             if cache_hit:
                 with self.database.session(write=True) as (connection, _):
-                    connection.execute(
-                        """INSERT OR IGNORE INTO provider_search_links(
-                            run_id,search_intent_id,mandate_id,buyer_id,linked_at
-                        ) VALUES(?,?,?,?,?)""",
-                        (cache_hit["id"], intent_id, intent["mandate_id"], intent["buyer_id"], now),
-                    )
+                    for linked in equivalent_intents:
+                        connection.execute(
+                            """INSERT OR IGNORE INTO provider_search_links(
+                                run_id,search_intent_id,mandate_id,buyer_id,linked_at
+                            ) VALUES(?,?,?,?,?)""",
+                            (cache_hit["id"], linked["intent_id"], linked["mandate_id"], linked["buyer_id"], now),
+                        )
+                cache_hit["linked_intent_count"] = len(equivalent_intents)
+                cache_hit["shared_demand"] = len(equivalent_intents) > 1
                 return cache_hit
         run_id = str(uuid4())
         with self.database.session(write=True) as (connection, _):
@@ -380,12 +390,13 @@ class ProviderIntegrationMixin:
                 ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (run_id, provider_id, intent_id, request_json, "running", 0, "", "", "", now),
             )
-            connection.execute(
-                """INSERT INTO provider_search_links(
-                    run_id,search_intent_id,mandate_id,buyer_id,linked_at
-                ) VALUES(?,?,?,?,?)""",
-                (run_id, intent_id, intent["mandate_id"], intent["buyer_id"], now),
-            )
+            for linked in equivalent_intents:
+                connection.execute(
+                    """INSERT OR IGNORE INTO provider_search_links(
+                        run_id,search_intent_id,mandate_id,buyer_id,linked_at
+                    ) VALUES(?,?,?,?,?)""",
+                    (run_id, linked["intent_id"], linked["mandate_id"], linked["buyer_id"], now),
+                )
 
         fetcher = getattr(self, "_provider_fetch", _live_rentcast_fetch)
         try:
@@ -410,6 +421,7 @@ class ProviderIntegrationMixin:
                 source_url=source_url,
                 response_hash=response_hash,
                 retrieved_at=now,
+                linked_intents=equivalent_intents,
             )
             with self.database.session(write=True) as (connection, _):
                 connection.execute(
@@ -425,6 +437,8 @@ class ProviderIntegrationMixin:
                 "batch_id": batch_id,
                 "status": "success",
                 "cached": False,
+                "linked_intent_count": len(equivalent_intents),
+                "shared_demand": len(equivalent_intents) > 1,
                 "creates_deals": False,
                 "requires_candidate_review": True,
             }
@@ -436,7 +450,7 @@ class ProviderIntegrationMixin:
                 )
             raise
 
-    def _stage_provider_candidates(self, *, provider, intent, run_id, normalized, source_url, response_hash, retrieved_at):
+    def _stage_provider_candidates(self, *, provider, intent, run_id, normalized, source_url, response_hash, retrieved_at, linked_intents=None):
         if not normalized:
             return None
         city, state = _market_parts(intent["market"])
@@ -456,6 +470,9 @@ class ProviderIntegrationMixin:
             "row_count": len(normalized),
             "provider_search_run_id": run_id,
             "search_intent_id": intent["intent_id"],
+            "linked_search_intent_ids": [item["intent_id"] for item in (linked_intents or [intent])],
+            "linked_mandate_ids": list(dict.fromkeys(item["mandate_id"] for item in (linked_intents or [intent]))),
+            "linked_buyer_ids": list(dict.fromkeys(item["buyer_id"] for item in (linked_intents or [intent]))),
         }
         with self.database.session(write=True) as (connection, _):
             prior = connection.execute("SELECT id FROM sourcing_batches WHERE batch_key=?", (batch_key,)).fetchone()
