@@ -207,6 +207,8 @@ def handler_for(application, gmail):
                     result = application.record_commitment_outcome(data)
                 elif path == "/api/providers/search":
                     result = application.search_property_provider(data)
+                elif path == "/api/providers/preflight":
+                    result = application.preflight_property_count(data)
                 elif path.startswith("/api/commitments/"):
                     parts = path.strip("/").split("/")
                     if len(parts) != 5 or parts[4] != "status":
