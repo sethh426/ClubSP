@@ -443,3 +443,92 @@ def test_stale_capital_is_excluded_from_readiness_until_reconfirmed(tmp_path):
     })
     after = app.deal_readiness(deal["id"])
     assert after["components"]["capital_path"]["score"] == 20
+
+
+def test_buyer_commitment_reservation_consumes_and_releases_demand_slot(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    mandate = app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "name": "One-slot commitment",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "max_active_reservations": 1,
+        "target_units_per_month": 3,
+        "priority": 95,
+        "status": "active",
+        "evidence_reference": "synthetic buyer reservation confirmation",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    assert any(x["mandate_id"] == mandate["id"] for x in app.search_intents())
+    reservation = app.reserve_buyer_commitment({
+        "deal_id": deal["id"],
+        "mandate_id": mandate["id"],
+        "expires_at": (now + timedelta(days=7)).isoformat(),
+        "evidence_reference": "synthetic buyer hold",
+        "note": "Buyer reserved one acquisition slot.",
+    })
+    graph = app.state()["commitment_graph"]
+    saved = next(x for x in graph["buyer_mandates"] if x["id"] == mandate["id"])
+    assert saved["active_reservations"] == 1
+    assert saved["available_reservation_slots"] == 0
+    assert saved["target_units_per_month"] == 3
+    assert not any(x["mandate_id"] == mandate["id"] for x in graph["search_intents"])
+    readiness = next(x for x in graph["deal_readiness"] if x["deal_id"] == deal["id"])
+    assert readiness["active_reservation"]["id"] == reservation["id"]
+
+    released = app.release_buyer_commitment(reservation["id"], {
+        "evidence_reference": "synthetic release evidence",
+        "note": "Buyer slot released after deal review.",
+    })
+    assert released["status"] == "released"
+    graph = app.state()["commitment_graph"]
+    saved = next(x for x in graph["buyer_mandates"] if x["id"] == mandate["id"])
+    assert saved["active_reservations"] == 0
+    assert saved["available_reservation_slots"] == 1
+    assert any(x["mandate_id"] == mandate["id"] for x in graph["search_intents"])
+
+
+def test_reservation_rejects_overbooking_same_mandate(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    second_prop = app.create_property({
+        "address": "456 Synthetic Reserve St", "city": "Fort Wayne", "state": "IN", "zip": "46802",
+    })
+    app.record_fact({
+        "property_id": second_prop["id"], "attribute": "property_type",
+        "value": "single_family", "provider": "Synthetic fixture",
+    })
+    second_deal = app.create_deal({"property_id": second_prop["id"], "strategy": "assignment"})
+    app.underwrite(second_deal["id"], underwriting_payload())
+    app.match_buyers(second_deal["id"])
+    now = datetime.now(timezone.utc)
+    mandate = app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "max_active_reservations": 1,
+        "target_units_per_month": 1,
+        "status": "active",
+        "evidence_reference": "synthetic one-slot commitment",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    app.reserve_buyer_commitment({
+        "deal_id": deal["id"], "mandate_id": mandate["id"],
+        "expires_at": (now + timedelta(days=7)).isoformat(),
+        "evidence_reference": "synthetic first hold",
+    })
+    import pytest
+    with pytest.raises(ValueError, match="no available reservation slots"):
+        app.reserve_buyer_commitment({
+            "deal_id": second_deal["id"], "mandate_id": mandate["id"],
+            "expires_at": (now + timedelta(days=7)).isoformat(),
+            "evidence_reference": "synthetic overbook attempt",
+        })
