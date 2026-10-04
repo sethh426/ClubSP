@@ -80,6 +80,8 @@ function renderCommitmentGraph() {
   workspaceField(mf, "property_types", "Property types (comma separated; blank = any)", "text", "", false);
   workspaceField(mf, "max_total_price", "Maximum total price", "number");
   workspaceField(mf, "max_repairs", "Maximum repairs", "number", "0");
+  workspaceField(mf, "max_active_reservations", "Maximum active deal reservations", "number", "1");
+  workspaceField(mf, "target_units_per_month", "Target units per month", "number", "1");
   workspaceField(mf, "min_beds", "Minimum beds (optional)", "number", "", false);
   workspaceField(mf, "max_beds", "Maximum beds (optional)", "number", "", false);
   workspaceField(mf, "min_baths", "Minimum baths (optional)", "number", "", false);
@@ -105,6 +107,8 @@ function renderCommitmentGraph() {
     v.property_types = v.property_types.split(",").map(x => x.trim()).filter(Boolean);
     v.max_total_price = Number(v.max_total_price);
     v.max_repairs = Number(v.max_repairs);
+    v.max_active_reservations = Number(v.max_active_reservations);
+    v.target_units_per_month = Number(v.target_units_per_month);
     ["min_beds","max_beds","min_baths","max_baths","min_sqft","max_sqft","min_year_built","max_year_built"].forEach(key => {
       if (v[key] === "") delete v[key]; else v[key] = Number(v[key]);
     });
@@ -344,6 +348,7 @@ function renderCommitmentGraph() {
     card.append(node("strong", (b ? b.name : "Buyer") + " · " + m.name));
     card.append(node("p", m.markets.join(" · ") + " · " + m.strategies.join(", ") + " · max " + amount("money",m.max_total_price), "small"));
     card.append(node("p", "Priority " + m.priority + " · " + m.status + " · verified " + new Date(m.verified_at).toLocaleDateString() + (m.expires_at ? " · expires " + new Date(m.expires_at).toLocaleDateString() : ""), "muted small"));
+    card.append(node("p", "Demand capacity: " + m.active_reservations + "/" + m.max_active_reservations + " active reservation(s) · " + m.available_reservation_slots + " slot(s) available · target " + m.target_units_per_month + "/month", "small"));
     const filters = m.filters || {};
     if (Object.keys(filters).length) card.append(node("p", "Filters: " + Object.entries(filters).map(([k,v]) => readable(k) + " " + v).join(" · "), "muted small"));
     const mfresh = commitmentFreshness(m, 90);
@@ -353,6 +358,54 @@ function renderCommitmentGraph() {
     mandates.append(card);
   });
   box.append(mandates);
+
+  const reservationBox = workspaceDetails("Reserve buyer demand for a deal", false);
+  const reservableMandates = graph.buyer_mandates.filter(m => m.status === "active" && m.available_reservation_slots > 0 && commitmentFreshness(m,90).current);
+  const unreservedDeals = (state.deals || []).filter(d => !graph.reservations?.some(r => r.deal_id === d.id && r.status === "active"));
+  if (!reservableMandates.length || !unreservedDeals.length) {
+    reservationBox.append(node("p",
+      !reservableMandates.length
+        ? "No current buyer mandate has an available reservation slot."
+        : "Every current deal is already reserved or there are no deals to reserve.",
+      "muted small"
+    ));
+  } else {
+    const rf=node("form",undefined,"workspace-form commitment-reservation-form");
+    workspaceSelect(rf,"deal_id","Deal",unreservedDeals.map(d=>[d.id,d.address+" · "+readable(d.stage)]));
+    workspaceSelect(rf,"mandate_id","Buyer commitment",reservableMandates.map(m=>{
+      const b=state.buyers.find(x=>x.id===m.buyer_id);
+      return [m.id,(b?b.name:"Buyer")+" · "+m.name+" · "+m.available_reservation_slots+" slot(s)"];
+    }));
+    workspaceField(rf,"expires_at","Reservation expires","date");
+    workspaceField(rf,"evidence_reference","Reservation evidence / buyer confirmation");
+    workspaceField(rf,"note","Reservation notes","textarea","",false);
+    workspaceSubmit(rf,"Reserve buyer slot");
+    rf.addEventListener("submit",e=>{
+      e.preventDefault();
+      const v=values(rf);
+      v.expires_at=commitmentDate(v.expires_at);
+      runForm(rf,()=>api("/api/commitments/reservations",v),"Buyer demand reserved for this deal.");
+    });
+    reservationBox.append(node("p","A reservation converts general buyer demand into a deal-specific hold and prevents ClubSP from overbooking that mandate's active capacity.","muted small"),rf);
+  }
+  (graph.reservations || []).filter(r=>r.status==="active").forEach(r=>{
+    const deal=state.deals.find(d=>d.id===r.deal_id);
+    const buyer=state.buyers.find(b=>b.id===r.buyer_id);
+    const card=node("article",undefined,"evidence-row");
+    card.append(node("strong",(deal?deal.address:"Deal")+" · reserved for "+(buyer?buyer.name:"Buyer")));
+    card.append(node("p","Mandate: "+r.mandate_name+" · expires "+new Date(r.expires_at).toLocaleDateString(),"small"));
+    const d=workspaceDetails("Release reservation",false);
+    const form=node("form",undefined,"workspace-form reservation-release-form");
+    workspaceField(form,"evidence_reference","Release evidence reference");
+    workspaceField(form,"note","Release reason","textarea");
+    workspaceSubmit(form,"Release buyer slot");
+    form.addEventListener("submit",e=>{
+      e.preventDefault();
+      runForm(form,()=>api("/api/commitments/reservations/"+r.id+"/release",values(form)),"Buyer reservation released.");
+    });
+    d.append(form);card.append(d);reservationBox.append(card);
+  });
+  box.append(reservationBox);
 
   const capitalList = workspaceDetails("Capital availability", activeCapital > 0);
   if (!graph.capital_profiles.length) capitalList.append(node("p","No capital profiles recorded yet.","muted small"));
@@ -432,6 +485,7 @@ function renderCommitmentGraph() {
     const parts = Object.entries(r.components).map(([k,v]) => readable(k) + " " + v.score + "/" + v.max);
     card.append(node("p", parts.join(" · "), "small"));
     card.append(node("p", r.buyer_matches_current ? "Buyer-match evidence current" : (r.stored_buyer_match_count ? "Buyer-match evidence stale · re-run matching" : "Buyer matching not yet recorded"), "muted small"));
+    card.append(node("p", r.active_reservation ? "Buyer demand reserved through " + new Date(r.active_reservation.expires_at).toLocaleDateString() : "No deal-specific buyer reservation recorded", r.active_reservation ? "small" : "muted small"));
     if (r.blockers.length) card.append(node("p", "Blockers: " + r.blockers.join(" · "), "muted small"));
     if (r.next_actions.length) card.append(node("p", "Next: " + r.next_actions.join(" · "), "muted small"));
     readiness.append(card);
