@@ -322,3 +322,28 @@ def test_identical_buyer_demand_is_pooled_into_one_provider_request(tmp_path, mo
         body = __import__("json").loads(batch["body"])
         assert first["intent_id"] in body["linked_search_intent_ids"]
         assert second["intent_id"] in body["linked_search_intent_ids"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("price", float("nan")),
+    ("bedrooms", -1),
+    ("bathrooms", float("inf")),
+    ("squareFootage", 20_000_000),
+    ("yearBuilt", 9999),
+])
+def test_provider_normalizer_rejects_malformed_numeric_listing_data(field, value):
+    row = synthetic_listing()
+    row[field] = value
+    with pytest.raises(ValueError):
+        normalize_rentcast_listing(row)
+
+
+def test_provider_normalizer_rejects_invalid_zip_and_oversized_identity():
+    row = synthetic_listing()
+    row["zipCode"] = "not-a-zip"
+    with pytest.raises(ValueError):
+        normalize_rentcast_listing(row)
+    row = synthetic_listing()
+    row["id"] = "x" * 201
+    with pytest.raises(ValueError):
+        normalize_rentcast_listing(row)
