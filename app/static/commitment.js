@@ -165,7 +165,10 @@ function renderCommitmentGraph() {
       const confirmLabel=node("label",undefined,"check-label"), confirm=node("input");
       confirm.type="checkbox"; confirm.name="confirm_paid_request"; confirm.required=true;
       confirmLabel.append(confirm,document.createTextNode(" I authorize this external API request and understand it may count toward provider usage/billing."));
-      pf.append(confirmLabel);
+      const refreshLabel=node("label",undefined,"check-label"), refresh=node("input");
+      refresh.type="checkbox"; refresh.name="force_refresh";
+      refreshLabel.append(refresh,document.createTextNode(" Force a fresh provider request instead of reusing a recent identical search."));
+      pf.append(confirmLabel, refreshLabel);
       workspaceSubmit(pf, "Search current listings");
       if (!provider.configured || provider.remaining_local_requests <= 0) {
         Array.from(pf.elements).forEach(el => el.disabled=true);
@@ -177,6 +180,7 @@ function renderCommitmentGraph() {
         v.provider_id="auto";
         v.max_results=Number(v.max_results);
         v.confirm_paid_request=confirm.checked;
+        v.force_refresh=refresh.checked;
         runForm(pf,()=>api("/api/providers/search",v),"Provider search completed. Results were staged for review.");
       });
       providerBox.append(pf);
