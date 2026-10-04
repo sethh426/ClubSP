@@ -597,3 +597,62 @@ def test_broad_inventory_preflight_requests_query_refinement(tmp_path, monkeypat
     assert item["inventory_count"] == 25000
     assert item["action"] == "refine_query"
     assert item["inventory_per_demand_path"] == 25000
+
+
+def test_resale_search_budget_waits_for_current_capital_path(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    resale_buyer = app.create_buyer({
+        "name": "Synthetic Resale Buyer",
+        "company": "Resale Fixture LLC",
+        "locations": ["Fort Wayne, IN"],
+        "strategies": ["resale"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "funding_status": "unverified",
+    })
+    now = datetime.now(timezone.utc)
+    mandate = app.create_buyer_mandate({
+        "buyer_id": resale_buyer["id"],
+        "name": "Capital-gated resale demand",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["resale"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "priority": 95,
+        "status": "active",
+        "evidence_reference": "synthetic resale mandate",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    intent = next(x for x in app.search_intents() if x["mandate_id"] == mandate["id"])
+    item = next(
+        x for x in app.state()["provider_integrations"]["search_queue"]
+        if intent["intent_id"] in x["search_intent_ids"]
+    )
+    assert item["capital_required"] is True
+    assert item["required_capital"] == 210000
+    assert item["capital_path_count"] == 0
+    assert item["action"] == "capital_gap"
+
+    app.create_capital_profile({
+        "name": "Synthetic Resale Capital",
+        "provider_type": "partner",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["resale"],
+        "max_commitment": 250000,
+        "available_amount": 250000,
+        "status": "active",
+        "verification_reference": "synthetic capital confirmation",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+        "terms": {},
+    })
+    item = next(
+        x for x in app.state()["provider_integrations"]["search_queue"]
+        if intent["intent_id"] in x["search_intent_ids"]
+    )
+    assert item["capital_path_count"] == 1
+    assert item["action"] == "search_now"
