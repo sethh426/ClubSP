@@ -62,7 +62,8 @@ def _market_parts(market):
 
 def compile_rentcast_search(intent, max_results=50):
     city, state = _market_parts(intent["market"])
-    if isinstance(max_results, bool) or not isinstance(max_results, int) or not 1 <= max_results <= 50:\n        raise ValueError("max_results must be an integer from 1 to 50")
+    if isinstance(max_results, bool) or not isinstance(max_results, int) or not 1 <= max_results <= 50:
+        raise ValueError("max_results must be an integer from 1 to 50")
     params = {
         "city": city,
         "state": state,
