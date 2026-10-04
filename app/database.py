@@ -206,6 +206,15 @@ class Database:
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS provider_search_runs_month ON provider_search_runs(provider_id,created_at,status);
+                CREATE TABLE IF NOT EXISTS provider_search_links (
+                    run_id TEXT NOT NULL REFERENCES provider_search_runs(id),
+                    search_intent_id TEXT NOT NULL,
+                    mandate_id TEXT NOT NULL,
+                    buyer_id TEXT NOT NULL,
+                    linked_at TEXT NOT NULL,
+                    PRIMARY KEY(run_id,search_intent_id)
+                );
+                CREATE INDEX IF NOT EXISTS provider_search_links_intent ON provider_search_links(search_intent_id,linked_at);
                 CREATE INDEX IF NOT EXISTS commitment_events_entity ON commitment_events(entity_type,entity_id,created_at);
                 CREATE TABLE IF NOT EXISTS memory (
                     collection TEXT NOT NULL,
