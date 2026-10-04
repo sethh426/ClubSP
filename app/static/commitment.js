@@ -151,6 +151,24 @@ function renderCommitmentGraph() {
   }
   box.append(intents);
 
+  const budgetQueue = workspaceDetails("Search budget queue", false);
+  const queuedSearches = state.provider_integrations?.search_queue || [];
+  if (!queuedSearches.length) {
+    budgetQueue.append(node("p","No buyer-demand searches are queued yet.","muted small"));
+  } else {
+    budgetQueue.append(node("p","ClubSP prioritizes limited provider requests by shared buyer demand, mandate priority, refresh need, and provider availability. This is an operational budget score—not a closing probability.","muted small"));
+    queuedSearches.slice(0,10).forEach(item => {
+      const representative = graph.search_intents.find(x => x.intent_id === item.search_intent_ids[0]);
+      const card=node("article",undefined,"evidence-row");
+      card.append(node("strong", (representative ? representative.market : "Search") + " · budget priority " + item.budget_priority_score + "/100"));
+      card.append(node("p", item.demand_count + " demand path(s) · action " + readable(item.action) + (item.provider_id ? " · " + readable(item.provider_id) : ""), "small"));
+      const r=item.rationale;
+      card.append(node("p","Demand " + r.demand_points + " · mandate priority " + r.mandate_priority_points + " · refresh need " + r.refresh_need_points + " · provider availability " + r.provider_available_points,"muted small"));
+      budgetQueue.append(card);
+    });
+  }
+  box.append(budgetQueue);
+
   const providerBox = workspaceDetails("External property search", false);
   const providers = state.provider_integrations?.providers || [];
   const provider = providers.find(x => x.id === "rentcast");
