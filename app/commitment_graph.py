@@ -332,26 +332,7 @@ class CommitmentGraphMixin:
                 "descriptive_close_rate": (closed / len(rows)) if rows else None,
                 "calibrated_probability": False,
             })
-        search_intents = []
-        for mandate in mandates:
-            if not _current(mandate, datetime.now(timezone.utc)):
-                continue
-            for market in mandate["markets"]:
-                search_intents.append({
-                    "intent_id": f"{mandate['id']}:{market.lower()}",
-                    "mandate_id": mandate["id"],
-                    "buyer_id": mandate["buyer_id"],
-                    "market": market,
-                    "strategies": mandate["strategies"],
-                    "property_types": mandate["property_types"],
-                    "max_total_price": mandate["max_total_price"],
-                    "max_repairs": mandate["max_repairs"],
-                    "priority": mandate["priority"],
-                    "verified_at": mandate["verified_at"],
-                    "expires_at": mandate["expires_at"],
-                    "purpose": "provider-neutral demand-first sourcing input",
-                })
-        search_intents.sort(key=lambda item: (-item["priority"], item["market"].lower(), item["intent_id"]))
+        search_intents = self._search_intents_from_mandates(mandates)
         reverse_opportunities = []
         if discovery:
             for item in discovery.get("items", []):
@@ -386,6 +367,38 @@ class CommitmentGraphMixin:
                 "valuation, lending approval, or investment recommendation."
             ),
         }
+
+    def search_intents(self):
+        with self.database.session() as (connection, _):
+            mandates = [self._mandate_json(row) for row in connection.execute(
+                "SELECT * FROM buyer_mandates ORDER BY priority DESC,created_at DESC,id"
+            )]
+            return self._search_intents_from_mandates(mandates)
+
+    @staticmethod
+    def _search_intents_from_mandates(mandates):
+        now = datetime.now(timezone.utc)
+        search_intents = []
+        for mandate in mandates:
+            if not _current(mandate, now):
+                continue
+            for market in mandate["markets"]:
+                search_intents.append({
+                    "intent_id": f"{mandate['id']}:{market.lower()}",
+                    "mandate_id": mandate["id"],
+                    "buyer_id": mandate["buyer_id"],
+                    "market": market,
+                    "strategies": mandate["strategies"],
+                    "property_types": mandate["property_types"],
+                    "max_total_price": mandate["max_total_price"],
+                    "max_repairs": mandate["max_repairs"],
+                    "priority": mandate["priority"],
+                    "verified_at": mandate["verified_at"],
+                    "expires_at": mandate["expires_at"],
+                    "purpose": "provider-neutral demand-first sourcing input",
+                })
+        search_intents.sort(key=lambda item: (-item["priority"], item["market"].lower(), item["intent_id"]))
+        return search_intents
 
     @staticmethod
     def _mandate_json(row):
