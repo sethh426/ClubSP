@@ -22,6 +22,7 @@ ASSETS = {
     "/communications.js": ("communications.js", "text/javascript; charset=utf-8"),
     "/knowledge.js": ("knowledge.js", "text/javascript; charset=utf-8"),
     "/discovery.js": ("discovery.js", "text/javascript; charset=utf-8"),
+    "/commitment.js": ("commitment.js", "text/javascript; charset=utf-8"),
     "/gmail.js": ("gmail.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/funding": ("funding.html", "text/html; charset=utf-8"),
