@@ -199,6 +199,27 @@ class SourcingMixin:
                     if kind == "candidates":
                         row["zip"] = text_field(raw_row, "zip", 10)
                         row["property_type"] = text_field(raw_row, "property_type", 60)
+                        for header, key, integer_only in (
+                            ("asking_price", "asking_price", False),
+                            ("beds", "beds", False),
+                            ("baths", "baths", False),
+                            ("sqft", "sqft", False),
+                            ("year_built", "year_built", True),
+                        ):
+                            raw_value = raw_row.get(header, "")
+                            if raw_value is None or not raw_value.strip():
+                                continue
+                            try:
+                                numeric = Decimal(raw_value.strip().replace("$", "").replace(",", ""))
+                                if not numeric.is_finite() or numeric < 0 or numeric > Decimal("1000000000"):
+                                    raise InvalidOperation
+                                if header == "asking_price" and numeric != numeric.quantize(Decimal("0.01")):
+                                    raise InvalidOperation
+                                if integer_only and numeric != numeric.to_integral_value():
+                                    raise InvalidOperation
+                            except InvalidOperation:
+                                raise ValueError(f"{header} must be a finite nonnegative number") from None
+                            row[key] = int(numeric) if integer_only else float(numeric)
                     else:
                         value = text_field(raw_row, "Sale Date", 40)
                         try:
@@ -283,9 +304,13 @@ class SourcingMixin:
                     source = memory.add_source(SourceRecord(source_type="reviewed_official_notice" if batch.get("discovery") else "reviewed_csv", provider=batch["provider"], url=batch["source_url"],
                         published_at=datetime.combine(date.fromisoformat(batch["source_date"]), time(), timezone.utc),
                         raw_reference=f"import:{batch['id']}:row:{row_id}", content_hash=batch["raw_hash"]))
-                    for attribute in ("parcel_id", "property_type"):
+                    for attribute in ("parcel_id", "property_type", "asking_price", "beds", "baths", "sqft", "year_built"):
+                        if attribute not in value:
+                            continue
+                        is_number = attribute not in {"parcel_id", "property_type"}
                         memory.add_fact(Fact(subject_type="property", subject_id=UUID(property_id), attribute=attribute,
-                            value=value[attribute], value_type="text", source_id=source.id, observed_at=source.published_at, confidence=0.5))
+                            value=value[attribute], value_type="number" if is_number else "text",
+                            source_id=source.id, observed_at=source.published_at, confidence=0.5))
                 else:
                     property_id = str(property_exists(connection, data.get("property_id")))
                     prop = connection.execute("SELECT * FROM properties WHERE id=?", (property_id,)).fetchone()
