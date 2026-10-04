@@ -552,3 +552,48 @@ def test_inventory_preflight_requires_confirmation_and_local_cap(tmp_path, monke
             "force_refresh": True,
         })
     assert calls == 1
+
+
+def test_zero_inventory_preflight_blocks_record_fetch_priority(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    monkeypatch.setenv("REALESTATEAPI_API_KEY", "synthetic-count-key")
+    app._preflight_fetch = lambda provider, payload, api_key: (
+        0, provider["endpoint"], {"total_count": 0, "mode": "count"}
+    )
+    app.preflight_property_count({
+        "provider_id": "realestateapi",
+        "search_intent_id": intent["intent_id"],
+        "confirm_external_request": True,
+    })
+    item = next(
+        x for x in app.state()["provider_integrations"]["search_queue"]
+        if intent["intent_id"] in x["search_intent_ids"]
+    )
+    assert item["inventory_count"] == 0
+    assert item["inventory_per_demand_path"] == 0
+    assert item["action"] == "no_inventory"
+    assert item["budget_priority_score"] == 0
+
+
+def test_broad_inventory_preflight_requests_query_refinement(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    monkeypatch.setenv("REALESTATEAPI_API_KEY", "synthetic-count-key")
+    app._preflight_fetch = lambda provider, payload, api_key: (
+        25000, provider["endpoint"], {"total_count": 25000, "mode": "count"}
+    )
+    app.preflight_property_count({
+        "provider_id": "realestateapi",
+        "search_intent_id": intent["intent_id"],
+        "confirm_external_request": True,
+    })
+    item = next(
+        x for x in app.state()["provider_integrations"]["search_queue"]
+        if intent["intent_id"] in x["search_intent_ids"]
+    )
+    assert item["inventory_count"] == 25000
+    assert item["action"] == "refine_query"
+    assert item["inventory_per_demand_path"] == 25000
