@@ -26,7 +26,16 @@ The backend now stores:
 - reverse opportunity search: reviewed sourcing candidates are ranked against
   current standing mandates before a deal is created;
 - audited commitment lifecycle events: mandates/capital can be paused, reactivated,
-  marked unverified or expired without erasing the prior state transition.
+  marked unverified or expired without erasing the prior state transition;
+- freshness fingerprints: stored buyer matches are invalidated when underwriting,
+  deal terms, source evidence, strategy, market, or buyer criteria change;
+- descriptive reliability intelligence: buyer, mandate, and capital histories count
+  recorded closes/failures without presenting them as calibrated probabilities;
+- exact outcome context: outcomes can preserve the specific buyer mandate and
+  buyer-match snapshot that produced the path;
+- provider-neutral sourcing intents generated from active standing buyer demand;
+- richer reviewed candidate evidence including optional asking price, beds, baths,
+  square footage, and year built.
 
 The complete application state exposes these under `commitment_graph`.
 A deal can also be rescored directly with:
@@ -44,11 +53,19 @@ readiness and appears as a blocker/next action instead of being silently guessed
 
 ## Dependency decision
 
-The first Commitment Graph implementation adds **zero runtime dependencies**.
+The core Commitment Graph still adds **zero mandatory runtime dependencies**.
 That is deliberate: ClubSP is currently a small SQLite/stdlib application with
 strong audit semantics. Buyer/capital relationships are easily represented by
 foreign keys and JSON criteria. A graph database would add operating complexity
 before the relationship volume or query shape justifies it.
+
+The researched libraries are now staged as optional extras in `pyproject.toml`:
+
+- `pip install .[integrations]` for HTTP/provider validation and fuzzy-review tools;
+- `pip install .[scale]` for the later production database/migration/job-queue path.
+
+Nothing in the current local app imports those packages yet, so installing ClubSP
+normally keeps the existing zero-dependency runtime.
 
 Add dependencies only at the integration boundary:
 
@@ -89,14 +106,16 @@ run ClubSP's existing review/invalidation rules.
 
 ## Next engineering sequence
 
-1. Add freshness fingerprints so changed underwriting, terms or buyer criteria invalidate
-   stale match evidence even when a prior buyer-match run exists.
-2. Feed completed/lost deal outcomes into buyer/capital reliability summaries.
-3. Add a provider-neutral HTTP adapter, then connect one property-data source.
-4. Move repeated provider refreshes and reverse-matching into a job queue only
-   after manual flows are proven.
+1. Add a provider-neutral HTTP adapter that consumes the generated demand-first
+   search intents, then connect one property-data source behind explicit credentials.
+2. Add provider response contracts and evidence normalization before any external
+   field can influence reverse matching or underwriting.
+3. Extend standing mandates with optional beds/baths/square-footage/year-built
+   filters once provider field normalization is proven.
+4. Move repeated provider refreshes and reverse matching into a job queue only
+   after the manual/provider pilot is reliable.
 5. Calibrate any future probability model only from a sufficiently large labeled
-   outcome set; until then, keep the readiness score deterministic and explainable.
+   outcome set; until then, keep readiness deterministic and reliability descriptive.
 
 ## Product rule
 
