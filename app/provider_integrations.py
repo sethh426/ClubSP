@@ -534,6 +534,26 @@ class ProviderIntegrationMixin:
                     last_run_id = prior["id"]
                     cached_age = max(0.0, (now - datetime.fromisoformat(prior["created_at"])).total_seconds() / 3600)
             cache_hours = PROVIDERS.get(provider_id, {}).get("cache_hours", 0) if provider_id else 0
+            inventory_count = None
+            representative_intent_id = group["representative"]["intent_id"]
+            preflight_row = connection.execute(
+                """SELECT id FROM provider_search_runs
+                   WHERE provider_id='realestateapi' AND search_intent_id=? AND status='success'
+                   ORDER BY created_at DESC,id LIMIT 1""",
+                (representative_intent_id,),
+            ).fetchone()
+            if preflight_row:
+                meta = connection.execute(
+                    "SELECT metadata_json FROM provider_search_metadata WHERE run_id=?",
+                    (preflight_row["id"],),
+                ).fetchone()
+                if meta:
+                    inventory_count = json.loads(meta["metadata_json"]).get("total_count")
+            inventory_per_demand = (
+                inventory_count / group["demand_count"]
+                if isinstance(inventory_count, int) and group["demand_count"] > 0
+                else None
+            )
             demand_points = min(40, group["demand_count"] * 10)
             priority_points = round(group["priority"] * 0.30)
             if cached_age is None:
@@ -544,7 +564,12 @@ class ProviderIntegrationMixin:
                 refresh_points = 20
             provider_points = 10 if provider_id else 0
             score = min(100, demand_points + priority_points + refresh_points + provider_points)
-            if not provider_id:
+            if inventory_count == 0:
+                action = "no_inventory"
+                score = 0
+            elif isinstance(inventory_count, int) and inventory_count > 5000:
+                action = "refine_query"
+            elif not provider_id:
                 action = "manual_fallback"
             elif cached_age is not None and cache_hours and cached_age < cache_hours:
                 action = "reuse_cached"
@@ -562,6 +587,8 @@ class ProviderIntegrationMixin:
                 "action": action,
                 "cached_age_hours": round(cached_age, 2) if cached_age is not None else None,
                 "last_run_id": last_run_id,
+                "inventory_count": inventory_count,
+                "inventory_per_demand_path": round(inventory_per_demand, 2) if inventory_per_demand is not None else None,
                 "rationale": {
                     "demand_points": demand_points,
                     "mandate_priority_points": priority_points,
