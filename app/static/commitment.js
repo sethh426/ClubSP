@@ -147,6 +147,28 @@ function renderCommitmentGraph() {
   });
   box.append(capitalList);
 
+  const reliability = workspaceDetails("Network reliability evidence", false);
+  reliability.append(node("p","Descriptive history only. These rates summarize recorded outcomes; they are not calibrated probabilities or guarantees.","muted small"));
+  if (!graph.buyer_reliability?.some(x => x.recorded_outcomes)) {
+    reliability.append(node("p","No buyer outcome history yet. Record disposition outcomes to build reliability evidence.","muted small"));
+  }
+  (graph.buyer_reliability || []).filter(x => x.recorded_outcomes).forEach(item => {
+    const card = node("article", undefined, "evidence-row");
+    const rate = Math.round(item.descriptive_close_rate * 100);
+    card.append(node("strong", item.name + (item.company ? " · " + item.company : "")));
+    card.append(node("p", item.closed_outcomes + " closed of " + item.recorded_outcomes + " recorded outcomes · descriptive close rate " + rate + "%", "small"));
+    if (item.last_outcome) card.append(node("p","Last outcome: " + readable(item.last_outcome.outcome) + " · " + readable(item.last_outcome.reason_code),"muted small"));
+    reliability.append(card);
+  });
+  (graph.capital_reliability || []).filter(x => x.recorded_outcomes).forEach(item => {
+    const card = node("article", undefined, "evidence-row");
+    const rate = Math.round(item.descriptive_close_rate * 100);
+    card.append(node("strong", item.name + " · " + readable(item.provider_type)));
+    card.append(node("p", item.closed_outcomes + " closed of " + item.recorded_outcomes + " recorded outcomes · " + item.funding_failed_outcomes + " funding failure(s) · descriptive close rate " + rate + "%", "small"));
+    reliability.append(card);
+  });
+  box.append(reliability);
+
   const readiness = workspaceDetails("Deal Readiness", graph.deal_readiness.length > 0);
   if (!graph.deal_readiness.length) readiness.append(node("p","Start a deal to calculate a path-to-close readiness score.","muted small"));
   graph.deal_readiness.forEach(r => {
@@ -155,6 +177,7 @@ function renderCommitmentGraph() {
     card.append(node("strong", (deal ? deal.address : "Deal") + " · " + r.score + "/100 · " + r.label));
     const parts = Object.entries(r.components).map(([k,v]) => readable(k) + " " + v.score + "/" + v.max);
     card.append(node("p", parts.join(" · "), "small"));
+    card.append(node("p", r.buyer_matches_current ? "Buyer-match evidence current" : (r.stored_buyer_match_count ? "Buyer-match evidence stale · re-run matching" : "Buyer matching not yet recorded"), "muted small"));
     if (r.blockers.length) card.append(node("p", "Blockers: " + r.blockers.join(" · "), "muted small"));
     if (r.next_actions.length) card.append(node("p", "Next: " + r.next_actions.join(" · "), "muted small"));
     readiness.append(card);
