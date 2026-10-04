@@ -162,6 +162,9 @@ function renderCommitmentGraph() {
       const card=node("article",undefined,"evidence-row");
       card.append(node("strong", (representative ? representative.market : "Search") + " · budget priority " + item.budget_priority_score + "/100"));
       card.append(node("p", item.demand_count + " demand path(s) · action " + readable(item.action) + (item.provider_id ? " · " + readable(item.provider_id) : ""), "small"));
+      if(item.inventory_count!=null) card.append(node("p","Inventory preflight: " + item.inventory_count + " matching properties · " + item.inventory_per_demand_path + " per demand path","small"));
+      if(item.action==="no_inventory") card.append(node("p","Do not spend a record-fetch request on this query until demand criteria or inventory changes.","muted small"));
+      if(item.action==="refine_query") card.append(node("p","Inventory is very broad; refine the buyer/search criteria before spending record-fetch requests.","muted small"));
       const r=item.rationale;
       card.append(node("p","Demand " + r.demand_points + " · mandate priority " + r.mandate_priority_points + " · refresh need " + r.refresh_need_points + " · provider availability " + r.provider_available_points,"muted small"));
       budgetQueue.append(card);
