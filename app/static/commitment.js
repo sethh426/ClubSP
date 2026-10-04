@@ -88,6 +88,25 @@ function renderCommitmentGraph() {
   });
   capitalDetails.append(cf); box.append(capitalDetails);
 
+  const reverse = workspaceDetails("Reverse Opportunity Search", graph.reverse_opportunities?.length > 0);
+  if (!graph.reverse_opportunities?.length) {
+    reverse.append(node("p","No reviewed research candidates currently match a standing buyer mandate.","muted small"));
+  } else {
+    reverse.append(node("p","These candidates were surfaced because current buyer demand already exists. They are still research candidates—not verified deals.","muted small"));
+    graph.reverse_opportunities.forEach(item => {
+      const card = node("article", undefined, "evidence-row");
+      const best = item.best_match;
+      card.append(node("strong", item.address + " · " + item.commitment_match_count + " buyer mandate(s)"));
+      card.append(node("p", item.market + (item.property_type ? " · " + readable(item.property_type) : "") + " · buyer-demand fit " + item.best_commitment_score + "/100", "small"));
+      card.append(node("p", "Best path: " + best.buyer_name + (best.buyer_company ? " · " + best.buyer_company : "") + " · max " + amount("money", best.max_total_price), "small"));
+      card.append(node("p", best.reasons.join(" · "), "muted small"));
+      const open = node("button","Open research file","button secondary"); open.type="button";
+      open.addEventListener("click",()=>{ selected=item.property_id; selectedDeal=null; render(); $("property-title").scrollIntoView({block:"start"}); });
+      card.append(open); reverse.append(card);
+    });
+  }
+  box.append(reverse);
+
   const mandates = workspaceDetails("Standing demand", activeMandates > 0);
   if (!graph.buyer_mandates.length) mandates.append(node("p","No buyer mandates recorded yet.","muted small"));
   graph.buyer_mandates.forEach(m => {
