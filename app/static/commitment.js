@@ -169,6 +169,57 @@ function renderCommitmentGraph() {
   }
   box.append(budgetQueue);
 
+  const preflightBox = workspaceDetails("Inventory preflight", false);
+  const preflightProvider = (state.provider_integrations?.preflight_providers || []).find(x => x.id === "realestateapi");
+  if (!preflightProvider) {
+    preflightBox.append(node("p","No inventory-count provider is configured in this build.","muted small"));
+  } else {
+    preflightBox.append(node("p",
+      preflightProvider.name + " · " + (preflightProvider.configured ? "credential configured" : "credential not configured") +
+      " · remaining local count requests " + preflightProvider.remaining_local_requests,
+      "muted small"
+    ));
+    preflightBox.append(node("p","Count mode estimates how much inventory matches buyer demand before ClubSP spends requests pulling records. Provider billing still depends on your connected plan, so each count call is explicit.","muted small"));
+    if (graph.search_plans?.length) {
+      const cf=node("form",undefined,"workspace-form provider-preflight-form");
+      const countOptions=graph.search_plans.map(plan=>{
+        const representative=graph.search_intents.find(x=>x.intent_id===plan.search_intent_ids[0]);
+        return [representative.intent_id,representative.market+" · "+plan.demand_count+" demand path(s) · max "+amount("money",representative.max_total_price)];
+      });
+      workspaceSelect(cf,"search_intent_id","Buyer-derived search plan",countOptions);
+      const confirmLabel=node("label",undefined,"check-label"), confirm=node("input");
+      confirm.type="checkbox";confirm.name="confirm_external_request";confirm.required=true;
+      confirmLabel.append(confirm,document.createTextNode(" I authorize this provider count request and understand billing depends on my provider plan."));
+      const refreshLabel=node("label",undefined,"check-label"), refresh=node("input");
+      refresh.type="checkbox";refresh.name="force_refresh";
+      refreshLabel.append(refresh,document.createTextNode(" Force a fresh count instead of reusing a recent identical preflight."));
+      cf.append(confirmLabel,refreshLabel);
+      workspaceSubmit(cf,"Count matching inventory");
+      if(!preflightProvider.configured || preflightProvider.remaining_local_requests<=0){
+        Array.from(cf.elements).forEach(el=>el.disabled=true);
+        preflightBox.append(node("p",!preflightProvider.configured?"Set REALESTATEAPI_API_KEY on the server to enable inventory preflight.":"Local preflight request cap reached.","muted small"));
+      }
+      cf.addEventListener("submit",e=>{
+        e.preventDefault();
+        const v=values(cf);
+        v.provider_id="realestateapi";
+        v.confirm_external_request=confirm.checked;
+        v.force_refresh=refresh.checked;
+        runForm(cf,()=>api("/api/providers/preflight",v),"Inventory preflight completed.");
+      });
+      preflightBox.append(cf);
+    }
+    const latest=state.provider_integrations?.preflight_results || [];
+    latest.slice(0,10).forEach(item=>{
+      const intent=graph.search_intents.find(x=>x.intent_id===item.search_intent_id);
+      const card=node("article",undefined,"evidence-row");
+      card.append(node("strong",(intent?intent.market:"Search")+" · "+(item.total_count==null?"count unavailable":item.total_count+" matching properties")));
+      card.append(node("p","Counted "+new Date(item.created_at).toLocaleString()+" · inventory planning only; no candidate records were imported.","muted small"));
+      preflightBox.append(card);
+    });
+  }
+  box.append(preflightBox);
+
   const providerBox = workspaceDetails("External property search", false);
   const providers = state.provider_integrations?.providers || [];
   const provider = providers.find(x => x.id === "rentcast");
