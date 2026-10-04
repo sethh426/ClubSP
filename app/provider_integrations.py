@@ -31,6 +31,7 @@ PROVIDERS = {
             "Use is subject to the connected RentCast account and current terms. "
             "ClubSP stages returned records for review and preserves provider provenance."
         ),
+        "capabilities": ["market","property_type","max_price","beds","baths","sqft","year_built","active_listing"],
         "limits": (
             "Listing data is discovery evidence only. It does not prove title, seller authority, "
             "property condition, repair cost, financing, or permission to contact a person."
@@ -81,6 +82,19 @@ def compile_rentcast_search(intent, max_results=50):
             types.append(mapped)
     if types:
         params["propertyType"] = "|".join(types)
+    filters = intent.get("filters") or {}
+    ranges = {
+        "bedrooms": (filters.get("min_beds"), filters.get("max_beds")),
+        "bathrooms": (filters.get("min_baths"), filters.get("max_baths")),
+        "squareFootage": (filters.get("min_sqft"), filters.get("max_sqft")),
+        "yearBuilt": (filters.get("min_year_built"), filters.get("max_year_built")),
+    }
+    for key, (low, high) in ranges.items():
+        if low is None and high is None:
+            continue
+        low_text = "*" if low is None else str(int(low) if float(low).is_integer() else low)
+        high_text = "*" if high is None else str(int(high) if float(high).is_integer() else high)
+        params[key] = f"{low_text}:{high_text}"
     return params
 
 
@@ -146,6 +160,47 @@ def _live_rentcast_fetch(provider, params, api_key):
 
 
 class ProviderIntegrationMixin:
+    def route_property_provider(self, intent, connection=None):
+        required = {"market", "max_price"}
+        if intent.get("property_types"):
+            required.add("property_type")
+        filters = intent.get("filters") or {}
+        if any(key in filters for key in ("min_beds","max_beds")):
+            required.add("beds")
+        if any(key in filters for key in ("min_baths","max_baths")):
+            required.add("baths")
+        if any(key in filters for key in ("min_sqft","max_sqft")):
+            required.add("sqft")
+        if any(key in filters for key in ("min_year_built","max_year_built")):
+            required.add("year_built")
+        candidates = []
+        owns_connection = connection is None
+        if owns_connection:
+            ctx = self.database.session()
+            connection, _ = ctx.__enter__()
+        try:
+            for provider_id, provider in PROVIDERS.items():
+                supported = set(provider.get("capabilities", []))
+                missing = sorted(required - supported)
+                usage = self._provider_usage(connection, provider_id)
+                cap = self._provider_cap(provider)
+                configured = bool(os.environ.get(provider["credential_env"], "").strip())
+                remaining = max(0, cap - usage["attempted_requests"])
+                candidates.append({
+                    "provider_id": provider_id,
+                    "name": provider["name"],
+                    "configured": configured,
+                    "missing_capabilities": missing,
+                    "remaining_local_requests": remaining,
+                    "eligible": configured and not missing and remaining > 0,
+                })
+        finally:
+            if owns_connection:
+                ctx.__exit__(None, None, None)
+        candidates.sort(key=lambda item: (not item["eligible"], len(item["missing_capabilities"]), -item["remaining_local_requests"], item["provider_id"]))
+        selected = next((item for item in candidates if item["eligible"]), None)
+        return {"required_capabilities": sorted(required), "selected_provider_id": selected["provider_id"] if selected else None, "candidates": candidates}
+
     def _provider_usage(self, connection, provider_id):
         month = utc_now().strftime("%Y-%m")
         attempted = connection.execute(
@@ -187,7 +242,12 @@ class ProviderIntegrationMixin:
                 "automatic_search": False,
                 "requires_explicit_confirmation": True,
             })
-        return {"providers": result, "creates_deals": False, "automatic_search": False}
+        intents = self.search_intents()
+        routing = [{
+            "search_intent_id": intent["intent_id"],
+            **self.route_property_provider(intent, connection=connection),
+        } for intent in intents]
+        return {"providers": result, "routing": routing, "creates_deals": False, "automatic_search": False}
 
     @staticmethod
     def _provider_cap(provider):
@@ -204,9 +264,6 @@ class ProviderIntegrationMixin:
 
     def search_property_provider(self, data):
         provider_id = text_field(data, "provider_id", 40)
-        provider = PROVIDERS.get(provider_id)
-        if provider is None:
-            raise ValueError("unsupported property provider")
         intent_id = text_field(data, "search_intent_id", 500)
         if data.get("confirm_paid_request") is not True:
             raise ValueError("confirm_paid_request must be true for each external provider request")
@@ -221,6 +278,19 @@ class ProviderIntegrationMixin:
         intent = intents.get(intent_id)
         if intent is None:
             raise LookupError("Current search intent not found; refresh standing buyer mandates")
+        if provider_id == "auto":
+            route = self.route_property_provider(intent)
+            provider_id = route["selected_provider_id"]
+            if not provider_id:
+                raise ValueError("No configured provider can satisfy this search intent within the local request budget")
+        provider = PROVIDERS.get(provider_id)
+        if provider is None:
+            raise ValueError("unsupported property provider")
+
+        route = self.route_property_provider(intent)
+        selected = next((item for item in route["candidates"] if item["provider_id"] == provider_id), None)
+        if selected is None or selected["missing_capabilities"]:
+            raise ValueError("Selected provider cannot satisfy all required search capabilities")
 
         api_key = os.environ.get(provider["credential_env"], "").strip()
         if not api_key:
