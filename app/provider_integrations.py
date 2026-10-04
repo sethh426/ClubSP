@@ -490,12 +490,17 @@ class ProviderIntegrationMixin:
                             if body.get("provider_search_run_id") == prior["id"]:
                                 batch_id = batch_row["id"]
                                 break
+                        metadata_row = connection.execute(
+                            "SELECT metadata_json FROM provider_search_metadata WHERE run_id=?", (prior["id"],)
+                        ).fetchone()
+                        cached_metadata = json.loads(metadata_row["metadata_json"]) if metadata_row else {}
                         cache_hit = {
                             "id": prior["id"],
                             "source_search_intent_id": prior["search_intent_id"],
                             "provider_id": provider_id,
                             "requested_search_intent_id": intent_id,
                             "result_count": prior["result_count"],
+                            "provider_total_count": cached_metadata.get("total_count"),
                             "batch_id": batch_id,
                             "status": "success",
                             "cached": True,
