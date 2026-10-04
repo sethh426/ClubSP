@@ -370,3 +370,76 @@ def test_invalid_mandate_range_is_rejected(tmp_path):
             "evidence_reference": "synthetic invalid range",
             "verified_at": now.isoformat(),
         })
+
+
+def test_stale_mandate_is_excluded_until_reconfirmed(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    old = datetime.now(timezone.utc) - timedelta(days=91)
+    mandate = app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "name": "Stale demand",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "status": "active",
+        "evidence_reference": "old synthetic confirmation",
+        "verified_at": old.isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+    })
+    assert not any(x["mandate_id"] == mandate["id"] for x in app.search_intents())
+    with app.database.session() as (connection, _):
+        assert not any(
+            x["mandate_id"] == mandate["id"]
+            for x in app.reverse_match_candidate(
+                connection,
+                market="Fort Wayne, IN",
+                property_type="single_family",
+                asking_price=125000,
+            )
+        )
+    event = app.reconfirm_commitment("buyer_mandate", mandate["id"], {
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+        "evidence_reference": "new synthetic confirmation",
+        "note": "Buyer reconfirmed the buy box.",
+    })
+    assert event["status_before"] == "active"
+    assert event["status_after"] == "active"
+    assert any(x["mandate_id"] == mandate["id"] for x in app.search_intents())
+    graph = app.state()["commitment_graph"]
+    assert graph["recent_events"][0]["entity_id"] == mandate["id"]
+
+
+def test_stale_capital_is_excluded_from_readiness_until_reconfirmed(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    app.save_financial_plan(deal["id"], {
+        "seller_price": 100000,
+        "assignment_fee": 10000,
+        "planned_cash_at_risk": 25000,
+        "max_cash_at_risk": 30000,
+        "basis": "Synthetic plan for capital freshness.",
+    })
+    old = datetime.now(timezone.utc) - timedelta(days=31)
+    capital = app.create_capital_profile({
+        "name": "Stale Synthetic Capital",
+        "provider_type": "partner",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "max_commitment": 100000,
+        "available_amount": 100000,
+        "status": "active",
+        "verification_reference": "old synthetic capital confirmation",
+        "verified_at": old.isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+        "terms": {},
+    })
+    before = app.deal_readiness(deal["id"])
+    assert before["components"]["capital_path"]["score"] == 0
+    app.reconfirm_commitment("capital_profile", capital["id"], {
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+        "evidence_reference": "new synthetic capital confirmation",
+        "note": "Capital partner reconfirmed available funds.",
+    })
+    after = app.deal_readiness(deal["id"])
+    assert after["components"]["capital_path"]["score"] == 20
