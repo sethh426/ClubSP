@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 from uuid import UUID, uuid4
 
@@ -360,6 +361,7 @@ class CommitmentGraphMixin:
                 "calibrated_probability": False,
             })
         search_intents = self._search_intents_from_mandates(mandates)
+        search_plans = self._search_plans_from_intents(search_intents)
         reverse_opportunities = []
         if discovery:
             for item in discovery.get("items", []):
@@ -388,6 +390,7 @@ class CommitmentGraphMixin:
             "mandate_reliability": mandate_reliability,
             "capital_reliability": capital_reliability,
             "search_intents": search_intents,
+            "search_plans": search_plans,
             "reverse_opportunities": reverse_opportunities,
             "score_semantics": (
                 "Operational readiness evidence only; not a calibrated closing probability, "
@@ -401,6 +404,39 @@ class CommitmentGraphMixin:
                 "SELECT * FROM buyer_mandates ORDER BY priority DESC,created_at DESC,id"
             )]
             return self._search_intents_from_mandates(mandates)
+
+    @staticmethod
+    def _search_plans_from_intents(intents):
+        groups = {}
+        for intent in intents:
+            signature_payload = {
+                "market": " ".join(intent["market"].casefold().split()),
+                "property_types": sorted(intent.get("property_types") or []),
+                "max_total_price": intent.get("max_total_price"),
+                "filters": intent.get("filters") or {},
+            }
+            signature = json.dumps(signature_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            plan_id = hashlib.sha256(signature.encode()).hexdigest()[:20]
+            plan = groups.setdefault(plan_id, {
+                "plan_id": plan_id,
+                "query_signature": signature_payload,
+                "search_intent_ids": [],
+                "mandate_ids": [],
+                "buyer_ids": [],
+                "priority": 0,
+                "demand_count": 0,
+                "purpose": "deduplicated buyer-demand provider search",
+            })
+            plan["search_intent_ids"].append(intent["intent_id"])
+            if intent["mandate_id"] not in plan["mandate_ids"]:
+                plan["mandate_ids"].append(intent["mandate_id"])
+            if intent["buyer_id"] not in plan["buyer_ids"]:
+                plan["buyer_ids"].append(intent["buyer_id"])
+            plan["priority"] = max(plan["priority"], intent["priority"])
+            plan["demand_count"] += 1
+        plans = list(groups.values())
+        plans.sort(key=lambda item: (-item["demand_count"], -item["priority"], item["plan_id"]))
+        return plans
 
     @staticmethod
     def _search_intents_from_mandates(mandates):
