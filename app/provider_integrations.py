@@ -574,6 +574,15 @@ class ProviderIntegrationMixin:
                                 continue
                         except ValueError:
                             continue
+                    try:
+                        verified = datetime.fromisoformat(cp_row["verified_at"])
+                        if verified.tzinfo is None:
+                            verified = verified.replace(tzinfo=timezone.utc)
+                        verification_age = (now_for_capital - verified).total_seconds()
+                        if verification_age < 0 or verification_age > 30 * 24 * 60 * 60:
+                            continue
+                    except (ValueError, TypeError):
+                        continue
                     if strategies and "resale" not in strategies:
                         continue
                     normalized_markets = [" ".join(m.casefold().replace(",", " ").split()) for m in markets]
