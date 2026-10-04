@@ -198,6 +198,12 @@ def handler_for(application, gmail):
                     result = application.create_deal(data)
                 elif path == "/api/buyers":
                     result = application.create_buyer(data)
+                elif path == "/api/commitments/buyer-mandates":
+                    result = application.create_buyer_mandate(data)
+                elif path == "/api/commitments/capital":
+                    result = application.create_capital_profile(data)
+                elif path == "/api/commitments/outcomes":
+                    result = application.record_commitment_outcome(data)
                 elif path == "/api/opportunities/policy":
                     result = application.save_opportunity_policy(data)
                 elif path == "/api/sourcing/import":
@@ -256,6 +262,8 @@ def handler_for(application, gmail):
                         result = application.underwrite(parts[2], data)
                     elif parts[3] == "buyer-matches" and data == {}:
                         result = application.match_buyers(parts[2])
+                    elif parts[3] == "readiness" and data == {}:
+                        result = application.deal_readiness(parts[2])
                     elif parts[3] == "financial-plan":
                         result = application.save_financial_plan(parts[2], data)
                     elif parts[3] == "funding":
