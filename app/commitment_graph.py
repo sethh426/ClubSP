@@ -237,6 +237,91 @@ class CommitmentGraphMixin:
             "status_before": before, "status_after": status, "note": note,
             "evidence_reference": evidence_reference, "created_at": now,
         }
+    def reserve_buyer_commitment(self, data):
+        deal_id = _uuid(data.get("deal_id"), "deal_id")
+        mandate_id = _uuid(data.get("mandate_id"), "mandate_id")
+        evidence_reference = text_field(data, "evidence_reference", 500)
+        note = text_field(data, "note", 1000, required=False)
+        expires_at = _iso(data.get("expires_at"), "expires_at")
+        now_dt = utc_now()
+        expires_dt = datetime.fromisoformat(expires_at)
+        if expires_dt <= now_dt:
+            raise ValueError("reservation expires_at must be in the future")
+        if (expires_dt - now_dt).total_seconds() > 90 * 24 * 60 * 60:
+            raise ValueError("reservation cannot exceed 90 days")
+        reservation_id = str(uuid4())
+        with self.database.session(write=True) as (connection, _):
+            deal = deal_exists(connection, deal_id)
+            mandate_row = connection.execute(
+                "SELECT * FROM buyer_mandates WHERE id=?", (mandate_id,)
+            ).fetchone()
+            if mandate_row is None:
+                raise LookupError("Buyer mandate not found")
+            mandate = self._mandate_json(mandate_row, connection)
+            if not _current(mandate, now_dt, max_verified_age_days=90):
+                raise ValueError("Buyer mandate is not current enough to reserve")
+            if mandate["available_reservation_slots"] <= 0:
+                raise ValueError("Buyer mandate has no available reservation slots")
+            existing = connection.execute(
+                """SELECT id FROM commitment_reservations
+                   WHERE deal_id=? AND status='active' LIMIT 1""", (deal_id,)
+            ).fetchone()
+            if existing:
+                raise ValueError("Deal already has an active buyer reservation")
+            try:
+                current_matches = self._compare_buyers(connection, deal)
+            except ValueError as exc:
+                raise ValueError("Run current buyer matching prerequisites before reserving demand") from exc
+            buyer_match = next(
+                (
+                    item for item in current_matches
+                    if item["buyer_id"] == mandate["buyer_id"]
+                    and item.get("eligible_on_recorded_criteria")
+                ),
+                None,
+            )
+            if buyer_match is None:
+                raise ValueError("Mandate buyer is not eligible on the deal's current recorded criteria")
+            connection.execute(
+                """INSERT INTO commitment_reservations(
+                    id,deal_id,mandate_id,status,evidence_reference,note,
+                    reserved_at,expires_at,released_at
+                ) VALUES(?,?,?,'active',?,?,?,?,?)""",
+                (
+                    reservation_id, deal_id, mandate_id, evidence_reference, note,
+                    now_dt.isoformat(), expires_at, "",
+                ),
+            )
+        return {
+            "id": reservation_id, "deal_id": deal_id, "mandate_id": mandate_id,
+            "buyer_id": mandate["buyer_id"], "status": "active",
+            "evidence_reference": evidence_reference, "note": note,
+            "reserved_at": now_dt.isoformat(), "expires_at": expires_at,
+        }
+
+    def release_buyer_commitment(self, reservation_id, data):
+        reservation_id = _uuid(reservation_id, "reservation_id")
+        evidence_reference = text_field(data, "evidence_reference", 500)
+        note = text_field(data, "note", 1000)
+        now = utc_now().isoformat()
+        with self.database.session(write=True) as (connection, _):
+            row = connection.execute(
+                "SELECT * FROM commitment_reservations WHERE id=?", (reservation_id,)
+            ).fetchone()
+            if row is None:
+                raise LookupError("Buyer reservation not found")
+            if row["status"] != "active":
+                raise ValueError("Buyer reservation is not active")
+            connection.execute(
+                """UPDATE commitment_reservations
+                   SET status='released',released_at=?,evidence_reference=?,note=? WHERE id=?""",
+                (now, evidence_reference, note, reservation_id),
+            )
+        return {
+            "id": reservation_id, "deal_id": row["deal_id"],
+            "mandate_id": row["mandate_id"], "status": "released",
+            "released_at": now, "evidence_reference": evidence_reference, "note": note,
+        }
     def reconfirm_commitment(self, entity_type, entity_id, data):
         if entity_type not in {"buyer_mandate", "capital_profile"}:
             raise ValueError("unsupported commitment entity")
@@ -378,6 +463,12 @@ class CommitmentGraphMixin:
         events = [dict(row) for row in connection.execute(
             "SELECT * FROM commitment_events ORDER BY created_at DESC,id LIMIT 250"
         )]
+        reservations = [dict(row) for row in connection.execute(
+            """SELECT r.*,m.buyer_id,m.name AS mandate_name
+               FROM commitment_reservations r
+               JOIN buyer_mandates m ON m.id=r.mandate_id
+               ORDER BY r.reserved_at DESC,r.id LIMIT 250"""
+        )]
         readiness = [self._deal_readiness(connection, deal) for deal in deals]
         buyer_reliability = []
         for buyer in connection.execute("SELECT id,name,company FROM buyers ORDER BY created_at DESC,id"):
@@ -460,6 +551,7 @@ class CommitmentGraphMixin:
             "capital_profiles": capital,
             "recent_outcomes": outcomes,
             "recent_events": events,
+            "reservations": reservations,
             "deal_readiness": readiness,
             "buyer_reliability": buyer_reliability,
             "mandate_reliability": mandate_reliability,
@@ -731,6 +823,15 @@ class CommitmentGraphMixin:
             item = self._mandate_json(row)
             if _current(item, now, max_verified_age_days=90) and item["buyer_id"] in eligible_ids:
                 current_mandates.append(item)
+        active_reservation = connection.execute(
+            """SELECT r.id,r.mandate_id,r.expires_at
+               FROM commitment_reservations r
+               WHERE r.deal_id=? AND r.status='active'
+               ORDER BY r.reserved_at DESC LIMIT 1""",
+            (deal_id,),
+        ).fetchone()
+        if active_reservation and datetime.fromisoformat(active_reservation["expires_at"]) < now:
+            active_reservation = None
         if current_mandates:
             demand = 35
         elif eligible:
@@ -826,6 +927,7 @@ class CommitmentGraphMixin:
             "stale_buyer_match_count": len(stale_buyer_ids),
             "buyer_matches_current": bool(match_row) and not stale_buyer_ids,
             "current_mandate_count": len(current_mandates),
+            "active_reservation": dict(active_reservation) if active_reservation else None,
             "required_cash_at_risk": None if required_cents is None else required_cents / 100,
             "calibrated_probability": False,
         }
