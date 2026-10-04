@@ -222,3 +222,59 @@ def test_auto_provider_search_uses_router(tmp_path, monkeypatch):
     })
     assert result["provider_id"] == "rentcast"
     assert result["status"] == "success"
+
+
+def test_identical_fresh_provider_search_reuses_cached_run_without_second_call(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    calls = 0
+
+    def fake_fetch(provider, params, api_key):
+        nonlocal calls
+        calls += 1
+        return [synthetic_listing()], provider["endpoint"]
+
+    app._provider_fetch = fake_fetch
+    payload = {
+        "provider_id": "auto",
+        "search_intent_id": intent["intent_id"],
+        "max_results": 10,
+        "confirm_paid_request": True,
+    }
+    first = app.search_property_provider(payload)
+    second = app.search_property_provider(payload)
+    assert first["cached"] is False
+    assert second["cached"] is True
+    assert second["id"] == first["id"]
+    assert second["batch_id"] == first["batch_id"]
+    assert calls == 1
+    provider = app.state()["provider_integrations"]["providers"][0]
+    assert provider["usage"]["attempted_requests"] == 1
+
+
+def test_force_refresh_bypasses_fresh_search_cache(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    monkeypatch.setenv("CLUBSP_RENTCAST_MONTHLY_REQUEST_CAP", "3")
+    calls = 0
+
+    def fake_fetch(provider, params, api_key):
+        nonlocal calls
+        calls += 1
+        row = synthetic_listing()
+        row["id"] = f"synthetic-{calls}"
+        return [row], provider["endpoint"]
+
+    app._provider_fetch = fake_fetch
+    payload = {
+        "provider_id": "auto",
+        "search_intent_id": intent["intent_id"],
+        "max_results": 10,
+        "confirm_paid_request": True,
+    }
+    app.search_property_provider(payload)
+    refreshed = app.search_property_provider({**payload, "force_refresh": True})
+    assert refreshed["cached"] is False
+    assert calls == 2
