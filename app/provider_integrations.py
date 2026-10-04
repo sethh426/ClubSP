@@ -327,6 +327,7 @@ class ProviderIntegrationMixin:
         now_dt = utc_now()
         now = now_dt.isoformat()
         force_refresh = data.get("force_refresh") is True
+        cache_hit = None
         if not force_refresh:
             with self.database.session() as (connection, _):
                 prior = connection.execute(
@@ -344,10 +345,11 @@ class ProviderIntegrationMixin:
                             if body.get("provider_search_run_id") == prior["id"]:
                                 batch_id = batch_row["id"]
                                 break
-                        return {
+                        cache_hit = {
                             "id": prior["id"],
+                            "source_search_intent_id": prior["search_intent_id"],
                             "provider_id": provider_id,
-                            "search_intent_id": intent_id,
+                            "requested_search_intent_id": intent_id,
                             "result_count": prior["result_count"],
                             "batch_id": batch_id,
                             "status": "success",
@@ -356,6 +358,15 @@ class ProviderIntegrationMixin:
                             "creates_deals": False,
                             "requires_candidate_review": True,
                         }
+            if cache_hit:
+                with self.database.session(write=True) as (connection, _):
+                    connection.execute(
+                        """INSERT OR IGNORE INTO provider_search_links(
+                            run_id,search_intent_id,mandate_id,buyer_id,linked_at
+                        ) VALUES(?,?,?,?,?)""",
+                        (cache_hit["id"], intent_id, intent["mandate_id"], intent["buyer_id"], now),
+                    )
+                return cache_hit
         run_id = str(uuid4())
         with self.database.session(write=True) as (connection, _):
             usage = self._provider_usage(connection, provider_id)
@@ -368,6 +379,12 @@ class ProviderIntegrationMixin:
                     response_hash,source_url,error_text,created_at
                 ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (run_id, provider_id, intent_id, request_json, "running", 0, "", "", "", now),
+            )
+            connection.execute(
+                """INSERT INTO provider_search_links(
+                    run_id,search_intent_id,mandate_id,buyer_id,linked_at
+                ) VALUES(?,?,?,?,?)""",
+                (run_id, intent_id, intent["mandate_id"], intent["buyer_id"], now),
             )
 
         fetcher = getattr(self, "_provider_fetch", _live_rentcast_fetch)
