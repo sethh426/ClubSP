@@ -157,3 +157,68 @@ def test_local_monthly_cap_blocks_before_external_call(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="Local monthly provider request cap"):
         app.search_property_provider(payload)
     assert calls == 1
+
+
+def test_rentcast_compiler_includes_optional_mandate_ranges():
+    intent = {
+        "market": "Fort Wayne, IN",
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "filters": {
+            "min_beds": 3,
+            "max_baths": 2.5,
+            "min_sqft": 1200,
+            "max_sqft": 2200,
+            "min_year_built": 1970,
+        },
+    }
+    params = compile_rentcast_search(intent, max_results=20)
+    assert params["bedrooms"] == "3:*"
+    assert params["bathrooms"] == "*:2.5"
+    assert params["squareFootage"] == "1200:2200"
+    assert params["yearBuilt"] == "1970:*"
+
+
+def test_auto_router_selects_configured_capable_provider(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "name": "Rich provider-search mandate",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "min_beds": 3,
+        "max_baths": 3,
+        "min_sqft": 1200,
+        "min_year_built": 1960,
+        "priority": 95,
+        "status": "active",
+        "evidence_reference": "synthetic rich mandate",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    intent = next(x for x in app.search_intents() if x["filters"].get("min_beds") == 3)
+    route = app.route_property_provider(intent)
+    assert route["selected_provider_id"] == "rentcast"
+    assert route["required_capabilities"] == [
+        "baths", "beds", "market", "max_price", "property_type", "sqft", "year_built"
+    ]
+
+
+def test_auto_provider_search_uses_router(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    app._provider_fetch = lambda provider, params, api_key: ([synthetic_listing()], provider["endpoint"])
+    result = app.search_property_provider({
+        "provider_id": "auto",
+        "search_intent_id": intent["intent_id"],
+        "max_results": 10,
+        "confirm_paid_request": True,
+    })
+    assert result["provider_id"] == "rentcast"
+    assert result["status"] == "success"
