@@ -186,8 +186,12 @@ class CommitmentGraphMixin:
         note = text_field(data, "note", 1000, required=False)
         buyer_id = data.get("buyer_id")
         capital_profile_id = data.get("capital_profile_id")
+        buyer_mandate_id = data.get("buyer_mandate_id")
+        buyer_match_run_id = data.get("buyer_match_run_id")
         buyer_id = _uuid(buyer_id, "buyer_id") if buyer_id else ""
         capital_profile_id = _uuid(capital_profile_id, "capital_profile_id") if capital_profile_id else ""
+        buyer_mandate_id = _uuid(buyer_mandate_id, "buyer_mandate_id") if buyer_mandate_id else ""
+        buyer_match_run_id = _uuid(buyer_match_run_id, "buyer_match_run_id") if buyer_match_run_id else ""
         now = utc_now().isoformat()
         outcome_id = str(uuid4())
         with self.database.session(write=True) as (connection, _):
@@ -198,6 +202,23 @@ class CommitmentGraphMixin:
                 "SELECT id FROM capital_profiles WHERE id=?", (capital_profile_id,)
             ).fetchone() is None:
                 raise LookupError("Capital profile not found")
+            mandate_row = None
+            if buyer_mandate_id:
+                mandate_row = connection.execute(
+                    "SELECT * FROM buyer_mandates WHERE id=?", (buyer_mandate_id,)
+                ).fetchone()
+                if mandate_row is None:
+                    raise LookupError("Buyer mandate not found")
+                if buyer_id and mandate_row["buyer_id"] != buyer_id:
+                    raise ValueError("Buyer mandate does not belong to the recorded buyer")
+            match_row = None
+            if buyer_match_run_id:
+                match_row = connection.execute(
+                    "SELECT * FROM buyer_match_runs WHERE id=? AND deal_id=?",
+                    (buyer_match_run_id, deal_id),
+                ).fetchone()
+                if match_row is None:
+                    raise LookupError("Buyer match run not found for this deal")
             connection.execute(
                 """INSERT INTO commitment_outcomes(
                     id,deal_id,buyer_id,capital_profile_id,outcome,reason_code,
@@ -208,8 +229,24 @@ class CommitmentGraphMixin:
                     evidence_reference, note, now,
                 ),
             )
+            if buyer_mandate_id or buyer_match_run_id:
+                context = {
+                    "buyer_mandate": self._mandate_json(mandate_row) if mandate_row is not None else None,
+                    "buyer_match_run": {
+                        "id": match_row["id"],
+                        "created_at": match_row["created_at"],
+                        "matches": json.loads(match_row["matches_json"]),
+                    } if match_row is not None else None,
+                }
+                connection.execute(
+                    """INSERT INTO commitment_outcome_context(
+                        outcome_id,buyer_mandate_id,buyer_match_run_id,context_json
+                    ) VALUES(?,?,?,?)""",
+                    (outcome_id, buyer_mandate_id, buyer_match_run_id, json.dumps(context, allow_nan=False)),
+                )
         return {
             "id": outcome_id, "deal_id": deal_id, "buyer_id": buyer_id,
+            "buyer_mandate_id": buyer_mandate_id, "buyer_match_run_id": buyer_match_run_id,
             "capital_profile_id": capital_profile_id, "outcome": outcome,
             "reason_code": reason_code, "evidence_reference": evidence_reference,
             "note": note, "created_at": now,
