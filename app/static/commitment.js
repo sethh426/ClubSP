@@ -119,6 +119,48 @@ function renderCommitmentGraph() {
   }
   box.append(intents);
 
+  const providerBox = workspaceDetails("External property search", false);
+  const providers = state.provider_integrations?.providers || [];
+  const provider = providers.find(x => x.id === "rentcast");
+  if (!provider) {
+    providerBox.append(node("p","No external property provider is configured in this build.","muted small"));
+  } else {
+    providerBox.append(node("p",
+      provider.name + " · " + (provider.configured ? "credential configured" : "credential not configured") +
+      " · local monthly cap " + provider.monthly_request_cap +
+      " · remaining " + provider.remaining_local_requests,
+      "muted small"
+    ));
+    providerBox.append(node("p","Each search is explicit, cost-capped, and stages results for review. It never creates a deal or contacts a seller.","muted small"));
+    if (graph.search_intents?.length) {
+      const pf = node("form", undefined, "workspace-form provider-search-form");
+      workspaceSelect(pf, "search_intent_id", "Buyer-derived search intent",
+        graph.search_intents.map(x => [x.intent_id, x.market + " · max " + amount("money",x.max_total_price) + " · priority " + x.priority]));
+      workspaceField(pf, "max_results", "Maximum listings to stage (1–25)", "number", "10");
+      const confirmLabel=node("label",undefined,"check-label"), confirm=node("input");
+      confirm.type="checkbox"; confirm.name="confirm_paid_request"; confirm.required=true;
+      confirmLabel.append(confirm,document.createTextNode(" I authorize this external API request and understand it may count toward provider usage/billing."));
+      pf.append(confirmLabel);
+      workspaceSubmit(pf, "Search current listings");
+      if (!provider.configured || provider.remaining_local_requests <= 0) {
+        Array.from(pf.elements).forEach(el => el.disabled=true);
+        providerBox.append(node("p", !provider.configured ? "Set RENTCAST_API_KEY on the server to enable live searches." : "Local monthly request cap reached.", "muted small"));
+      }
+      pf.addEventListener("submit", e => {
+        e.preventDefault();
+        const v=values(pf);
+        v.provider_id="rentcast";
+        v.max_results=Number(v.max_results);
+        v.confirm_paid_request=confirm.checked;
+        runForm(pf,()=>api("/api/providers/search",v),"Provider search completed. Results were staged for review.");
+      });
+      providerBox.append(pf);
+    } else {
+      providerBox.append(node("p","Create an active standing buyer mandate first; ClubSP searches from demand, not from a generic lead list.","muted small"));
+    }
+  }
+  box.append(providerBox);
+
   const reverse = workspaceDetails("Reverse Opportunity Search", graph.reverse_opportunities?.length > 0);
   if (!graph.reverse_opportunities?.length) {
     reverse.append(node("p","No reviewed research candidates currently match a standing buyer mandate.","muted small"));
