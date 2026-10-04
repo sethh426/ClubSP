@@ -26,6 +26,7 @@ PROVIDERS = {
         "credential_env": "RENTCAST_API_KEY",
         "monthly_cap_env": "CLUBSP_RENTCAST_MONTHLY_REQUEST_CAP",
         "default_monthly_cap": 40,
+        "cache_hours": 6,
         "max_results_per_request": 50,
         "rights_note": (
             "Use is subject to the connected RentCast account and current terms. "
@@ -322,7 +323,39 @@ class ProviderIntegrationMixin:
             raise ValueError(f"{provider['credential_env']} is not configured")
 
         params = compile_rentcast_search(intent, max_results=max_results)
-        now = utc_now().isoformat()
+        request_json = json.dumps(params, sort_keys=True)
+        now_dt = utc_now()
+        now = now_dt.isoformat()
+        force_refresh = data.get("force_refresh") is True
+        if not force_refresh:
+            with self.database.session() as (connection, _):
+                prior = connection.execute(
+                    """SELECT * FROM provider_search_runs
+                       WHERE provider_id=? AND request_json=? AND status='success'
+                       ORDER BY created_at DESC,id LIMIT 1""",
+                    (provider_id, request_json),
+                ).fetchone()
+                if prior is not None:
+                    age_hours = (now_dt - datetime.fromisoformat(prior["created_at"])).total_seconds() / 3600
+                    if 0 <= age_hours < provider.get("cache_hours", 0):
+                        batch_id = None
+                        for batch_row in connection.execute("SELECT id,body FROM sourcing_batches ORDER BY rowid DESC"):
+                            body = json.loads(batch_row["body"])
+                            if body.get("provider_search_run_id") == prior["id"]:
+                                batch_id = batch_row["id"]
+                                break
+                        return {
+                            "id": prior["id"],
+                            "provider_id": provider_id,
+                            "search_intent_id": intent_id,
+                            "result_count": prior["result_count"],
+                            "batch_id": batch_id,
+                            "status": "success",
+                            "cached": True,
+                            "cache_age_hours": round(age_hours, 2),
+                            "creates_deals": False,
+                            "requires_candidate_review": True,
+                        }
         run_id = str(uuid4())
         with self.database.session(write=True) as (connection, _):
             usage = self._provider_usage(connection, provider_id)
@@ -334,7 +367,7 @@ class ProviderIntegrationMixin:
                     id,provider_id,search_intent_id,request_json,status,result_count,
                     response_hash,source_url,error_text,created_at
                 ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (run_id, provider_id, intent_id, json.dumps(params, sort_keys=True), "running", 0, "", "", "", now),
+                (run_id, provider_id, intent_id, request_json, "running", 0, "", "", "", now),
             )
 
         fetcher = getattr(self, "_provider_fetch", _live_rentcast_fetch)
@@ -374,6 +407,7 @@ class ProviderIntegrationMixin:
                 "result_count": len(normalized),
                 "batch_id": batch_id,
                 "status": "success",
+                "cached": False,
                 "creates_deals": False,
                 "requires_candidate_review": True,
             }
