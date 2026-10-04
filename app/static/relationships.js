@@ -69,6 +69,31 @@ function relFilter() {
   document.querySelectorAll(".relationship-card").forEach(card=>{card.hidden= !((filter==="all" || filter===card.dataset.status) && card.dataset.search.includes(query)); if(!card.hidden)count++;});
   document.getElementById("relationship-empty").hidden=count>0;
 }
+function relDraftForm(record) {
+  const latest=record.saved_drafts[0], form=relNode("form",undefined,"relationship-form");
+  form.append(relNode("p",`Draft recipient: ${record.profile.email}. Saving a version requires a fresh owner review.`,"muted small wide"));
+  relField(form,"subject","Message subject",latest?.subject || record.draft.subject,"text",true,200);
+  relField(form,"body","Editable message",latest?.body || record.draft.body,"textarea",true,8000);
+  const button=relNode("button","Save message draft","button primary");button.type="submit";form.append(button);
+  relSubmit(form,button,`/api/relationships/${record.id}/drafts`,data=>({...data,profile_id:record.profile.id,event_id:record.event_id || "",draft_id:latest?.id || ""}));
+  return form;
+}
+function relDraftHistory(record, parent) {
+  record.saved_drafts.forEach(draft=>{
+    const item=relNode("section",undefined,"history-entry");
+    item.append(relNode("strong",`Draft: ${draft.review_status} · ${draft.created_at}`),relNode("p",`Recipient at save: ${draft.recipient}`),relNode("p",draft.subject),relNode("p",draft.body));
+    draft.review_blockers.forEach(text=>item.append(relNode("p",text,"relationship-blocked small")));
+    const form=relNode("form",undefined,"relationship-form");
+    relSelect(form,"decision","Review decision",draft.review_blockers.length?[["rejected","Reject message text"]]:[["approved","Approve message text"],["rejected","Reject message text"]],draft.review_blockers.length?"rejected":"approved");
+    relField(form,"reviewer","Reviewer","Owner","text",true,120);
+    relField(form,"note","Review notes / evidence","","textarea",true,2000);
+    const button=relNode("button","Record draft review","button");button.type="submit";form.append(button);
+    relSubmit(form,button,`/api/relationships/${record.id}/draft-reviews`,data=>({...data,draft_id:draft.id,review_id:draft.reviews[0]?.id || ""}));
+    item.append(form);
+    draft.reviews.forEach(review=>item.append(relNode("p",`${review.decision} · ${review.reviewer} · ${review.created_at}\n${review.note}`,"small")));
+    parent.append(item);
+  });
+}
 function relDetails(title, parent) {const details=relNode("details",undefined,"workspace-details");details.append(relNode("summary",title));parent.append(details);return details;}
 async function relLoad() {
   const state=await relApi("/api/relationships");
@@ -87,8 +112,9 @@ async function relLoad() {
     card.append(relNode("p",r.buyer?`Linked buyer: ${r.buyer.name} (${r.buyer.status}). Review current criteria in the buyer registry.`:"No buyer linked. A relationship does not establish buyer qualification.","muted small"));
     const interaction=relDetails("Record conversation / next step",card);interaction.append(relInteractionForm(r,state));
     const edit=relDetails("Edit relationship / schedule",card);edit.append(relProfileForm(r,state));
-    if(r.draft){const d=relDetails("Message text for owner review",card);d.classList.add("relationship-draft");relField(d,"draft_subject","Draft subject",r.draft.subject);relField(d,"draft_body","Editable draft message",r.draft.body,"textarea");d.append(relNode("p","Local template only. Review identity, context and permission before using it. Changes here are not saved or sent.","muted small"));}
+    if(r.draft){const d=relDetails("Message text for owner review",card);d.classList.add("relationship-draft");d.append(relDraftForm(r));d.append(relNode("p","Review identity, context, recipient and permission. Saved drafts and reviews remain in history. Approval records review of this exact text; no email is sent.","muted small"));}
     else card.append(relNode("p","Message text unavailable: record an email and current permission review; paused and blocked records are excluded.","muted small"));
+    if(r.saved_drafts.length){const d=relDetails(`Saved message drafts · ${r.saved_drafts.length}`,card);d.classList.add("relationship-saved-drafts");relDraftHistory(r,d);}
     const history=relDetails(`History · ${r.interactions.length} interactions · ${r.profile_history.length} profile versions`,card);
     r.interactions.forEach(e=>{const item=relNode("section",undefined,"history-entry");item.append(relNode("strong",`${e.occurred_on} · ${e.direction} · ${e.outcome}`),relNode("p",e.note),relNode("p",`Evidence: ${e.evidence_reference}`,"small"));history.append(item);});
     r.profile_history.forEach(v=>{const item=relNode("section",undefined,"history-entry");item.append(relNode("p",`${v.name} · ${v.status} · ${v.created_at}`,"small"),relNode("p",`Source: ${v.source_reference} · Permission: ${v.permission} · Reference: ${v.permission_reference || "Unknown"}`,"small"));history.append(item);});

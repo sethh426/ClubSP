@@ -192,9 +192,10 @@ def handler_for(application, gmail):
                     result = relationships.save(data)
                 elif path.startswith("/api/relationships/"):
                     parts = path.strip("/").split("/")
-                    if len(parts) != 4 or parts[3] != "interactions":
+                    if len(parts) != 4 or parts[3] not in {"interactions", "drafts", "draft-reviews"}:
                         raise LookupError("Route not found")
-                    result = relationships.interact(parts[2], data)
+                    action = {"interactions": relationships.interact, "drafts": relationships.save_draft, "draft-reviews": relationships.review_draft}[parts[3]]
+                    result = action(parts[2], data)
                 elif path == "/api/properties":
                     result = application.create_property(data)
                 elif path.startswith("/api/properties/"):

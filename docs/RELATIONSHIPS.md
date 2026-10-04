@@ -8,7 +8,13 @@ Profiles contain owner-entered identity, source references, qualitative needs, a
 
 The queue uses the application's Indiana business date. Due and overdue records exclude paused, closed, and blocked relationships. Today's focus includes at most ten due records ordered by due date. A new conversation event replaces the previous follow-up schedule: blank date clears it, and a new dated action explicitly schedules the next step. A later profile revision can update the schedule. Interactions must be recorded in chronological date order; historical evidence can be included as an internal note without pretending to be the newest conversation.
 
-The queue does not run a background job, send notifications, or select recipients for actual transmission. Due records with unknown permission remain research/review tasks, not permission to contact. An owner-reviewed permission reference and email allow a local editable template for eligible records. Templates contain no invented transaction, identity, sender signature, financial commitment, or property claim. Edits in the template fields are not persisted or sent.
+The queue does not run a background job, send notifications, or select recipients for actual transmission. Due records with unknown permission remain research/review tasks, not permission to contact. An owner-reviewed permission reference and email allow an editable template for eligible records. Templates contain no invented transaction, identity, sender signature, financial commitment, or property claim. Use Save message draft to persist edited text; unsaved edits are lost on reload. Saving or approving a draft never sends it.
+
+## Saved drafts and owner review
+
+Each saved message is an immutable version linked to the exact relationship profile and latest conversation event. Its recipient comes from that saved profile, so changing an address cannot silently retarget an old approval. Subject and body are bounded; multiline subjects are rejected. Retry keys prevent duplicate saves and reviews, while expected draft/review IDs reject conflicting edits.
+
+Owner reviews record approved or rejected, reviewer name, notes, and timestamp. Approval concerns exact saved text, not Gmail authorization or recipient permission. Saving another draft requires a new review. Profile edits, new conversations, newer drafts, paused/closed status, or either workspace's email suppression block effective approval. Earlier approval records remain visible as history. Rejected and stale drafts can be rejected again with a current review snapshot, but stale or blocked drafts cannot be approved. Draft versions and reviews persist in two additive SQLite tables. There is no transport or send queue in this release.
 
 ## Stops and shared suppression
 

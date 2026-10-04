@@ -53,6 +53,9 @@ class RelationshipBook:
                 "CREATE TABLE IF NOT EXISTS relationship_interactions (id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL REFERENCES relationships(id), request_key TEXT NOT NULL UNIQUE, profile_id TEXT NOT NULL REFERENCES relationship_profiles(id), previous_event_id TEXT REFERENCES relationship_interactions(id), payload TEXT NOT NULL, created_at TEXT NOT NULL)",
                 "CREATE INDEX IF NOT EXISTS relationship_interaction_lookup ON relationship_interactions(relationship_id)",
                 "CREATE TABLE IF NOT EXISTS relationship_stops (id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL REFERENCES relationships(id), email TEXT NOT NULL, event_id TEXT NOT NULL REFERENCES relationship_interactions(id), created_at TEXT NOT NULL)",
+                "CREATE TABLE IF NOT EXISTS relationship_drafts (id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL REFERENCES relationships(id), profile_id TEXT NOT NULL REFERENCES relationship_profiles(id), event_id TEXT REFERENCES relationship_interactions(id), previous_id TEXT UNIQUE REFERENCES relationship_drafts(id), request_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, created_at TEXT NOT NULL)",
+                "CREATE INDEX IF NOT EXISTS relationship_draft_lookup ON relationship_drafts(relationship_id)",
+                "CREATE TABLE IF NOT EXISTS relationship_draft_reviews (id TEXT PRIMARY KEY, draft_id TEXT NOT NULL REFERENCES relationship_drafts(id), request_key TEXT NOT NULL UNIQUE, previous_id TEXT UNIQUE REFERENCES relationship_draft_reviews(id), payload TEXT NOT NULL, created_at TEXT NOT NULL)",
             ]
             for statement in statements:
                 connection.execute(statement)
@@ -165,6 +168,78 @@ class RelationshipBook:
                         self.application._set_permission(connection, contact, "suppressed", "Relationship stop/wrong-person record", "relationship_interaction:" + eid)
             return self.decode(connection.execute("SELECT * FROM relationship_interactions WHERE id=?", (eid,)).fetchone())
 
+    def draft_blockers(self, connection, rid, profile, draft=None):
+        blockers = []
+        event = self.latest(connection, "relationship_interactions", rid)
+        if draft:
+            latest = self.latest(connection, "relationship_drafts", rid)
+            if latest["id"] != draft["id"]:
+                blockers.append("A newer draft exists")
+            if draft["profile_id"] != profile["id"] or draft["event_id"] != (event["id"] if event else None):
+                blockers.append("Relationship or conversation changed; save a new draft")
+        stopped = connection.execute("SELECT 1 FROM relationship_stops WHERE relationship_id=?", (rid,)).fetchone()
+        if stopped or email_blocked(connection, profile["email"]) or profile["permission"] == "blocked":
+            blockers.append("Do not contact")
+        if profile["status"] in {"paused", "closed"}:
+            blockers.append("Relationship is paused or closed")
+        if not profile["email"] or profile["permission"] != "owner_reviewed":
+            blockers.append("Email and owner permission review required")
+        return blockers
+
+    def save_draft(self, rid, data):
+        key = identifier(data, "request_key")
+        profile_id = identifier(data, "profile_id")
+        event_id = identifier(data, "event_id", False)
+        previous = identifier(data, "draft_id", False)
+        payload = {"subject": text_field(data, "subject", 200), "body": text_field(data, "body", 8000)}
+        if "\r" in payload["subject"] or "\n" in payload["subject"]:
+            raise ValueError("Subject must be a single line")
+        encoded = json.dumps(payload, sort_keys=True)
+        with self.database.session(write=True) as (connection, _):
+            existing = connection.execute("SELECT * FROM relationship_drafts WHERE request_key=?", (key,)).fetchone()
+            if existing:
+                if (existing["relationship_id"], existing["profile_id"], existing["event_id"], existing["previous_id"], existing["payload"]) != (rid, profile_id, event_id, previous, encoded):
+                    raise ValueError("request_key already records different draft data")
+                return self.decode(existing)
+            profile = self.decode(self.context(connection, rid, profile_id, event_id))
+            last = self.latest(connection, "relationship_drafts", rid)
+            if previous != (last["id"] if last else None):
+                raise ValueError("Draft changed; refresh before saving")
+            blockers = self.draft_blockers(connection, rid, profile)
+            if blockers:
+                raise ValueError("; ".join(blockers))
+            did = str(uuid4())
+            connection.execute("INSERT INTO relationship_drafts VALUES(?,?,?,?,?,?,?,?)", (did, rid, profile_id, event_id, previous, key, encoded, utc_now().isoformat()))
+            return self.decode(connection.execute("SELECT * FROM relationship_drafts WHERE id=?", (did,)).fetchone())
+
+    def review_draft(self, rid, data):
+        key = identifier(data, "request_key")
+        did = identifier(data, "draft_id")
+        previous = identifier(data, "review_id", False)
+        payload = {name: text_field(data, name, limit) for name, limit in [("decision", 20), ("reviewer", 120), ("note", 2000)]}
+        if payload["decision"] not in {"approved", "rejected"}:
+            raise ValueError("Review decision must be approved or rejected")
+        encoded = json.dumps(payload, sort_keys=True)
+        with self.database.session(write=True) as (connection, _):
+            draft = connection.execute("SELECT * FROM relationship_drafts WHERE id=? AND relationship_id=?", (did, rid)).fetchone()
+            if not draft:
+                raise LookupError("Draft not found for this relationship")
+            existing = connection.execute("SELECT * FROM relationship_draft_reviews WHERE request_key=?", (key,)).fetchone()
+            if existing:
+                if (existing["draft_id"], existing["previous_id"], existing["payload"]) != (did, previous, encoded):
+                    raise ValueError("request_key already records a different review")
+                return self.decode(existing)
+            last = connection.execute("SELECT * FROM relationship_draft_reviews WHERE draft_id=? ORDER BY rowid DESC LIMIT 1", (did,)).fetchone()
+            if previous != (last["id"] if last else None):
+                raise ValueError("Review changed; refresh before reviewing")
+            profile = self.decode(self.latest(connection, "relationship_profiles", rid))
+            blockers = self.draft_blockers(connection, rid, profile, draft)
+            if payload["decision"] == "approved" and blockers:
+                raise ValueError("; ".join(blockers))
+            review_id = str(uuid4())
+            connection.execute("INSERT INTO relationship_draft_reviews VALUES(?,?,?,?,?,?)", (review_id, did, key, previous, encoded, utc_now().isoformat()))
+            return self.decode(connection.execute("SELECT * FROM relationship_draft_reviews WHERE id=?", (review_id,)).fetchone())
+
     def state(self):
         today = business_today().isoformat()
         with self.database.session() as (connection, _):
@@ -194,13 +269,22 @@ class RelationshipBook:
                     draft = {"subject": "Your current buying priorities" if profile["kind"] == "investor" else "A possible working relationship",
                              "body": f"Hi {profile['name']},\n\nAre you currently open to discussing opportunities in {area}? What criteria and timing should I understand before suggesting a next step?\n\nIf you prefer no further contact, please let me know.",
                              "sending_enabled": False}
+                saved_drafts = []
+                for row in connection.execute("SELECT * FROM relationship_drafts WHERE relationship_id=? ORDER BY rowid DESC", (rid,)):
+                    saved = self.decode(row)
+                    saved["reviews"] = [self.decode(review) for review in connection.execute("SELECT * FROM relationship_draft_reviews WHERE draft_id=? ORDER BY rowid DESC", (saved["id"],))]
+                    saved["review_blockers"] = self.draft_blockers(connection, rid, profile, saved)
+                    saved["review_status"] = "blocked" if saved["review_blockers"] else saved["reviews"][0]["decision"] if saved["reviews"] else "pending"
+                    saved["recipient"] = self.decode(connection.execute("SELECT * FROM relationship_profiles WHERE id=?", (saved["profile_id"],)).fetchone())["email"]
+                    saved["sending_enabled"] = False
+                    saved_drafts.append(saved)
                 records.append({"id": rid, "profile": profile, "profile_history": history,
                     "interactions": interactions, "event_id": last["id"] if last else None,
                     "buyer": dict(buyer) if buyer else None, "blocked": blocked, "paused": paused,
                     "follow_up_on": due, "next_action": schedule["next_action"],
                     "due": bool(eligible and due and due <= today), "overdue": bool(eligible and due and due < today),
                     "queue_status": "blocked" if blocked else "paused" if paused else "unscheduled" if not due else "due" if due <= today else "upcoming",
-                    "draft": draft})
+                    "draft": draft, "saved_drafts": saved_drafts})
             records.sort(key=lambda r: (r["blocked"] or r["paused"], not r["due"], not bool(r["follow_up_on"]), r["follow_up_on"], r["profile"]["name"].casefold(), r["id"]))
             buyers = [dict(row) for row in connection.execute("SELECT id,name,status FROM buyers ORDER BY name,id")]
         return {"today": today, "sending_enabled": False, "relationships": records, "buyers": buyers,
