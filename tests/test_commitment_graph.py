@@ -186,3 +186,58 @@ def test_commitment_status_changes_are_audited_and_remove_current_path(tmp_path)
     assert graph["buyer_mandates"][0]["status"] == "paused"
     assert graph["recent_events"][0]["entity_id"] == mandate["id"]
     assert graph["deal_readiness"][0]["current_mandate_count"] == 0
+
+
+def test_readiness_invalidates_stale_buyer_match_after_criteria_change(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    before = app.deal_readiness(deal["id"])
+    assert before["buyer_matches_current"] is True
+    assert before["stale_buyer_match_count"] == 0
+    with app.database.session(write=True) as (connection, _):
+        connection.execute(
+            "UPDATE buyers SET max_total_price=? WHERE id=?",
+            (1000, buyer["id"]),
+        )
+    after = app.deal_readiness(deal["id"])
+    assert after["buyer_matches_current"] is False
+    assert after["stale_buyer_match_count"] >= 1
+    assert after["eligible_buyer_count"] == 0
+    assert any("Buyer-match evidence is stale" in item for item in after["blockers"])
+    assert any("Re-run buyer matching" in item for item in after["next_actions"])
+
+
+def test_reliability_summaries_are_descriptive_not_predictive(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    capital = app.create_capital_profile({
+        "name": "Synthetic Reliability Capital",
+        "provider_type": "partner",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "max_commitment": 100000,
+        "available_amount": 100000,
+        "status": "active",
+        "verification_reference": "synthetic capital evidence",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+        "terms": {},
+    })
+    for outcome, reason in (("closed", "settled"), ("buyer_declined", "price")):
+        app.record_commitment_outcome({
+            "deal_id": deal["id"],
+            "buyer_id": buyer["id"],
+            "capital_profile_id": capital["id"],
+            "outcome": outcome,
+            "reason_code": reason,
+            "evidence_reference": "synthetic outcome evidence",
+            "note": "fixture",
+        })
+    graph = app.state()["commitment_graph"]
+    buyer_summary = next(x for x in graph["buyer_reliability"] if x["buyer_id"] == buyer["id"])
+    capital_summary = next(x for x in graph["capital_reliability"] if x["capital_profile_id"] == capital["id"])
+    assert buyer_summary["recorded_outcomes"] == 2
+    assert buyer_summary["descriptive_close_rate"] == 0.5
+    assert buyer_summary["calibrated_probability"] is False
+    assert capital_summary["recorded_outcomes"] == 2
+    assert capital_summary["descriptive_close_rate"] == 0.5
+    assert capital_summary["calibrated_probability"] is False
