@@ -276,6 +276,38 @@ function renderCommitmentGraph() {
   });
   box.append(capitalList);
 
+  const outcomeDetails = workspaceDetails("Record deal outcome", false);
+  const of = node("form", undefined, "workspace-form commitment-outcome-form");
+  const activeDeals = state.deals || [];
+  workspaceSelect(of, "deal_id", "Deal", activeDeals.map(d => [d.id, d.address + " · " + readable(d.stage)]));
+  workspaceSelect(of, "outcome", "Outcome", [
+    ["closed","Closed"],["lost","Lost"],["withdrawn","Withdrawn"],["buyer_declined","Buyer declined"],
+    ["funding_failed","Funding failed"],["title_failed","Title failed"],["seller_changed","Seller changed"],
+    ["no_response","No response"],["other","Other"]
+  ]);
+  workspaceField(of, "reason_code", "Reason code / short cause");
+  workspaceSelect(of, "buyer_id", "Buyer (optional)", [["","None"]].concat(state.buyers.map(b => [b.id,b.name + (b.company ? " · " + b.company : "")])));
+  workspaceSelect(of, "buyer_mandate_id", "Buyer mandate (optional)", [["","None"]].concat(graph.buyer_mandates.map(m => {
+    const b=state.buyers.find(x=>x.id===m.buyer_id); return [m.id,(b?b.name:"Buyer") + " · " + m.name];
+  })));
+  workspaceSelect(of, "capital_profile_id", "Capital path (optional)", [["","None"]].concat(graph.capital_profiles.map(cp => [cp.id,cp.name])));
+  workspaceField(of, "evidence_reference", "Outcome evidence reference");
+  workspaceField(of, "note", "Outcome notes", "textarea", "", false);
+  workspaceSubmit(of, "Record outcome");
+  if (!activeDeals.length) Array.from(of.elements).forEach(el => el.disabled=true);
+  of.addEventListener("submit", e => {
+    e.preventDefault();
+    const v=values(of);
+    const deal=state.deals.find(d=>d.id===v.deal_id);
+    if(!v.buyer_id) delete v.buyer_id;
+    if(!v.buyer_mandate_id) delete v.buyer_mandate_id;
+    if(!v.capital_profile_id) delete v.capital_profile_id;
+    if(deal?.buyer_matches?.id) v.buyer_match_run_id=deal.buyer_matches.id;
+    runForm(of,()=>api("/api/commitments/outcomes",v),"Deal outcome recorded. Reliability evidence updated.");
+  });
+  outcomeDetails.append(node("p","Record what actually happened so ClubSP can learn which buyers, mandates, capital paths, and sourcing routes perform. Historical rates remain descriptive, not predictive.","muted small"),of);
+  box.append(outcomeDetails);
+
   const reliability = workspaceDetails("Network reliability evidence", false);
   reliability.append(node("p","Descriptive history only. These rates summarize recorded outcomes; they are not calibrated probabilities or guarantees.","muted small"));
   if (!graph.buyer_reliability?.some(x => x.recorded_outcomes)) {
