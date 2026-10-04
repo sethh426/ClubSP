@@ -76,18 +76,24 @@ not truth, and retain existing evidence/underwriting review boundaries.
 `app/provider_integrations.py` now provides:
 
 - provider registry and operator-visible capability metadata;
-- RentCast search-intent compiler;
-- strict market parsing;
-- property-type mapping;
+- capability-based routing from each buyer-derived search intent;
+- RentCast search-intent compilation for market, property type, price, beds, baths,
+  square footage, and year-built ranges;
+- strict market parsing and bounded listing normalization;
 - explicit per-call confirmation;
 - local monthly usage cap;
+- six-hour reuse of identical successful searches unless an operator explicitly
+  forces a refresh, so repeated buyer demand does not waste API quota;
+- pooled-demand lineage: identical queries from multiple buyer mandates share one
+  provider request while every contributing buyer/mandate remains linked to the run;
 - optional HTTPX live transport (`pip install .[integrations]`);
 - no automatic retries;
 - 2 MB response cap;
-- RentCast listing schema normalization;
-- provider search audit rows;
+- provider search audit rows and response digests;
 - idempotent sourcing batches keyed by response digest;
-- staging into the existing pending candidate-review workflow.
+- staging into the existing pending candidate-review workflow;
+- provider quality telemetry: requests, staged candidates, review acceptance,
+  downstream deals, and recorded closes.
 
 Environment variables:
 
@@ -99,14 +105,13 @@ request budget. It never receives the credential value.
 
 ## Next improvements
 
-1. Add normalized optional mandate filters for beds/baths/square-footage/year-built.
-2. Add a provider response contract layer with Pydantic when live credentials are
+1. Add a provider response contract layer with Pydantic when live credentials are
    connected and the first real payloads can be tested.
-3. Add a second adapter only after the first provider's normalized candidate flow is
+2. Add a second adapter only after the first provider's normalized candidate flow is
    proven with real outcomes.
-4. Add provider health metrics: successful/failed searches, zero-result rate,
-   candidate-review acceptance rate and closed-deal lineage by provider.
-5. Add queue workers only when repeated scheduled searches are authorized; preserve
+3. Add zero-result and stale-listing quality metrics so provider routing can learn
+   which source/query patterns are productive without treating small samples as predictions.
+4. Add queue workers only when repeated scheduled searches are authorized; preserve
    the same local budget ledger and never let a queue bypass it.
-6. Keep provider search explainable: every result should be able to say which buyer
+5. Keep provider search explainable: every result should be able to say which buyer
    mandate generated the search and which criteria it satisfied.
