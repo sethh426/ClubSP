@@ -278,3 +278,47 @@ def test_force_refresh_bypasses_fresh_search_cache(tmp_path, monkeypatch):
     refreshed = app.search_property_provider({**payload, "force_refresh": True})
     assert refreshed["cached"] is False
     assert calls == 2
+
+
+def test_identical_buyer_demand_is_pooled_into_one_provider_request(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    first = current_intent(app, buyer["id"])
+    second_buyer = app.create_buyer({
+        "name": "Synthetic Buyer Two",
+        "company": "Fixture Two LLC",
+        "locations": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "funding_status": "unverified",
+    })
+    second = current_intent(app, second_buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    calls = 0
+
+    def fake_fetch(provider, params, api_key):
+        nonlocal calls
+        calls += 1
+        return [synthetic_listing()], provider["endpoint"]
+
+    app._provider_fetch = fake_fetch
+    result = app.search_property_provider({
+        "provider_id": "auto",
+        "search_intent_id": first["intent_id"],
+        "max_results": 10,
+        "confirm_paid_request": True,
+    })
+    assert calls == 1
+    assert result["shared_demand"] is True
+    assert result["linked_intent_count"] >= 2
+    with app.database.session() as (connection, _):
+        links = connection.execute(
+            "SELECT search_intent_id,buyer_id FROM provider_search_links WHERE run_id=?",
+            (result["id"],),
+        ).fetchall()
+        assert {row["buyer_id"] for row in links} >= {buyer["id"], second_buyer["id"]}
+        batch = connection.execute("SELECT body FROM sourcing_batches WHERE id=?", (result["batch_id"],)).fetchone()
+        body = __import__("json").loads(batch["body"])
+        assert first["intent_id"] in body["linked_search_intent_ids"]
+        assert second["intent_id"] in body["linked_search_intent_ids"]
