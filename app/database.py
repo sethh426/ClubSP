@@ -127,6 +127,10 @@ class Database:
                     matches_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS buyer_mandate_filters (
+                    mandate_id TEXT PRIMARY KEY REFERENCES buyer_mandates(id),
+                    filters_json TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS buyer_mandates (
                     id TEXT PRIMARY KEY,
                     buyer_id TEXT NOT NULL REFERENCES buyers(id),
