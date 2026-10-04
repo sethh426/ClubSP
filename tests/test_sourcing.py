@@ -96,13 +96,46 @@ def test_reviewed_candidates_are_ranked_as_research_opportunities_not_deals(tmp_
     pid = accepted["property_id"]
     add_fact(app, pid, "recorded_owner_name", "Synthetic owner")
     policy(app)
+    app.create_buyer({"name": "Demand buyer", "locations": ["Fort Wayne, IN"],
+                      "strategies": ["assignment"], "property_types": ["single_family"],
+                      "max_total_price": 150000, "max_repairs": 40000,
+                      "funding_status": "unverified"})
     discovery = app.state()["discovery"]
     assert discovery["execution_authorized"] is False
     assert discovery["items"][0]["decision"] == "research_candidate"
     assert discovery["items"][0]["score"] == 100
+    assert discovery["items"][0]["possible_buyer_count"] == 1
+    assert discovery["items"][0]["buyer_matches"][0]["possible_fit_on_known_fields"] is True
+    assert discovery["items"][0]["buyer_matches"][0]["commitment_confirmed"] is False
     assert discovery["items"][0]["economics_available"] is False
     assert any("seller price or terms" in reason for reason in discovery["items"][0]["reasons"])
     assert not app.state()["deals"]
+
+
+def test_candidate_buyer_demand_respects_known_price_and_market(tmp_path):
+    from tests.test_opportunities import policy
+    app = Application(tmp_path / "intake.db")
+    row = staged_row(app, import_data())
+    accepted = app.review_candidate(row["id"], review_data())
+    pid = accepted["property_id"]
+    add_fact(app, pid, "asking_price", 120000)
+    policy(app)
+    app.create_buyer({"name": "Too low", "locations": ["Fort Wayne, IN"],
+                      "strategies": ["assignment"], "property_types": ["single_family"],
+                      "max_total_price": 100000, "max_repairs": 40000,
+                      "funding_status": "unverified"})
+    app.create_buyer({"name": "Right market", "locations": ["Fort Wayne, IN"],
+                      "strategies": ["resale"], "property_types": ["single_family"],
+                      "max_total_price": 140000, "max_repairs": 40000,
+                      "funding_status": "unverified"})
+    item = app.state()["discovery"]["items"][0]
+    assert item["possible_buyer_count"] == 1
+    fit = next(b for b in item["buyer_matches"] if b["name"] == "Right market")
+    low = next(b for b in item["buyer_matches"] if b["name"] == "Too low")
+    assert fit["possible_fit_on_known_fields"] is True
+    assert fit["commitment_confirmed"] is False
+    assert low["possible_fit_on_known_fields"] is False
+    assert "asking price exceeds buyer limit" in low["reasons"]
 
 
 def test_discovery_explains_outside_market_and_existing_pipeline(tmp_path):
