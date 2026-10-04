@@ -239,6 +239,42 @@ class CommitmentGraphMixin:
             "SELECT * FROM commitment_events ORDER BY created_at DESC,id LIMIT 250"
         )]
         readiness = [self._deal_readiness(connection, deal) for deal in deals]
+        buyer_reliability = []
+        for buyer in connection.execute("SELECT id,name,company FROM buyers ORDER BY created_at DESC,id"):
+            rows = connection.execute(
+                "SELECT outcome,reason_code,created_at FROM commitment_outcomes WHERE buyer_id=? ORDER BY created_at DESC,id",
+                (buyer["id"],),
+            ).fetchall()
+            closed = sum(1 for row in rows if row["outcome"] == "closed")
+            buyer_reliability.append({
+                "buyer_id": buyer["id"],
+                "name": buyer["name"],
+                "company": buyer["company"],
+                "recorded_outcomes": len(rows),
+                "closed_outcomes": closed,
+                "nonclosed_outcomes": len(rows) - closed,
+                "descriptive_close_rate": (closed / len(rows)) if rows else None,
+                "last_outcome": dict(rows[0]) if rows else None,
+                "calibrated_probability": False,
+            })
+        capital_reliability = []
+        for cp in connection.execute("SELECT id,name,provider_type FROM capital_profiles ORDER BY created_at DESC,id"):
+            rows = connection.execute(
+                "SELECT outcome,reason_code,created_at FROM commitment_outcomes WHERE capital_profile_id=? ORDER BY created_at DESC,id",
+                (cp["id"],),
+            ).fetchall()
+            closed = sum(1 for row in rows if row["outcome"] == "closed")
+            funding_failed = sum(1 for row in rows if row["outcome"] == "funding_failed")
+            capital_reliability.append({
+                "capital_profile_id": cp["id"],
+                "name": cp["name"],
+                "provider_type": cp["provider_type"],
+                "recorded_outcomes": len(rows),
+                "closed_outcomes": closed,
+                "funding_failed_outcomes": funding_failed,
+                "descriptive_close_rate": (closed / len(rows)) if rows else None,
+                "calibrated_probability": False,
+            })
         reverse_opportunities = []
         if discovery:
             for item in discovery.get("items", []):
@@ -263,6 +299,8 @@ class CommitmentGraphMixin:
             "recent_outcomes": outcomes,
             "recent_events": events,
             "deal_readiness": readiness,
+            "buyer_reliability": buyer_reliability,
+            "capital_reliability": capital_reliability,
             "reverse_opportunities": reverse_opportunities,
             "score_semantics": (
                 "Operational readiness evidence only; not a calibrated closing probability, "
