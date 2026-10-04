@@ -204,6 +204,14 @@ def handler_for(application, gmail):
                     result = application.create_capital_profile(data)
                 elif path == "/api/commitments/outcomes":
                     result = application.record_commitment_outcome(data)
+                elif path.startswith("/api/commitments/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 5 or parts[4] != "status":
+                        raise LookupError("Route not found")
+                    entity = {"buyer-mandates": "buyer_mandate", "capital": "capital_profile"}.get(parts[2])
+                    if entity is None:
+                        raise LookupError("Route not found")
+                    result = application.change_commitment_status(entity, parts[3], data)
                 elif path == "/api/opportunities/policy":
                     result = application.save_opportunity_policy(data)
                 elif path == "/api/sourcing/import":
