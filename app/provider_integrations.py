@@ -554,6 +554,35 @@ class ProviderIntegrationMixin:
                 if isinstance(inventory_count, int) and group["demand_count"] > 0
                 else None
             )
+            representative = group["representative"]
+            capital_required = "resale" in (representative.get("strategies") or [])
+            capital_paths = 0
+            required_capital = float(representative.get("max_total_price") or 0) + float(representative.get("max_repairs") or 0)
+            if capital_required:
+                market_text = " ".join(representative["market"].casefold().replace(",", " ").split())
+                now_for_capital = utc_now()
+                for cp_row in connection.execute("SELECT * FROM capital_profiles WHERE status='active'"):
+                    markets = json.loads(cp_row["markets_json"])
+                    strategies = json.loads(cp_row["strategies_json"])
+                    expires_at = cp_row["expires_at"] or ""
+                    if expires_at:
+                        try:
+                            expires = datetime.fromisoformat(expires_at)
+                            if expires.tzinfo is None:
+                                expires = expires.replace(tzinfo=timezone.utc)
+                            if expires < now_for_capital:
+                                continue
+                        except ValueError:
+                            continue
+                    if strategies and "resale" not in strategies:
+                        continue
+                    normalized_markets = [" ".join(m.casefold().replace(",", " ").split()) for m in markets]
+                    if normalized_markets and not any(
+                        target in market_text or market_text in target for target in normalized_markets
+                    ):
+                        continue
+                    if cp_row["available_cents"] / 100 >= required_capital:
+                        capital_paths += 1
             demand_points = min(40, group["demand_count"] * 10)
             priority_points = round(group["priority"] * 0.30)
             if cached_age is None:
@@ -564,7 +593,10 @@ class ProviderIntegrationMixin:
                 refresh_points = 20
             provider_points = 10 if provider_id else 0
             score = min(100, demand_points + priority_points + refresh_points + provider_points)
-            if inventory_count == 0:
+            if capital_required and capital_paths == 0:
+                action = "capital_gap"
+                score = max(0, score - 30)
+            elif inventory_count == 0:
                 action = "no_inventory"
                 score = 0
             elif isinstance(inventory_count, int) and inventory_count > 5000:
@@ -589,6 +621,9 @@ class ProviderIntegrationMixin:
                 "last_run_id": last_run_id,
                 "inventory_count": inventory_count,
                 "inventory_per_demand_path": round(inventory_per_demand, 2) if inventory_per_demand is not None else None,
+                "capital_required": capital_required,
+                "required_capital": required_capital if capital_required else None,
+                "capital_path_count": capital_paths,
                 "rationale": {
                     "demand_points": demand_points,
                     "mandate_priority_points": priority_points,
