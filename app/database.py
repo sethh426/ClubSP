@@ -189,6 +189,19 @@ class Database:
                     evidence_reference TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS provider_search_runs (
+                    id TEXT PRIMARY KEY,
+                    provider_id TEXT NOT NULL,
+                    search_intent_id TEXT NOT NULL,
+                    request_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    result_count INTEGER NOT NULL,
+                    response_hash TEXT NOT NULL,
+                    source_url TEXT NOT NULL,
+                    error_text TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS provider_search_runs_month ON provider_search_runs(provider_id,created_at,status);
                 CREATE INDEX IF NOT EXISTS commitment_events_entity ON commitment_events(entity_type,entity_id,created_at);
                 CREATE TABLE IF NOT EXISTS memory (
                     collection TEXT NOT NULL,
