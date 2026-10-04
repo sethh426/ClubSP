@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.provider_integrations import compile_rentcast_search, normalize_rentcast_listing
+from app.provider_integrations import compile_rentcast_search, compile_realestateapi_count, normalize_rentcast_listing
 from tests.test_commitment_graph import setup_deal
 from tests.test_sourcing import review_data
 
@@ -451,3 +451,104 @@ def test_provider_total_count_metadata_is_persisted_and_returned(tmp_path, monke
     })
     assert cached["cached"] is True
     assert cached["provider_total_count"] == 321
+
+
+def test_realestateapi_count_compiler_uses_buyer_demand_filters():
+    intent = {
+        "market": "Fort Wayne, IN",
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "filters": {
+            "min_beds": 3,
+            "max_beds": 4,
+            "min_baths": 2,
+            "min_sqft": 1200,
+            "max_sqft": 2200,
+            "min_year_built": 1970,
+        },
+    }
+    payload = compile_realestateapi_count(intent)
+    assert payload["count"] is True
+    assert payload["city"] == "Fort Wayne"
+    assert payload["state"] == "IN"
+    assert payload["mls_active"] is True
+    assert payload["property_type"] == "SFR"
+    assert payload["mls_listing_price_max"] == 160000
+    assert payload["beds_min"] == 3
+    assert payload["beds_max"] == 4
+    assert payload["baths_min"] == 2
+    assert payload["building_size_min"] == 1200
+    assert payload["building_size_max"] == 2200
+    assert payload["year_built_min"] == 1970
+
+
+def test_inventory_preflight_is_explicit_cached_and_never_creates_candidates(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("REALESTATEAPI_API_KEY", "synthetic-count-key")
+    monkeypatch.setenv("CLUBSP_REALESTATEAPI_MONTHLY_COUNT_CAP", "2")
+    calls = 0
+
+    def fake_count(provider, payload, api_key):
+        nonlocal calls
+        calls += 1
+        assert payload["count"] is True
+        assert api_key == "synthetic-count-key"
+        return 4321, provider["endpoint"], {"total_count": 4321, "mode": "count"}
+
+    app._preflight_fetch = fake_count
+    before_rows = len(app.state()["sourcing"]["rows"])
+    first = app.preflight_property_count({
+        "provider_id": "realestateapi",
+        "search_intent_id": intent["intent_id"],
+        "confirm_external_request": True,
+    })
+    second = app.preflight_property_count({
+        "provider_id": "realestateapi",
+        "search_intent_id": intent["intent_id"],
+        "confirm_external_request": True,
+    })
+    assert first["total_count"] == 4321
+    assert first["cached"] is False
+    assert second["cached"] is True
+    assert calls == 1
+    assert len(app.state()["sourcing"]["rows"]) == before_rows
+    result = next(
+        x for x in app.state()["provider_integrations"]["preflight_results"]
+        if x["search_intent_id"] == intent["intent_id"]
+    )
+    assert result["total_count"] == 4321
+
+
+def test_inventory_preflight_requires_confirmation_and_local_cap(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("REALESTATEAPI_API_KEY", "synthetic-count-key")
+    monkeypatch.setenv("CLUBSP_REALESTATEAPI_MONTHLY_COUNT_CAP", "1")
+    calls = 0
+
+    def fake_count(provider, payload, api_key):
+        nonlocal calls
+        calls += 1
+        return 10, provider["endpoint"], {"total_count": 10, "mode": "count"}
+
+    app._preflight_fetch = fake_count
+    with pytest.raises(ValueError, match="confirm_external_request"):
+        app.preflight_property_count({
+            "provider_id": "realestateapi",
+            "search_intent_id": intent["intent_id"],
+            "confirm_external_request": False,
+        })
+    app.preflight_property_count({
+        "provider_id": "realestateapi",
+        "search_intent_id": intent["intent_id"],
+        "confirm_external_request": True,
+    })
+    with pytest.raises(ValueError, match="Local monthly preflight request cap"):
+        app.preflight_property_count({
+            "provider_id": "realestateapi",
+            "search_intent_id": intent["intent_id"],
+            "confirm_external_request": True,
+            "force_refresh": True,
+        })
+    assert calls == 1
