@@ -275,6 +275,26 @@ class CommitmentGraphMixin:
                 "descriptive_close_rate": (closed / len(rows)) if rows else None,
                 "calibrated_probability": False,
             })
+        search_intents = []
+        for mandate in mandates:
+            if not _current(mandate, datetime.now(timezone.utc)):
+                continue
+            for market in mandate["markets"]:
+                search_intents.append({
+                    "intent_id": f"{mandate['id']}:{market.lower()}",
+                    "mandate_id": mandate["id"],
+                    "buyer_id": mandate["buyer_id"],
+                    "market": market,
+                    "strategies": mandate["strategies"],
+                    "property_types": mandate["property_types"],
+                    "max_total_price": mandate["max_total_price"],
+                    "max_repairs": mandate["max_repairs"],
+                    "priority": mandate["priority"],
+                    "verified_at": mandate["verified_at"],
+                    "expires_at": mandate["expires_at"],
+                    "purpose": "provider-neutral demand-first sourcing input",
+                })
+        search_intents.sort(key=lambda item: (-item["priority"], item["market"].lower(), item["intent_id"]))
         reverse_opportunities = []
         if discovery:
             for item in discovery.get("items", []):
@@ -301,6 +321,7 @@ class CommitmentGraphMixin:
             "deal_readiness": readiness,
             "buyer_reliability": buyer_reliability,
             "capital_reliability": capital_reliability,
+            "search_intents": search_intents,
             "reverse_opportunities": reverse_opportunities,
             "score_semantics": (
                 "Operational readiness evidence only; not a calibrated closing probability, "
