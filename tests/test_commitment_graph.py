@@ -157,3 +157,32 @@ def test_reverse_candidate_matching_prefers_current_standing_demand(tmp_path):
     assert matches[0]["score"] == 100
     assert outside == []
     assert overpriced == []
+
+
+def test_commitment_status_changes_are_audited_and_remove_current_path(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    mandate = app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "status": "active",
+        "evidence_reference": "synthetic confirmation",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    assert app.deal_readiness(deal["id"])["current_mandate_count"] == 1
+    event = app.change_commitment_status("buyer_mandate", mandate["id"], {
+        "status": "paused",
+        "note": "Synthetic buyer paused acquisitions",
+        "evidence_reference": "synthetic pause record",
+    })
+    assert event["status_before"] == "active"
+    assert event["status_after"] == "paused"
+    graph = app.state()["commitment_graph"]
+    assert graph["buyer_mandates"][0]["status"] == "paused"
+    assert graph["recent_events"][0]["entity_id"] == mandate["id"]
+    assert graph["deal_readiness"][0]["current_mandate_count"] == 0
