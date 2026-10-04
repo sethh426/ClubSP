@@ -294,6 +294,26 @@ class CommitmentGraphMixin:
                 "last_outcome": dict(rows[0]) if rows else None,
                 "calibrated_probability": False,
             })
+        mandate_reliability = []
+        for mandate in mandates:
+            rows = connection.execute(
+                """SELECT o.outcome,o.reason_code,o.created_at
+                   FROM commitment_outcome_context x
+                   JOIN commitment_outcomes o ON o.id=x.outcome_id
+                   WHERE x.buyer_mandate_id=? ORDER BY o.created_at DESC,o.id""",
+                (mandate["id"],),
+            ).fetchall()
+            closed = sum(1 for row in rows if row["outcome"] == "closed")
+            mandate_reliability.append({
+                "buyer_mandate_id": mandate["id"],
+                "buyer_id": mandate["buyer_id"],
+                "name": mandate["name"],
+                "recorded_outcomes": len(rows),
+                "closed_outcomes": closed,
+                "descriptive_close_rate": (closed / len(rows)) if rows else None,
+                "last_outcome": dict(rows[0]) if rows else None,
+                "calibrated_probability": False,
+            })
         capital_reliability = []
         for cp in connection.execute("SELECT id,name,provider_type FROM capital_profiles ORDER BY created_at DESC,id"):
             rows = connection.execute(
@@ -357,6 +377,7 @@ class CommitmentGraphMixin:
             "recent_events": events,
             "deal_readiness": readiness,
             "buyer_reliability": buyer_reliability,
+            "mandate_reliability": mandate_reliability,
             "capital_reliability": capital_reliability,
             "search_intents": search_intents,
             "reverse_opportunities": reverse_opportunities,
