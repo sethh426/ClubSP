@@ -34,6 +34,10 @@ The backend now stores:
 - exact outcome context: outcomes can preserve the specific buyer mandate and
   buyer-match snapshot that produced the path;
 - provider-neutral sourcing intents generated from active standing buyer demand;
+- buyer demand capacity: each mandate can record monthly unit targets and a maximum
+  number of simultaneous deal reservations;
+- deal-specific buyer reservations that consume a mandate slot, prevent overbooking,
+  expire automatically for capacity calculations, and can be explicitly released;
 - shared search plans that deduplicate identical buyer demand before provider spend;
 - an explainable search-budget queue that prioritizes scarce API requests by demand breadth, mandate priority, refresh need, and provider availability;
 - richer reviewed candidate evidence including optional asking price, beds, baths,
@@ -123,5 +127,7 @@ run ClubSP's existing review/invalidation rules.
 
 A high score must always be inspectable. Every point should be traceable to a
 recorded buyer commitment, underwriting/plan artifact, capital record, workflow
-stage or historical outcome. ClubSP wins by knowing the path to close before
-spending time on the opportunity.
+stage or historical outcome. Standing demand and deal-specific reservations are
+shown separately: a mandate says the buyer wants this class of deal; a reservation
+says one of that buyer's available slots has been attached to this specific deal.
+ClubSP wins by knowing the path to close before spending time on the opportunity.
