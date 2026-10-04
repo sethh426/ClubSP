@@ -4,6 +4,7 @@ import pytest
 
 from app.provider_integrations import compile_rentcast_search, normalize_rentcast_listing
 from tests.test_commitment_graph import setup_deal
+from tests.test_sourcing import review_data
 
 
 def current_intent(app, buyer_id):
@@ -347,3 +348,32 @@ def test_provider_normalizer_rejects_invalid_zip_and_oversized_identity():
     row["id"] = "x" * 201
     with pytest.raises(ValueError):
         normalize_rentcast_listing(row)
+
+
+def test_provider_metrics_follow_reviewed_candidate_into_recorded_close(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    app._provider_fetch = lambda provider, params, api_key: ([synthetic_listing()], provider["endpoint"])
+    result = app.search_property_provider({
+        "provider_id": "auto",
+        "search_intent_id": intent["intent_id"],
+        "max_results": 10,
+        "confirm_paid_request": True,
+    })
+    row = next(x for x in app.state()["sourcing"]["rows"] if x["batch_id"] == result["batch_id"])
+    accepted = app.review_candidate(row["id"], review_data())
+    sourced_deal = app.create_deal({"property_id": accepted["property_id"], "strategy": "assignment"})
+    app.record_commitment_outcome({
+        "deal_id": sourced_deal["id"],
+        "outcome": "closed",
+        "reason_code": "settled",
+        "evidence_reference": "synthetic provider-origin close",
+        "note": "fixture",
+    })
+    metrics = app.state()["provider_integrations"]["providers"][0]["review_metrics"]
+    assert metrics["reviewed_candidates"] == 1
+    assert metrics["accepted_candidates"] == 1
+    assert metrics["deals_created"] == 1
+    assert metrics["closed_deals"] == 1
+    assert metrics["closed_per_reviewed_candidate"] == 1.0
