@@ -193,7 +193,7 @@ class CommitmentGraphMixin:
             ).fetchone()
             return self._deal_readiness(connection, dict(row))
 
-    def _commitment_graph_state(self, connection, deals):
+    def _commitment_graph_state(self, connection, deals, discovery=None):
         mandates = [self._mandate_json(row) for row in connection.execute(
             "SELECT * FROM buyer_mandates ORDER BY priority DESC,created_at DESC,id"
         )]
@@ -204,11 +204,30 @@ class CommitmentGraphMixin:
             "SELECT * FROM commitment_outcomes ORDER BY created_at DESC,id LIMIT 250"
         )]
         readiness = [self._deal_readiness(connection, deal) for deal in deals]
+        reverse_opportunities = []
+        if discovery:
+            for item in discovery.get("items", []):
+                if item.get("commitment_match_count", 0) > 0:
+                    reverse_opportunities.append({
+                        "property_id": item["property_id"],
+                        "address": item["address"],
+                        "market": item["market"],
+                        "property_type": item.get("property_type"),
+                        "candidate_score": item["score"],
+                        "commitment_match_count": item["commitment_match_count"],
+                        "best_commitment_score": item["best_commitment_score"],
+                        "best_match": item["commitment_matches"][0],
+                        "source": item["source"],
+                    })
+        reverse_opportunities.sort(
+            key=lambda item: (-item["commitment_match_count"], -item["best_commitment_score"], -item["candidate_score"])
+        )
         return {
             "buyer_mandates": mandates,
             "capital_profiles": capital,
             "recent_outcomes": outcomes,
             "deal_readiness": readiness,
+            "reverse_opportunities": reverse_opportunities,
             "score_semantics": (
                 "Operational readiness evidence only; not a calibrated closing probability, "
                 "valuation, lending approval, or investment recommendation."
