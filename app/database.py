@@ -215,6 +215,10 @@ class Database:
                     PRIMARY KEY(run_id,search_intent_id)
                 );
                 CREATE INDEX IF NOT EXISTS provider_search_links_intent ON provider_search_links(search_intent_id,linked_at);
+                CREATE TABLE IF NOT EXISTS provider_search_metadata (
+                    run_id TEXT PRIMARY KEY REFERENCES provider_search_runs(id),
+                    metadata_json TEXT NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS commitment_events_entity ON commitment_events(entity_type,entity_id,created_at);
                 CREATE TABLE IF NOT EXISTS memory (
                     collection TEXT NOT NULL,
