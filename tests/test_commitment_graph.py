@@ -313,3 +313,60 @@ def test_outcome_can_preserve_exact_mandate_and_match_snapshot(tmp_path):
     assert summary["closed_outcomes"] == 1
     assert summary["descriptive_close_rate"] == 1.0
     assert summary["calibrated_probability"] is False
+
+
+def test_mandate_property_ranges_flow_into_search_intents_and_reverse_match(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    mandate = app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "name": "3-bed target",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "min_beds": 3,
+        "max_beds": 4,
+        "min_sqft": 1200,
+        "max_sqft": 2200,
+        "priority": 90,
+        "status": "active",
+        "evidence_reference": "synthetic range evidence",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    intent = next(x for x in app.search_intents() if x["mandate_id"] == mandate["id"])
+    assert intent["filters"]["min_beds"] == 3
+    assert intent["filters"]["max_sqft"] == 2200
+    with app.database.session() as (connection, _):
+        good = app.reverse_match_candidate(
+            connection, market="Fort Wayne, IN", property_type="single_family",
+            asking_price=125000, beds=3, sqft=1500,
+        )
+        bad = app.reverse_match_candidate(
+            connection, market="Fort Wayne, IN", property_type="single_family",
+            asking_price=125000, beds=2, sqft=1500,
+        )
+    assert any(x["mandate_id"] == mandate["id"] for x in good)
+    assert not any(x["mandate_id"] == mandate["id"] for x in bad)
+
+
+def test_invalid_mandate_range_is_rejected(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    import pytest
+    with pytest.raises(ValueError, match="min_beds cannot exceed max_beds"):
+        app.create_buyer_mandate({
+            "buyer_id": buyer["id"],
+            "markets": ["Fort Wayne, IN"],
+            "strategies": ["assignment"],
+            "property_types": ["single_family"],
+            "max_total_price": 160000,
+            "max_repairs": 50000,
+            "min_beds": 5,
+            "max_beds": 2,
+            "status": "active",
+            "evidence_reference": "synthetic invalid range",
+            "verified_at": now.isoformat(),
+        })
