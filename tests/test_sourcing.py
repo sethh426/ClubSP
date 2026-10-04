@@ -239,7 +239,7 @@ def test_candidate_optional_price_and_property_fields_become_reviewed_evidence(t
     result = app.review_candidate(row["id"], review_data())
     facts = [
         fact for fact in app.state()["facts"]
-        if fact["subject_id"] == result["property_id"]
+        if str(fact["subject_id"]) == result["property_id"]
     ]
     values = {fact["attribute"]: fact["value"] for fact in facts}
     assert values["asking_price"] == 125000
