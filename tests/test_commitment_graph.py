@@ -584,6 +584,9 @@ def test_deal_outcome_infers_and_resolves_active_buyer_reservation(tmp_path):
         x for x in graph["mandate_reliability"] if x["buyer_mandate_id"] == mandate["id"]
     )
     assert summary["closed_outcomes"] == 1
+    assert summary["closed_this_month"] == 1
+    assert summary["target_units_per_month"] == 2
+    assert summary["monthly_target_attainment"] == 0.5
 
 
 def test_nonclosing_outcome_releases_reserved_buyer_capacity(tmp_path):
