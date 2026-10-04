@@ -270,6 +270,37 @@ def test_buyer_matches_recorded_criteria_and_flags_funding_review(tmp_path):
     assert "market does not match" in outsider["reasons"]
 
 
+def test_saved_buyer_matches_become_stale_when_buyer_pool_changes(tmp_path):
+    app = Application(tmp_path / "app.db")
+    prop = create_property(app)
+    app.record_fact({
+        "property_id": prop["id"], "attribute": "property_type", "value": "single_family",
+        "provider": "Owner review",
+    })
+    deal = app.create_deal({"property_id": prop["id"], "strategy": "assignment"})
+    app.underwrite(deal["id"], underwriting_payload())
+    app.create_buyer({
+        "name": "First Buyer", "locations": ["Fort Wayne, IN"],
+        "strategies": ["assignment"], "property_types": ["single_family"],
+        "max_total_price": 145000, "max_repairs": 35000,
+        "funding_status": "unverified",
+    })
+    app.match_buyers(deal["id"])
+    saved = app.state()["deals"][0]["buyer_matches"]
+    assert saved["current"] is True
+    assert saved["stale_reasons"] == []
+
+    app.create_buyer({
+        "name": "Second Buyer", "locations": ["Fort Wayne, IN"],
+        "strategies": ["assignment"], "property_types": ["single_family"],
+        "max_total_price": 150000, "max_repairs": 40000,
+        "funding_status": "unverified",
+    })
+    stale = app.state()["deals"][0]["buyer_matches"]
+    assert stale["current"] is False
+    assert stale["stale_reasons"]
+
+
 def test_buyer_matching_requires_an_underwriting(tmp_path):
     app = Application(tmp_path / "app.db")
     prop = create_property(app)
