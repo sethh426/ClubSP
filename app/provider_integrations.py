@@ -41,6 +41,22 @@ PROVIDERS = {
     },
 }
 
+PREFLIGHT_PROVIDERS = {
+    "realestateapi": {
+        "id": "realestateapi",
+        "name": "RealEstateAPI Property Search Count",
+        "endpoint": "https://api.realestateapi.com/v2/PropertySearch",
+        "credential_env": "REALESTATEAPI_API_KEY",
+        "monthly_cap_env": "CLUBSP_REALESTATEAPI_MONTHLY_COUNT_CAP",
+        "default_monthly_cap": 20,
+        "cache_hours": 24,
+        "rights_note": (
+            "Count mode is inventory-planning evidence only. Billing depends on the connected "
+            "RealEstateAPI plan; paid plans may include zero-credit count calls while pay-as-you-go may not."
+        ),
+    },
+}
+
 PROPERTY_TYPES = {
     "single_family": "Single Family",
     "single family": "Single Family",
@@ -99,6 +115,72 @@ def compile_rentcast_search(intent, max_results=50):
         high_text = "*" if high is None else str(int(high) if float(high).is_integer() else high)
         params[key] = f"{low_text}:{high_text}"
     return params
+
+
+def compile_realestateapi_count(intent):
+    city, state = _market_parts(intent["market"])
+    payload = {"count": True, "city": city, "state": state, "mls_active": True}
+    types = [str(value).strip().lower().replace("-", "_") for value in (intent.get("property_types") or [])]
+    type_map = {
+        "single_family": "SFR", "single family": "SFR", "multi_family": "MFR",
+        "multi family": "MFR", "condo": "CONDO", "manufactured": "MOBILE",
+        "mobile": "MOBILE", "land": "LAND",
+    }
+    mapped = [type_map[value] for value in types if value in type_map]
+    if len(set(mapped)) == 1:
+        payload["property_type"] = mapped[0]
+    max_price = intent.get("max_total_price")
+    if isinstance(max_price, (int, float)) and not isinstance(max_price, bool) and max_price > 0:
+        payload["mls_listing_price_max"] = int(max_price)
+    filters = intent.get("filters") or {}
+    field_map = {
+        "min_beds": "beds_min", "max_beds": "beds_max",
+        "min_baths": "baths_min", "max_baths": "baths_max",
+        "min_sqft": "building_size_min", "max_sqft": "building_size_max",
+        "min_year_built": "year_built_min", "max_year_built": "year_built_max",
+    }
+    for source, target in field_map.items():
+        value = filters.get(source)
+        if value is None:
+            continue
+        if float(value).is_integer():
+            payload[target] = int(value)
+    return payload
+
+
+def _live_realestateapi_count_fetch(provider, payload, api_key):
+    try:
+        import httpx
+    except ImportError as exc:
+        raise ValueError("Live provider access requires: pip install .[integrations]") from exc
+    timeout = httpx.Timeout(10.0, connect=5.0, read=10.0, write=10.0, pool=5.0)
+    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+        response = client.post(
+            provider["endpoint"],
+            json=payload,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "x-user-id": "clubsp",
+                "User-Agent": "ClubSP/0.1 demand-first inventory preflight",
+            },
+        )
+    if len(response.content) > 1_000_000:
+        raise ValueError("Provider count response exceeded the 1 MB safety limit")
+    if response.status_code == 429:
+        raise ValueError("Provider rate limit reached; wait before another explicit preflight")
+    if response.status_code != 200:
+        raise ValueError(f"Provider preflight failed with HTTP {response.status_code}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("Provider count response must be an object")
+    count = data.get("resultCount")
+    if count is None and isinstance(data.get("data"), dict):
+        count = data["data"].get("resultCount")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0 or count > 100_000_000:
+        raise ValueError("Provider count response is missing a valid resultCount")
+    return count, str(response.url), {"total_count": count, "mode": "count"}
 
 
 def normalize_rentcast_listing(record):
@@ -195,6 +277,84 @@ def _live_rentcast_fetch(provider, params, api_key):
 
 
 class ProviderIntegrationMixin:
+    def preflight_property_count(self, data):
+        provider_id = text_field(data, "provider_id", 40)
+        provider = PREFLIGHT_PROVIDERS.get(provider_id)
+        if provider is None:
+            raise ValueError("unsupported preflight provider")
+        intent_id = text_field(data, "search_intent_id", 500)
+        if data.get("confirm_external_request") is not True:
+            raise ValueError("confirm_external_request must be true for each provider preflight")
+        intents = {item["intent_id"]: item for item in self.search_intents()}
+        intent = intents.get(intent_id)
+        if intent is None:
+            raise LookupError("Current search intent not found; refresh standing buyer mandates")
+        api_key = os.environ.get(provider["credential_env"], "").strip()
+        if not api_key:
+            raise ValueError(f"{provider['credential_env']} is not configured")
+        payload = compile_realestateapi_count(intent)
+        request_json = json.dumps(payload, sort_keys=True)
+        now_dt = utc_now()
+        now = now_dt.isoformat()
+        if data.get("force_refresh") is not True:
+            with self.database.session() as (connection, _):
+                prior = connection.execute(
+                    """SELECT * FROM provider_search_runs
+                       WHERE provider_id=? AND request_json=? AND status='success'
+                       ORDER BY created_at DESC,id LIMIT 1""",
+                    (provider_id, request_json),
+                ).fetchone()
+                if prior:
+                    age = (now_dt - datetime.fromisoformat(prior["created_at"])).total_seconds() / 3600
+                    if 0 <= age < provider["cache_hours"]:
+                        meta = connection.execute(
+                            "SELECT metadata_json FROM provider_search_metadata WHERE run_id=?", (prior["id"],)
+                        ).fetchone()
+                        metadata = json.loads(meta["metadata_json"]) if meta else {}
+                        return {
+                            "id": prior["id"], "provider_id": provider_id,
+                            "search_intent_id": intent_id, "total_count": metadata.get("total_count"),
+                            "status": "success", "cached": True, "cache_age_hours": round(age, 2),
+                            "mode": "count", "creates_candidates": False,
+                        }
+        run_id = str(uuid4())
+        with self.database.session(write=True) as (connection, _):
+            usage = self._provider_usage(connection, provider_id)
+            cap = self._provider_cap(provider)
+            if usage["attempted_requests"] >= cap:
+                raise ValueError("Local monthly preflight request cap reached; no external request was made")
+            connection.execute(
+                """INSERT INTO provider_search_runs(
+                    id,provider_id,search_intent_id,request_json,status,result_count,
+                    response_hash,source_url,error_text,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (run_id, provider_id, intent_id, request_json, "running", 0, "", "", "", now),
+            )
+        fetcher = getattr(self, "_preflight_fetch", _live_realestateapi_count_fetch)
+        try:
+            count, source_url, metadata = fetcher(provider, payload, api_key)
+            with self.database.session(write=True) as (connection, _):
+                connection.execute(
+                    """UPDATE provider_search_runs SET status='success',source_url=? WHERE id=?""",
+                    (source_url, run_id),
+                )
+                connection.execute(
+                    "INSERT OR REPLACE INTO provider_search_metadata(run_id,metadata_json) VALUES(?,?)",
+                    (run_id, json.dumps(metadata, sort_keys=True, allow_nan=False)),
+                )
+            return {
+                "id": run_id, "provider_id": provider_id, "search_intent_id": intent_id,
+                "total_count": count, "status": "success", "cached": False,
+                "mode": "count", "creates_candidates": False,
+            }
+        except Exception as exc:
+            with self.database.session(write=True) as (connection, _):
+                connection.execute(
+                    "UPDATE provider_search_runs SET status='failed',error_text=? WHERE id=?",
+                    (str(exc)[:1000], run_id),
+                )
+            raise
+
     def route_property_provider(self, intent, connection=None):
         required = {"market", "max_price"}
         if intent.get("property_types"):
@@ -411,7 +571,23 @@ class ProviderIntegrationMixin:
                 "score_semantics": "Operational search-budget priority only; not a closing probability or investment score.",
             })
         search_queue.sort(key=lambda item: (-item["budget_priority_score"], -item["demand_count"], -item["priority"], item["queue_id"]))
-        return {"providers": result, "routing": routing, "search_queue": search_queue, "creates_deals": False, "automatic_search": False}
+        preflight = []
+        for provider_id, provider in PREFLIGHT_PROVIDERS.items():
+            usage = self._provider_usage(connection, provider_id)
+            cap = self._provider_cap(provider)
+            preflight.append({
+                **provider,
+                "configured": bool(os.environ.get(provider["credential_env"], "").strip()),
+                "monthly_request_cap": cap,
+                "remaining_local_requests": max(0, cap - usage["attempted_requests"]),
+                "usage": usage,
+                "automatic_search": False,
+                "requires_explicit_confirmation": True,
+            })
+        return {
+            "providers": result, "preflight_providers": preflight, "routing": routing,
+            "search_queue": search_queue, "creates_deals": False, "automatic_search": False,
+        }
 
     @staticmethod
     def _provider_cap(provider):
