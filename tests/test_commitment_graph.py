@@ -241,3 +241,27 @@ def test_reliability_summaries_are_descriptive_not_predictive(tmp_path):
     assert capital_summary["recorded_outcomes"] == 2
     assert capital_summary["descriptive_close_rate"] == 0.5
     assert capital_summary["calibrated_probability"] is False
+
+
+def test_active_mandates_generate_provider_neutral_search_intents(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "name": "Demand-first intent",
+        "markets": ["Fort Wayne, IN", "New Haven, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "priority": 80,
+        "status": "active",
+        "evidence_reference": "synthetic intent evidence",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    intents = app.state()["commitment_graph"]["search_intents"]
+    assert len(intents) == 2
+    assert {x["market"] for x in intents} == {"Fort Wayne, IN", "New Haven, IN"}
+    assert all(x["buyer_id"] == buyer["id"] for x in intents)
+    assert all(x["purpose"] == "provider-neutral demand-first sourcing input" for x in intents)
