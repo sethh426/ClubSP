@@ -18,6 +18,13 @@ function renderSourcing() {
     const card = node("article", undefined, "evidence-row discovery-card");
     card.append(node("strong", item.address + " · " + readable(item.decision) + " · " + item.score + "/100"));
     card.append(node("p", item.market + (item.property_type ? " · " + readable(item.property_type) : ""), "small"));
+    if (item.commitment_match_count) {
+      const best = item.commitment_matches[0];
+      card.append(node("p", "Standing demand: " + item.commitment_match_count + " mandate(s) · best " + best.buyer_name + " " + best.score + "/100", "small"));
+      card.append(node("p", best.reasons.join(" · "), "muted small"));
+    } else {
+      card.append(node("p", "Standing demand: none recorded for this candidate.", "muted small"));
+    }
     card.append(node("p", item.reasons.length ? item.reasons.join(" · ") : "Ready for owner research", "muted small"));
     card.append(node("p", "Source: " + item.source.provider + " · as of " + item.source.as_of + ". No automatic economics.", "muted small"));
     const open = node("button", "Open research file", "button secondary"); open.type = "button";
