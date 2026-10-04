@@ -82,6 +82,10 @@ class SourcingMixin:
                 market=market,
                 property_type=ptype,
                 asking_price=evidence["values"].get("asking_price"),
+                beds=evidence["values"].get("beds"),
+                baths=evidence["values"].get("baths"),
+                sqft=evidence["values"].get("sqft"),
+                year_built=evidence["values"].get("year_built"),
             )
             if commitment_matches:
                 score += min(25, round(commitment_matches[0]["score"] / 4))
