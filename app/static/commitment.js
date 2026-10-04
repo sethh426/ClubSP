@@ -136,7 +136,7 @@ function renderCommitmentGraph() {
       const pf = node("form", undefined, "workspace-form provider-search-form");
       workspaceSelect(pf, "search_intent_id", "Buyer-derived search intent",
         graph.search_intents.map(x => [x.intent_id, x.market + " · max " + amount("money",x.max_total_price) + " · priority " + x.priority]));
-      workspaceField(pf, "max_results", "Maximum listings to stage (1–25)", "number", "10");
+      workspaceField(pf, "max_results", "Maximum listings to stage (1–50)", "number", "10");
       const confirmLabel=node("label",undefined,"check-label"), confirm=node("input");
       confirm.type="checkbox"; confirm.name="confirm_paid_request"; confirm.required=true;
       confirmLabel.append(confirm,document.createTextNode(" I authorize this external API request and understand it may count toward provider usage/billing."));
