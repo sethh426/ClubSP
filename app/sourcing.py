@@ -38,6 +38,42 @@ def sale_snapshot(connection, property_id):
     return {"items": rows, "digest": digest, "conflicts": any(len(prices) > 1 for prices in keys.values())}
 
 
+def preliminary_candidate_buyers(connection, market, property_type, asking_price=None):
+    """Compare only buyer criteria that are actually known for a reviewed candidate."""
+    from .opportunities import canonical
+
+    matches = []
+    for row in connection.execute("SELECT * FROM buyers WHERE status='active' ORDER BY created_at DESC,id"):
+        locations = json.loads(row["locations_json"])
+        types = json.loads(row["property_types_json"])
+        reasons = []
+        if market not in locations:
+            reasons.append("market does not match")
+        if types and (property_type is None or canonical(property_type) not in types):
+            reasons.append("property type is unknown or outside buyer criteria")
+        if asking_price is not None:
+            try:
+                price = float(asking_price)
+            except (TypeError, ValueError):
+                reasons.append("asking price is not a usable number")
+            else:
+                if price > row["max_total_price"]:
+                    reasons.append("asking price exceeds buyer limit")
+        possible = not reasons
+        gaps = [
+            "Strategy, repair scope, final acquisition price, buyer interest and current funding are not yet confirmed."
+        ]
+        matches.append({
+            "buyer_id": row["id"], "name": row["name"], "company": row["company"],
+            "possible_fit_on_known_fields": possible,
+            "reasons": reasons + gaps,
+            "funding_status_on_record": row["funding_status"],
+            "commitment_confirmed": False,
+        })
+    matches.sort(key=lambda item: (not item["possible_fit_on_known_fields"], item["name"].lower()))
+    return matches
+
+
 class SourcingMixin:
     def _discovery_state(self, connection):
         """Rank reviewed candidate properties for research; never invent economics."""
@@ -96,20 +132,28 @@ class SourcingMixin:
                 reasons.append("Refresh the candidate source record")
             if property_id in existing:
                 reasons.append("Already in an active deal pipeline")
-            if not evidence["values"].get("asking_price"):
+            asking_price = evidence["values"].get("asking_price")
+            if not asking_price:
                 reasons.append("Capture seller price or terms before economics can be tested")
+            buyer_matches = preliminary_candidate_buyers(connection, market, ptype, asking_price)
+            possible_buyers = [buyer for buyer in buyer_matches if buyer["possible_fit_on_known_fields"]]
+            if not possible_buyers:
+                reasons.append("No active buyer currently fits the candidate's known market, type and recorded asking price")
             decision = "outside_buy_box" if outside else "research_candidate"
             if property_id in existing:
                 decision = "already_in_pipeline"
             candidates.append({"property_id": property_id, "address": prop["address"], "market": market,
                                "property_type": ptype, "score": score, "decision": decision,
                                "reasons": outside + reasons,
+                               "buyer_matches": buyer_matches,
+                               "possible_buyer_count": len(possible_buyers),
                                "source": {"provider": batch["provider"], "url": batch["source_url"],
                                           "as_of": batch["source_date"], "batch_id": batch["id"]},
                                "economics_available": False,
-                               "scope": "Research candidate only; no seller motivation, valuation, offer or execution authority"})
+                               "scope": "Research candidate only; buyer fit uses known criteria only and does not confirm interest, funding or economics"})
         order = {"research_candidate": 0, "already_in_pipeline": 1, "outside_buy_box": 2}
-        candidates.sort(key=lambda item: (order[item["decision"]], -item["score"], item["address"], item["property_id"]))
+        candidates.sort(key=lambda item: (order[item["decision"]], -item["possible_buyer_count"], -item["score"],
+                                          item["address"], item["property_id"]))
         return {"items": candidates, "policy_id": policy["id"] if policy else None,
                 "execution_authorized": False,
                 "scope": "Reviewed candidate imports only; no autonomous discovery or external actions"}
