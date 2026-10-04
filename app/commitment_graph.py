@@ -144,6 +144,38 @@ class CommitmentGraphMixin:
             "terms": terms, "created_at": now,
         }
 
+    def change_commitment_status(self, entity_type, entity_id, data):
+        if entity_type not in {"buyer_mandate", "capital_profile"}:
+            raise ValueError("unsupported commitment entity")
+        entity_id = _uuid(entity_id, "entity_id")
+        status = text_field(data, "status", 20)
+        allowed = MANDATE_STATUSES if entity_type == "buyer_mandate" else CAPITAL_STATUSES
+        if status not in allowed:
+            raise ValueError("unsupported commitment status")
+        note = text_field(data, "note", 1000)
+        evidence_reference = text_field(data, "evidence_reference", 500)
+        table = "buyer_mandates" if entity_type == "buyer_mandate" else "capital_profiles"
+        now = utc_now().isoformat()
+        with self.database.session(write=True) as (connection, _):
+            row = connection.execute(f"SELECT status FROM {table} WHERE id=?", (entity_id,)).fetchone()
+            if row is None:
+                raise LookupError("Commitment record not found")
+            before = row["status"]
+            if before == status:
+                raise ValueError("Commitment already has that status")
+            connection.execute(f"UPDATE {table} SET status=? WHERE id=?", (status, entity_id))
+            event_id = str(uuid4())
+            connection.execute(
+                """INSERT INTO commitment_events(
+                    id,entity_type,entity_id,status_before,status_after,note,evidence_reference,created_at
+                ) VALUES(?,?,?,?,?,?,?,?)""",
+                (event_id, entity_type, entity_id, before, status, note, evidence_reference, now),
+            )
+        return {
+            "id": event_id, "entity_type": entity_type, "entity_id": entity_id,
+            "status_before": before, "status_after": status, "note": note,
+            "evidence_reference": evidence_reference, "created_at": now,
+        }
     def record_commitment_outcome(self, data):
         deal_id = _uuid(data.get("deal_id"), "deal_id")
         outcome = text_field(data, "outcome", 40)
@@ -203,6 +235,9 @@ class CommitmentGraphMixin:
         outcomes = [dict(row) for row in connection.execute(
             "SELECT * FROM commitment_outcomes ORDER BY created_at DESC,id LIMIT 250"
         )]
+        events = [dict(row) for row in connection.execute(
+            "SELECT * FROM commitment_events ORDER BY created_at DESC,id LIMIT 250"
+        )]
         readiness = [self._deal_readiness(connection, deal) for deal in deals]
         reverse_opportunities = []
         if discovery:
@@ -226,6 +261,7 @@ class CommitmentGraphMixin:
             "buyer_mandates": mandates,
             "capital_profiles": capital,
             "recent_outcomes": outcomes,
+            "recent_events": events,
             "deal_readiness": readiness,
             "reverse_opportunities": reverse_opportunities,
             "score_semantics": (
