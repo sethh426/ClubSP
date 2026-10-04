@@ -228,10 +228,34 @@ class ProviderIntegrationMixin:
             "results_per_successful_request": (result_total / succeeded) if succeeded else None,
         }
 
+    def _provider_review_metrics(self, connection, provider_id):
+        run_ids = {row["id"] for row in connection.execute(
+            "SELECT id FROM provider_search_runs WHERE provider_id=?", (provider_id,)
+        )}
+        if not run_ids:
+            return {"reviewed_candidates": 0, "accepted_candidates": 0, "excluded_candidates": 0, "acceptance_rate": None}
+        reviewed = accepted = excluded = 0
+        for row in connection.execute("SELECT status,body FROM sourcing_rows WHERE status IN ('accepted','excluded')"):
+            body = json.loads(row["body"])
+            if body.get("provider_search_run_id") not in run_ids:
+                continue
+            reviewed += 1
+            if row["status"] == "accepted":
+                accepted += 1
+            elif row["status"] == "excluded":
+                excluded += 1
+        return {
+            "reviewed_candidates": reviewed,
+            "accepted_candidates": accepted,
+            "excluded_candidates": excluded,
+            "acceptance_rate": (accepted / reviewed) if reviewed else None,
+        }
+
     def _provider_state(self, connection):
         result = []
         for provider_id, provider in PROVIDERS.items():
             usage = self._provider_usage(connection, provider_id)
+            review_metrics = self._provider_review_metrics(connection, provider_id)
             cap = self._provider_cap(provider)
             result.append({
                 **provider,
@@ -239,6 +263,7 @@ class ProviderIntegrationMixin:
                 "monthly_request_cap": cap,
                 "remaining_local_requests": max(0, cap - usage["attempted_requests"]),
                 "usage": usage,
+                "review_metrics": review_metrics,
                 "automatic_search": False,
                 "requires_explicit_confirmation": True,
             })
