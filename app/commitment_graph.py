@@ -217,6 +217,48 @@ class CommitmentGraphMixin:
             "status_before": before, "status_after": status, "note": note,
             "evidence_reference": evidence_reference, "created_at": now,
         }
+    def reconfirm_commitment(self, entity_type, entity_id, data):
+        if entity_type not in {"buyer_mandate", "capital_profile"}:
+            raise ValueError("unsupported commitment entity")
+        entity_id = _uuid(entity_id, "entity_id")
+        evidence_reference = text_field(data, "evidence_reference", 500)
+        note = text_field(data, "note", 1000, required=False)
+        verified_at = _iso(data.get("verified_at") or utc_now().isoformat(), "verified_at")
+        table = "buyer_mandates" if entity_type == "buyer_mandate" else "capital_profiles"
+        evidence_column = "evidence_reference" if entity_type == "buyer_mandate" else "verification_reference"
+        now = utc_now().isoformat()
+        with self.database.session(write=True) as (connection, _):
+            row = connection.execute(
+                f"SELECT status,verified_at,{evidence_column} FROM {table} WHERE id=?", (entity_id,)
+            ).fetchone()
+            if row is None:
+                raise LookupError("Commitment record not found")
+            connection.execute(
+                f"UPDATE {table} SET verified_at=?,{evidence_column}=? WHERE id=?",
+                (verified_at, evidence_reference, entity_id),
+            )
+            event_id = str(uuid4())
+            connection.execute(
+                """INSERT INTO commitment_events(
+                    id,entity_type,entity_id,status_before,status_after,note,evidence_reference,created_at
+                ) VALUES(?,?,?,?,?,?,?,?)""",
+                (
+                    event_id, entity_type, entity_id, row["status"], row["status"],
+                    note or "Commitment evidence reconfirmed", evidence_reference, now,
+                ),
+            )
+        return {
+            "id": event_id,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "status_before": row["status"],
+            "status_after": row["status"],
+            "verified_at": verified_at,
+            "evidence_reference": evidence_reference,
+            "note": note,
+            "created_at": now,
+        }
+
     def record_commitment_outcome(self, data):
         deal_id = _uuid(data.get("deal_id"), "deal_id")
         outcome = text_field(data, "outcome", 40)
