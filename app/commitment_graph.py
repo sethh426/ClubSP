@@ -864,7 +864,10 @@ class CommitmentGraphMixin:
 
         # Capital path against recorded peak cash-at-risk.
         required_cents = int(plan["planned_cash_at_risk_cents"]) if plan else None
-        market = " ".join(part for part in (deal.get("city"), deal.get("state")) if part).strip().lower()
+        market = " ".join(
+            " ".join(str(part).casefold().replace(",", " ").split())
+            for part in (deal.get("city"), deal.get("state")) if part
+        ).strip()
         capital_rows = [self._capital_json(row) for row in connection.execute(
             "SELECT * FROM capital_profiles ORDER BY created_at DESC,id"
         )]
@@ -874,7 +877,12 @@ class CommitmentGraphMixin:
                 continue
             if item["strategies"] and deal.get("strategy") not in item["strategies"]:
                 continue
-            if item["markets"] and market and not any(m.lower() in market or market in m.lower() for m in item["markets"]):
+            normalized_markets = [
+                " ".join(str(m).casefold().replace(",", " ").split()) for m in item["markets"]
+            ]
+            if normalized_markets and market and not any(
+                target in market or market in target for target in normalized_markets
+            ):
                 continue
             current_capital.append(item)
         if required_cents is None:
