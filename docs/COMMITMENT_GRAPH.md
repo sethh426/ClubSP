@@ -22,7 +22,11 @@ The backend now stores:
 - commitment outcomes: closed/failed/declined paths tied back to the deal,
   buyer and/or capital profile;
 - per-deal readiness: demand commitment (35 points), deal evidence (20), capital
-  path (20), transaction progress (15), and network outcome evidence (10).
+  path (20), transaction progress (15), and network outcome evidence (10);
+- reverse opportunity search: reviewed sourcing candidates are ranked against
+  current standing mandates before a deal is created;
+- audited commitment lifecycle events: mandates/capital can be paused, reactivated,
+  marked unverified or expired without erasing the prior state transition.
 
 The complete application state exposes these under `commitment_graph`.
 A deal can also be rescored directly with:
@@ -85,16 +89,13 @@ run ClubSP's existing review/invalidation rules.
 
 ## Next engineering sequence
 
-1. Surface mandates, capital profiles, readiness components and blockers in the UI.
-2. Add update/pause/expire flows for mandates and capital commitments.
-3. Reverse-match sourcing candidates against **standing mandates before outreach**.
-4. Add freshness rules so changed underwriting, terms or buyer criteria invalidate
-   old readiness.
-5. Feed completed/lost deal outcomes into buyer/capital reliability summaries.
-6. Add a provider-neutral HTTP adapter, then connect one property-data source.
-7. Move repeated provider refreshes and reverse-matching into a job queue only
+1. Add freshness fingerprints so changed underwriting, terms or buyer criteria invalidate
+   stale match evidence even when a prior buyer-match run exists.
+2. Feed completed/lost deal outcomes into buyer/capital reliability summaries.
+3. Add a provider-neutral HTTP adapter, then connect one property-data source.
+4. Move repeated provider refreshes and reverse-matching into a job queue only
    after manual flows are proven.
-8. Calibrate any future probability model only from a sufficiently large labeled
+5. Calibrate any future probability model only from a sufficiently large labeled
    outcome set; until then, keep the readiness score deterministic and explainable.
 
 ## Product rule
