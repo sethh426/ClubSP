@@ -292,13 +292,6 @@ class ProviderIntegrationMixin:
         intent_id = text_field(data, "search_intent_id", 500)
         if data.get("confirm_paid_request") is not True:
             raise ValueError("confirm_paid_request must be true for each external provider request")
-        max_results_value = data.get("max_results", provider["max_results_per_request"])
-        if isinstance(max_results_value, bool) or not isinstance(max_results_value, (int, float)):
-            raise ValueError("max_results must be a number")
-        max_results = int(max_results_value)
-        if max_results != max_results_value or not 1 <= max_results <= provider["max_results_per_request"]:
-            raise ValueError(f"max_results must be an integer from 1 to {provider['max_results_per_request']}")
-
         intents = {item["intent_id"]: item for item in self.search_intents()}
         intent = intents.get(intent_id)
         if intent is None:
@@ -311,6 +304,13 @@ class ProviderIntegrationMixin:
         provider = PROVIDERS.get(provider_id)
         if provider is None:
             raise ValueError("unsupported property provider")
+
+        max_results_value = data.get("max_results", provider["max_results_per_request"])
+        if isinstance(max_results_value, bool) or not isinstance(max_results_value, (int, float)):
+            raise ValueError("max_results must be a number")
+        max_results = int(max_results_value)
+        if max_results != max_results_value or not 1 <= max_results <= provider["max_results_per_request"]:
+            raise ValueError(f"max_results must be an integer from 1 to {provider['max_results_per_request']}")
 
         route = self.route_property_provider(intent)
         selected = next((item for item in route["candidates"] if item["provider_id"] == provider_id), None)
