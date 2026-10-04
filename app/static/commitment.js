@@ -5,6 +5,37 @@ function commitmentDate(value) {
   return new Date(value + "T00:00:00Z").toISOString();
 }
 
+function commitmentFreshness(item, maxDays) {
+  if (!item?.verified_at) return { current:false, ageDays:null };
+  const verified = new Date(item.verified_at);
+  if (Number.isNaN(verified.getTime())) return { current:false, ageDays:null };
+  const ageDays = Math.max(0, (Date.now() - verified.getTime()) / 86400000);
+  return { current: ageDays <= maxDays, ageDays: Math.floor(ageDays) };
+}
+
+function commitmentReconfirmControl(entityPath, item, maxDays) {
+  const freshness = commitmentFreshness(item, maxDays);
+  const d = workspaceDetails(freshness.current ? "Reconfirm evidence" : "Reconfirm stale evidence", false);
+  const form = node("form", undefined, "workspace-form commitment-reconfirm-form");
+  workspaceField(form, "verified_at", "Reconfirmed date", "date", new Date().toISOString().slice(0,10));
+  workspaceField(form, "evidence_reference", "New confirmation / evidence reference");
+  workspaceField(form, "note", "Reconfirmation notes", "textarea", "", false);
+  workspaceSubmit(form, freshness.current ? "Record reconfirmation" : "Restore current status");
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const v = values(form);
+    v.verified_at = commitmentDate(v.verified_at);
+    runForm(form, () => api("/api/commitments/" + entityPath + "/" + item.id + "/reconfirm", v), "Commitment evidence reconfirmed.");
+  });
+  d.append(node("p",
+    freshness.current
+      ? "Current verification age: " + freshness.ageDays + " day(s)."
+      : "Verification is outside ClubSP's " + maxDays + "-day freshness window and is excluded from current matching until reconfirmed.",
+    "muted small"
+  ), form);
+  return d;
+}
+
 function commitmentStatusControl(entityPath, item, allowed) {
   const d = workspaceDetails("Change status", false);
   const form = node("form", undefined, "workspace-form commitment-status-form");
@@ -315,6 +346,9 @@ function renderCommitmentGraph() {
     card.append(node("p", "Priority " + m.priority + " · " + m.status + " · verified " + new Date(m.verified_at).toLocaleDateString() + (m.expires_at ? " · expires " + new Date(m.expires_at).toLocaleDateString() : ""), "muted small"));
     const filters = m.filters || {};
     if (Object.keys(filters).length) card.append(node("p", "Filters: " + Object.entries(filters).map(([k,v]) => readable(k) + " " + v).join(" · "), "muted small"));
+    const mfresh = commitmentFreshness(m, 90);
+    card.append(node("p", mfresh.current ? "Demand verification current" : "Demand verification stale · excluded from sourcing/matching", mfresh.current ? "small" : "muted small"));
+    card.append(commitmentReconfirmControl("buyer-mandates", m, 90));
     card.append(commitmentStatusControl("buyer-mandates", m, ["active","paused","expired"]));
     mandates.append(card);
   });
@@ -327,6 +361,9 @@ function renderCommitmentGraph() {
     card.append(node("strong", cp.name + " · " + readable(cp.provider_type)));
     card.append(node("p", "Available " + amount("money", cp.available_amount) + " of " + amount("money", cp.max_commitment) + (cp.markets.length ? " · " + cp.markets.join(" · ") : " · any recorded market"), "small"));
     card.append(node("p", cp.status + " · verified " + new Date(cp.verified_at).toLocaleDateString() + (cp.expires_at ? " · expires " + new Date(cp.expires_at).toLocaleDateString() : ""), "muted small"));
+    const cfresh = commitmentFreshness(cp, 30);
+    card.append(node("p", cfresh.current ? "Capital verification current" : "Capital verification stale · excluded from current funding paths", cfresh.current ? "small" : "muted small"));
+    card.append(commitmentReconfirmControl("capital", cp, 30));
     card.append(commitmentStatusControl("capital", cp, ["active","paused","unverified","expired"]));
     capitalList.append(card);
   });
