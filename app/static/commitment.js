@@ -469,6 +469,23 @@ function renderCommitmentGraph() {
     if (item.last_outcome) card.append(node("p","Last outcome: " + readable(item.last_outcome.outcome) + " · " + readable(item.last_outcome.reason_code),"muted small"));
     reliability.append(card);
   });
+  (graph.mandate_reliability || []).forEach(item => {
+    const card = node("article", undefined, "evidence-row");
+    const buyer = state.buyers.find(x => x.id === item.buyer_id);
+    card.append(node("strong", (buyer ? buyer.name : "Buyer") + " · " + item.name + " · mandate fulfillment"));
+    card.append(node("p",
+      item.closed_this_month + "/" + item.target_units_per_month + " target units closed this month · " +
+      Math.round((item.monthly_target_attainment || 0) * 100) + "% target attainment",
+      "small"
+    ));
+    if (item.recorded_outcomes) {
+      const rate = Math.round(item.descriptive_close_rate * 100);
+      card.append(node("p", item.closed_outcomes + " closed of " + item.recorded_outcomes + " recorded outcomes · descriptive close rate " + rate + "%", "muted small"));
+    } else {
+      card.append(node("p","No recorded outcomes yet for this exact mandate.","muted small"));
+    }
+    reliability.append(card);
+  });
   (graph.capital_reliability || []).filter(x => x.recorded_outcomes).forEach(item => {
     const card = node("article", undefined, "evidence-row");
     const rate = Math.round(item.descriptive_close_rate * 100);
