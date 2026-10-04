@@ -205,6 +205,8 @@ def handler_for(application, gmail):
                     result = application.create_capital_profile(data)
                 elif path == "/api/commitments/outcomes":
                     result = application.record_commitment_outcome(data)
+                elif path == "/api/providers/search":
+                    result = application.search_property_provider(data)
                 elif path.startswith("/api/commitments/"):
                     parts = path.strip("/").split("/")
                     if len(parts) != 5 or parts[4] != "status":
