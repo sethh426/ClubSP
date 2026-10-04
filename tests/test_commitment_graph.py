@@ -537,3 +537,86 @@ def test_reservation_rejects_overbooking_same_mandate(tmp_path):
             "expires_at": (now + timedelta(days=7)).isoformat(),
             "evidence_reference": "synthetic overbook attempt",
         })
+
+
+def test_deal_outcome_infers_and_resolves_active_buyer_reservation(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    mandate = app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "name": "Outcome-linked commitment",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "max_active_reservations": 1,
+        "target_units_per_month": 2,
+        "status": "active",
+        "evidence_reference": "synthetic commitment",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    reservation = app.reserve_buyer_commitment({
+        "deal_id": deal["id"],
+        "mandate_id": mandate["id"],
+        "expires_at": (now + timedelta(days=7)).isoformat(),
+        "evidence_reference": "synthetic reserved slot",
+    })
+    outcome = app.record_commitment_outcome({
+        "deal_id": deal["id"],
+        "outcome": "closed",
+        "reason_code": "settled",
+        "evidence_reference": "synthetic closing evidence",
+        "note": "Buyer reservation converted at close.",
+    })
+    assert outcome["buyer_id"] == buyer["id"]
+    assert outcome["buyer_mandate_id"] == mandate["id"]
+    assert outcome["reservation_id"] == reservation["id"]
+    assert outcome["reservation_resolution"] == "converted"
+    graph = app.state()["commitment_graph"]
+    resolved = next(x for x in graph["reservations"] if x["id"] == reservation["id"])
+    assert resolved["status"] == "converted"
+    saved = next(x for x in graph["buyer_mandates"] if x["id"] == mandate["id"])
+    assert saved["active_reservations"] == 0
+    assert saved["available_reservation_slots"] == 1
+    summary = next(
+        x for x in graph["mandate_reliability"] if x["buyer_mandate_id"] == mandate["id"]
+    )
+    assert summary["closed_outcomes"] == 1
+
+
+def test_nonclosing_outcome_releases_reserved_buyer_capacity(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    mandate = app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "status": "active",
+        "evidence_reference": "synthetic commitment",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    reservation = app.reserve_buyer_commitment({
+        "deal_id": deal["id"],
+        "mandate_id": mandate["id"],
+        "expires_at": (now + timedelta(days=7)).isoformat(),
+        "evidence_reference": "synthetic reserved slot",
+    })
+    outcome = app.record_commitment_outcome({
+        "deal_id": deal["id"],
+        "outcome": "buyer_declined",
+        "reason_code": "price",
+        "evidence_reference": "synthetic decline evidence",
+        "note": "Buyer declined after reservation.",
+    })
+    assert outcome["reservation_resolution"] == "released"
+    resolved = next(
+        x for x in app.state()["commitment_graph"]["reservations"]
+        if x["id"] == reservation["id"]
+    )
+    assert resolved["status"] == "released"
