@@ -101,9 +101,22 @@ class CommitmentGraphMixin:
                 raise ValueError(f"{low} cannot exceed {high}")
         if "max_year_built" in filters and filters["max_year_built"] > datetime.now(timezone.utc).year + 2:
             raise ValueError("max_year_built is not plausible")
-        priority = int(number_field(data, "priority", default=50, nonnegative=True))
+        priority_value = number_field(data, "priority", default=50, nonnegative=True)
+        if not priority_value.is_integer():
+            raise ValueError("priority must be a whole number")
+        priority = int(priority_value)
         if priority > 100:
             raise ValueError("priority cannot exceed 100")
+        max_active_value = number_field(data, "max_active_reservations", default=1, nonnegative=True)
+        target_units_value = number_field(data, "target_units_per_month", default=1, nonnegative=True)
+        if not max_active_value.is_integer() or not target_units_value.is_integer():
+            raise ValueError("mandate capacity values must be whole numbers")
+        max_active_reservations = int(max_active_value)
+        target_units_per_month = int(target_units_value)
+        if not 1 <= max_active_reservations <= 100:
+            raise ValueError("max_active_reservations must be between 1 and 100")
+        if not 1 <= target_units_per_month <= 1000:
+            raise ValueError("target_units_per_month must be between 1 and 1000")
         status = text_field(data, "status", 20, required=False) or "active"
         if status not in MANDATE_STATUSES:
             raise ValueError("unsupported mandate status")
@@ -131,11 +144,18 @@ class CommitmentGraphMixin:
                 "INSERT INTO buyer_mandate_filters(mandate_id,filters_json) VALUES(?,?)",
                 (mandate_id, json.dumps(filters, sort_keys=True, allow_nan=False)),
             )
+            connection.execute(
+                """INSERT INTO buyer_mandate_capacity(
+                    mandate_id,max_active_reservations,target_units_per_month
+                ) VALUES(?,?,?)""",
+                (mandate_id, max_active_reservations, target_units_per_month),
+            )
         return {
             "id": mandate_id, "buyer_id": buyer_id, "name": name, "markets": markets,
             "strategies": strategies, "property_types": property_types, "filters": filters,
             "max_total_price": max_total_price, "max_repairs": max_repairs,
-            "priority": priority, "status": status,
+            "priority": priority, "max_active_reservations": max_active_reservations,
+            "target_units_per_month": target_units_per_month, "status": status,
             "evidence_reference": evidence_reference, "verified_at": verified_at,
             "expires_at": expires_at, "created_at": now,
         }
@@ -500,6 +520,8 @@ class CommitmentGraphMixin:
         for mandate in mandates:
             if not _current(mandate, now, max_verified_age_days=90):
                 continue
+            if mandate.get("available_reservation_slots", 1) <= 0:
+                continue
             for market in mandate["markets"]:
                 search_intents.append({
                     "intent_id": f"{mandate['id']}:{market.lower()}",
@@ -512,6 +534,10 @@ class CommitmentGraphMixin:
                     "max_total_price": mandate["max_total_price"],
                     "max_repairs": mandate["max_repairs"],
                     "priority": mandate["priority"],
+                    "target_units_per_month": mandate.get("target_units_per_month", 1),
+                    "max_active_reservations": mandate.get("max_active_reservations", 1),
+                    "active_reservations": mandate.get("active_reservations", 0),
+                    "available_reservation_slots": mandate.get("available_reservation_slots", 1),
                     "verified_at": mandate["verified_at"],
                     "expires_at": mandate["expires_at"],
                     "purpose": "provider-neutral demand-first sourcing input",
@@ -526,12 +552,29 @@ class CommitmentGraphMixin:
         item["strategies"] = json.loads(item.pop("strategies_json"))
         item["property_types"] = json.loads(item.pop("property_types_json"))
         item["filters"] = {}
+        item["max_active_reservations"] = 1
+        item["target_units_per_month"] = 1
+        item["active_reservations"] = 0
+        item["available_reservation_slots"] = 1
         if connection is not None:
             filter_row = connection.execute(
                 "SELECT filters_json FROM buyer_mandate_filters WHERE mandate_id=?", (item["id"],)
             ).fetchone()
             if filter_row:
                 item["filters"] = json.loads(filter_row["filters_json"])
+            capacity_row = connection.execute(
+                """SELECT max_active_reservations,target_units_per_month
+                   FROM buyer_mandate_capacity WHERE mandate_id=?""", (item["id"],)
+            ).fetchone()
+            if capacity_row:
+                item["max_active_reservations"] = capacity_row["max_active_reservations"]
+                item["target_units_per_month"] = capacity_row["target_units_per_month"]
+            active = connection.execute(
+                """SELECT COUNT(*) FROM commitment_reservations
+                   WHERE mandate_id=? AND status='active'""", (item["id"],)
+            ).fetchone()[0]
+            item["active_reservations"] = active
+            item["available_reservation_slots"] = max(0, item["max_active_reservations"] - active)
         return item
 
     @staticmethod
