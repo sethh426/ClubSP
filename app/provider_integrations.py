@@ -259,6 +259,7 @@ class ProviderIntegrationMixin:
         if not run_ids:
             return {"reviewed_candidates": 0, "accepted_candidates": 0, "excluded_candidates": 0, "acceptance_rate": None}
         reviewed = accepted = excluded = 0
+        property_ids = set()
         for row in connection.execute("SELECT status,body FROM sourcing_rows WHERE status IN ('accepted','excluded')"):
             body = json.loads(row["body"])
             if body.get("provider_search_run_id") not in run_ids:
@@ -266,13 +267,31 @@ class ProviderIntegrationMixin:
             reviewed += 1
             if row["status"] == "accepted":
                 accepted += 1
+                property_id = (body.get("review") or {}).get("property_id")
+                if property_id:
+                    property_ids.add(property_id)
             elif row["status"] == "excluded":
                 excluded += 1
+        deal_ids = set()
+        for property_id in property_ids:
+            deal_ids.update(row["id"] for row in connection.execute(
+                "SELECT id FROM deals WHERE property_id=?", (property_id,)
+            ))
+        closed_deals = 0
+        for deal_id in deal_ids:
+            if connection.execute(
+                "SELECT 1 FROM commitment_outcomes WHERE deal_id=? AND outcome='closed' LIMIT 1",
+                (deal_id,),
+            ).fetchone():
+                closed_deals += 1
         return {
             "reviewed_candidates": reviewed,
             "accepted_candidates": accepted,
             "excluded_candidates": excluded,
             "acceptance_rate": (accepted / reviewed) if reviewed else None,
+            "deals_created": len(deal_ids),
+            "closed_deals": closed_deals,
+            "closed_per_reviewed_candidate": (closed_deals / reviewed) if reviewed else None,
         }
 
     def _provider_state(self, connection):
