@@ -159,6 +159,7 @@ function renderCommitmentGraph() {
       const card=node("article",undefined,"evidence-row");
       card.append(node("strong", q.market + " · " + plan.demand_count + " demand path(s)"));
       card.append(node("p", "Max " + amount("money",q.max_total_price) + " · " + (q.property_types.length ? q.property_types.map(readable).join(", ") : "any property type") + " · priority " + plan.priority, "small"));
+      card.append(node("p", "Open buyer slots " + plan.available_reservation_slots + " · target demand " + plan.target_units_per_month + "/month", "small"));
       if(plan.demand_count>1) card.append(node("p","Shared search saves duplicate provider requests for " + plan.demand_count + " matching buyer intents.","muted small"));
       plans.append(card);
     });
@@ -197,6 +198,7 @@ function renderCommitmentGraph() {
       const card=node("article",undefined,"evidence-row");
       card.append(node("strong", (representative ? representative.market : "Search") + " · budget priority " + item.budget_priority_score + "/100"));
       card.append(node("p", item.demand_count + " demand path(s) · action " + readable(item.action) + (item.provider_id ? " · " + readable(item.provider_id) : ""), "small"));
+      card.append(node("p", item.available_reservation_slots + " open buyer slot(s) · target " + item.target_units_per_month + " unit(s)/month", "small"));
       if(item.inventory_count!=null) card.append(node("p","Inventory preflight: " + item.inventory_count + " matching properties · " + item.inventory_per_demand_path + " per demand path","small"));
       if(item.capital_required) card.append(node("p","Resale capital check: " + item.capital_path_count + " current path(s) covering up to " + amount("money",item.required_capital),"small"));
       if(item.action==="capital_gap") card.append(node("p","Do not spend sourcing budget yet: this resale search has no current recorded capital path covering the buyer ceiling plus repair allowance.","muted small"));
