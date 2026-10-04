@@ -34,6 +34,8 @@ The backend now stores:
 - exact outcome context: outcomes can preserve the specific buyer mandate and
   buyer-match snapshot that produced the path;
 - provider-neutral sourcing intents generated from active standing buyer demand;
+- shared search plans that deduplicate identical buyer demand before provider spend;
+- an explainable search-budget queue that prioritizes scarce API requests by demand breadth, mandate priority, refresh need, and provider availability;
 - richer reviewed candidate evidence including optional asking price, beds, baths,
   square footage, and year built.
 
