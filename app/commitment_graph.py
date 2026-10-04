@@ -233,6 +233,68 @@ class CommitmentGraphMixin:
         item["available_amount"] = item.pop("available_cents") / 100
         return item
 
+    def reverse_match_candidate(self, connection, *, market, property_type=None, asking_price=None):
+        """Match a research candidate to current standing demand before a deal exists."""
+        now = datetime.now(timezone.utc)
+        normalized_market = " ".join(str(market or "").lower().replace(",", " ").split())
+        normalized_type = " ".join(str(property_type or "").lower().replace("-", "_").split())
+        try:
+            price = float(asking_price) if asking_price not in (None, "") else None
+        except (TypeError, ValueError):
+            price = None
+        rows = connection.execute(
+            """SELECT m.*,b.name AS buyer_name,b.company AS buyer_company
+               FROM buyer_mandates m JOIN buyers b ON b.id=m.buyer_id
+               WHERE m.status='active' ORDER BY m.priority DESC,m.created_at DESC,m.id"""
+        )
+        matches = []
+        for row in rows:
+            mandate = self._mandate_json(row)
+            if not _current(mandate, now):
+                continue
+            mandate_markets = [" ".join(v.lower().replace(",", " ").split()) for v in mandate["markets"]]
+            if mandate_markets and not any(
+                target in normalized_market or normalized_market in target
+                for target in mandate_markets if normalized_market
+            ):
+                continue
+            reasons = ["current standing buyer mandate matches market"]
+            score = 45
+            types = [" ".join(v.lower().replace("-", "_").split()) for v in mandate["property_types"]]
+            if property_type:
+                if types and normalized_type not in types:
+                    continue
+                score += 25
+                reasons.append("property type fits mandate")
+            elif types:
+                reasons.append("property type still needs confirmation")
+            else:
+                score += 15
+                reasons.append("mandate accepts any recorded property type")
+            if price is not None:
+                if price > mandate["max_total_price"]:
+                    continue
+                price_headroom = max(0.0, mandate["max_total_price"] - price)
+                score += 20
+                reasons.append(f"asking price is within mandate by ${price_headroom:,.0f}")
+            else:
+                reasons.append("asking price is unknown; price fit is not yet proven")
+            score += round(min(10, mandate["priority"] / 10))
+            matches.append({
+                "mandate_id": mandate["id"],
+                "buyer_id": mandate["buyer_id"],
+                "buyer_name": row["buyer_name"],
+                "buyer_company": row["buyer_company"],
+                "score": min(100, int(score)),
+                "priority": mandate["priority"],
+                "max_total_price": mandate["max_total_price"],
+                "max_repairs": mandate["max_repairs"],
+                "reasons": reasons,
+                "verified_at": mandate["verified_at"],
+                "expires_at": mandate["expires_at"],
+            })
+        matches.sort(key=lambda item: (-item["score"], -item["priority"], item["buyer_name"].lower()))
+        return matches
     def _deal_readiness(self, connection, deal):
         deal_id = str(deal["id"])
         now = datetime.now(timezone.utc)
