@@ -145,7 +145,7 @@ function renderCommitmentGraph() {
       const filterText = Object.entries(filters).map(([k,v]) => readable(k) + " " + v).join(" · ");
       if (filterText) card.append(node("p", "Property filters: " + filterText, "muted small"));
       const route = state.provider_integrations?.routing?.find(x => x.search_intent_id === item.intent_id);
-      if (route) card.append(node("p", route.selected_provider_id ? "Recommended provider: " + readable(route.selected_provider_id) : "No configured provider currently satisfies this intent.", "muted small"));
+      if (route) card.append(node("p", route.selected_provider_id ? "Recommended provider: " + readable(route.selected_provider_id) : "No configured provider currently satisfies this intent; use reviewed CSV import as the fallback.", "muted small"));
       intents.append(card);
     });
   }
@@ -169,6 +169,7 @@ function renderCommitmentGraph() {
       "This month: " + (usage.attempted_requests || 0) + " request(s) · " +
       (usage.staged_results || 0) + " staged result(s)" +
       (usage.results_per_successful_request == null ? "" : " · " + usage.results_per_successful_request.toFixed(1) + " results/successful request") +
+      (usage.zero_result_rate == null ? "" : " · " + Math.round(usage.zero_result_rate * 100) + "% zero-result rate") +
       (review.reviewed_candidates ? " · " + Math.round(review.acceptance_rate * 100) + "% review acceptance" : "") +
       (review.deals_created ? " · " + review.deals_created + " downstream deal(s)" : "") +
       (review.closed_deals ? " · " + review.closed_deals + " recorded close(s)" : ""),
