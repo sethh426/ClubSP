@@ -23,6 +23,7 @@ from .opportunities import OpportunitiesMixin, property_evidence, canonical
 from .discovery import DiscoveryMixin
 from .sourcing import SourcingMixin, sale_snapshot
 from .commitment_graph import CommitmentGraphMixin
+from .provider_integrations import ProviderIntegrationMixin
 
 
 DEAL_STAGES = (
@@ -91,7 +92,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin):
+class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
@@ -122,6 +123,7 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
             result["commitment_graph"] = self._commitment_graph_state(
                 connection, result["deals"], result["discovery"]
             )
+            result["provider_integrations"] = self._provider_state(connection)
             result["today"] = business_today().isoformat()
             result["research"] = self._research_snapshots(connection)
             result["providers"] = [PROVIDER]
