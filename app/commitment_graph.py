@@ -40,6 +40,13 @@ def _iso(value, field, required=True):
     return parsed.astimezone(timezone.utc).isoformat()
 
 
+def _optional_number(data, key, *, nonnegative=True):
+    value = data.get(key)
+    if value in (None, ""):
+        return None
+    return number_field(data, key, nonnegative=nonnegative)
+
+
 def _current(record, now):
     if record["status"] != "active":
         return False
@@ -64,6 +71,22 @@ class CommitmentGraphMixin:
         property_types = list_field(data, "property_types", max_items=30, required=False)
         max_total_price = number_field(data, "max_total_price", nonnegative=True)
         max_repairs = number_field(data, "max_repairs", default=0, nonnegative=True)
+        filters = {
+            "min_beds": _optional_number(data, "min_beds"),
+            "max_beds": _optional_number(data, "max_beds"),
+            "min_baths": _optional_number(data, "min_baths"),
+            "max_baths": _optional_number(data, "max_baths"),
+            "min_sqft": _optional_number(data, "min_sqft"),
+            "max_sqft": _optional_number(data, "max_sqft"),
+            "min_year_built": _optional_number(data, "min_year_built"),
+            "max_year_built": _optional_number(data, "max_year_built"),
+        }
+        filters = {key: value for key, value in filters.items() if value is not None}
+        for low, high in (("min_beds","max_beds"),("min_baths","max_baths"),("min_sqft","max_sqft"),("min_year_built","max_year_built")):
+            if low in filters and high in filters and filters[low] > filters[high]:
+                raise ValueError(f"{low} cannot exceed {high}")
+        if "max_year_built" in filters and filters["max_year_built"] > datetime.now(timezone.utc).year + 2:
+            raise ValueError("max_year_built is not plausible")
         priority = int(number_field(data, "priority", default=50, nonnegative=True))
         if priority > 100:
             raise ValueError("priority cannot exceed 100")
@@ -90,9 +113,13 @@ class CommitmentGraphMixin:
                     status, evidence_reference, verified_at, expires_at, now,
                 ),
             )
+            connection.execute(
+                "INSERT INTO buyer_mandate_filters(mandate_id,filters_json) VALUES(?,?)",
+                (mandate_id, json.dumps(filters, sort_keys=True, allow_nan=False)),
+            )
         return {
             "id": mandate_id, "buyer_id": buyer_id, "name": name, "markets": markets,
-            "strategies": strategies, "property_types": property_types,
+            "strategies": strategies, "property_types": property_types, "filters": filters,
             "max_total_price": max_total_price, "max_repairs": max_repairs,
             "priority": priority, "status": status,
             "evidence_reference": evidence_reference, "verified_at": verified_at,
@@ -263,7 +290,7 @@ class CommitmentGraphMixin:
             return self._deal_readiness(connection, dict(row))
 
     def _commitment_graph_state(self, connection, deals, discovery=None):
-        mandates = [self._mandate_json(row) for row in connection.execute(
+        mandates = [self._mandate_json(row, connection) for row in connection.execute(
             "SELECT * FROM buyer_mandates ORDER BY priority DESC,created_at DESC,id"
         )]
         capital = [self._capital_json(row) for row in connection.execute(
@@ -390,6 +417,7 @@ class CommitmentGraphMixin:
                     "market": market,
                     "strategies": mandate["strategies"],
                     "property_types": mandate["property_types"],
+                    "filters": mandate.get("filters", {}),
                     "max_total_price": mandate["max_total_price"],
                     "max_repairs": mandate["max_repairs"],
                     "priority": mandate["priority"],
@@ -401,11 +429,18 @@ class CommitmentGraphMixin:
         return search_intents
 
     @staticmethod
-    def _mandate_json(row):
+    def _mandate_json(row, connection=None):
         item = dict(row)
         item["markets"] = json.loads(item.pop("markets_json"))
         item["strategies"] = json.loads(item.pop("strategies_json"))
         item["property_types"] = json.loads(item.pop("property_types_json"))
+        item["filters"] = {}
+        if connection is not None:
+            filter_row = connection.execute(
+                "SELECT filters_json FROM buyer_mandate_filters WHERE mandate_id=?", (item["id"],)
+            ).fetchone()
+            if filter_row:
+                item["filters"] = json.loads(filter_row["filters_json"])
         return item
 
     @staticmethod
@@ -434,7 +469,7 @@ class CommitmentGraphMixin:
         )
         matches = []
         for row in rows:
-            mandate = self._mandate_json(row)
+            mandate = self._mandate_json(row, connection)
             if not _current(mandate, now):
                 continue
             mandate_markets = [" ".join(v.lower().replace(",", " ").split()) for v in mandate["markets"]]
