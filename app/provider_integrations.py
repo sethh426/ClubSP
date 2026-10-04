@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
+from math import isfinite
 import json
 import os
 import re
@@ -107,32 +108,54 @@ def normalize_rentcast_listing(record):
     state = str(record.get("state") or "").strip().upper()
     zip_code = str(record.get("zipCode") or "").strip()
     listing_id = str(record.get("id") or "").strip()
-    if not address or not city or not re.fullmatch(r"[A-Z]{2}", state) or not zip_code or not listing_id:
-        raise ValueError("RentCast listing is missing required identity fields")
+    if not address or len(address) > 300 or not city or len(city) > 120:
+        raise ValueError("RentCast listing has invalid address identity")
+    if not re.fullmatch(r"[A-Z]{2}", state) or not re.fullmatch(r"\d{5}(?:-\d{4})?", zip_code):
+        raise ValueError("RentCast listing has invalid state or ZIP")
+    if not listing_id or len(listing_id) > 200:
+        raise ValueError("RentCast listing is missing a bounded provider ID")
+    parcel = str(record.get("assessorID") or listing_id).strip()
+    if not parcel or len(parcel) > 200:
+        raise ValueError("RentCast listing has invalid parcel/provider identity")
     normalized = {
         "address": address,
         "city": city,
         "state": state,
         "zip": zip_code,
-        "parcel_id": str(record.get("assessorID") or listing_id).strip(),
+        "parcel_id": parcel,
         "provider_listing_id": listing_id,
     }
-    mapping = {
+    text_mapping = {
         "propertyType": "property_type",
-        "price": "asking_price",
-        "bedrooms": "beds",
-        "bathrooms": "baths",
-        "squareFootage": "sqft",
-        "yearBuilt": "year_built",
         "status": "listing_status",
         "listedDate": "listed_date",
         "lastSeenDate": "last_seen_date",
-        "daysOnMarket": "days_on_market",
     }
-    for source, target in mapping.items():
+    for source, target in text_mapping.items():
         value = record.get(source)
-        if value is not None and value != "":
-            normalized[target] = value
+        if value is None or value == "":
+            continue
+        value = str(value).strip()
+        if len(value) > 200:
+            raise ValueError(f"RentCast {source} exceeds supported size")
+        normalized[target] = value
+    numeric_mapping = {
+        "price": ("asking_price", 1_000_000_000),
+        "bedrooms": ("beds", 100),
+        "bathrooms": ("baths", 100),
+        "squareFootage": ("sqft", 10_000_000),
+        "yearBuilt": ("year_built", datetime.now(timezone.utc).year + 2),
+        "daysOnMarket": ("days_on_market", 100_000),
+    }
+    for source, (target, maximum) in numeric_mapping.items():
+        value = record.get(source)
+        if value is None or value == "":
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+            raise ValueError(f"RentCast {source} must be a finite number")
+        if value < 0 or value > maximum:
+            raise ValueError(f"RentCast {source} is outside supported bounds")
+        normalized[target] = value
     return normalized
 
 
