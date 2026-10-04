@@ -519,7 +519,7 @@ class CommitmentGraphMixin:
         matches = []
         for row in rows:
             mandate = self._mandate_json(row, connection)
-            if not _current(mandate, now):
+            if not _current(mandate, now, max_verified_age_days=90):
                 continue
             mandate_markets = [" ".join(v.lower().replace(",", " ").split()) for v in mandate["markets"]]
             if mandate_markets and not any(
