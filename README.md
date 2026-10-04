@@ -224,6 +224,7 @@ operational evidence score, not a closing probability, valuation, lending
 approval or investment recommendation.
 
 See [Commitment Graph and dependency plan](docs/COMMITMENT_GRAPH.md).
+See [demand-first property provider integration](docs/PROVIDER_INTEGRATIONS.md) for the live-data adapter, request-budget, and evidence-staging design.
 
 ## Candidate intake and sale evidence
 
