@@ -169,7 +169,9 @@ function renderCommitmentGraph() {
       "This month: " + (usage.attempted_requests || 0) + " request(s) · " +
       (usage.staged_results || 0) + " staged result(s)" +
       (usage.results_per_successful_request == null ? "" : " · " + usage.results_per_successful_request.toFixed(1) + " results/successful request") +
-      (review.reviewed_candidates ? " · " + Math.round(review.acceptance_rate * 100) + "% review acceptance" : ""),
+      (review.reviewed_candidates ? " · " + Math.round(review.acceptance_rate * 100) + "% review acceptance" : "") +
+      (review.deals_created ? " · " + review.deals_created + " downstream deal(s)" : "") +
+      (review.closed_deals ? " · " + review.closed_deals + " recorded close(s)" : ""),
       "muted small"
     ));
     providerBox.append(node("p","Each search is explicit, cost-capped, and stages results for review. It never creates a deal or contacts a seller.","muted small"));
