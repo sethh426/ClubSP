@@ -5,6 +5,21 @@ function commitmentDate(value) {
   return new Date(value + "T00:00:00Z").toISOString();
 }
 
+function commitmentStatusControl(entityPath, item, allowed) {
+  const d = workspaceDetails("Change status", false);
+  const form = node("form", undefined, "workspace-form commitment-status-form");
+  workspaceSelect(form, "status", "New status", allowed.filter(x => x !== item.status).map(x => [x, readable(x)]));
+  workspaceField(form, "note", "Reason / status note", "textarea");
+  workspaceField(form, "evidence_reference", "Evidence reference");
+  workspaceSubmit(form, "Save status");
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    runForm(form, () => api("/api/commitments/" + entityPath + "/" + item.id + "/status", values(form)), "Commitment status updated.");
+  });
+  d.append(form);
+  return d;
+}
+
 function renderCommitmentGraph() {
   const box = $("commitment-workspace");
   if (!box || !state?.commitment_graph) return;
@@ -115,9 +130,22 @@ function renderCommitmentGraph() {
     card.append(node("strong", (b ? b.name : "Buyer") + " · " + m.name));
     card.append(node("p", m.markets.join(" · ") + " · " + m.strategies.join(", ") + " · max " + amount("money",m.max_total_price), "small"));
     card.append(node("p", "Priority " + m.priority + " · " + m.status + " · verified " + new Date(m.verified_at).toLocaleDateString() + (m.expires_at ? " · expires " + new Date(m.expires_at).toLocaleDateString() : ""), "muted small"));
+    card.append(commitmentStatusControl("buyer-mandates", m, ["active","paused","expired"]));
     mandates.append(card);
   });
   box.append(mandates);
+
+  const capitalList = workspaceDetails("Capital availability", activeCapital > 0);
+  if (!graph.capital_profiles.length) capitalList.append(node("p","No capital profiles recorded yet.","muted small"));
+  graph.capital_profiles.forEach(cp => {
+    const card = node("article", undefined, "evidence-row");
+    card.append(node("strong", cp.name + " · " + readable(cp.provider_type)));
+    card.append(node("p", "Available " + amount("money", cp.available_amount) + " of " + amount("money", cp.max_commitment) + (cp.markets.length ? " · " + cp.markets.join(" · ") : " · any recorded market"), "small"));
+    card.append(node("p", cp.status + " · verified " + new Date(cp.verified_at).toLocaleDateString() + (cp.expires_at ? " · expires " + new Date(cp.expires_at).toLocaleDateString() : ""), "muted small"));
+    card.append(commitmentStatusControl("capital", cp, ["active","paused","unverified","expired"]));
+    capitalList.append(card);
+  });
+  box.append(capitalList);
 
   const readiness = workspaceDetails("Deal Readiness", graph.deal_readiness.length > 0);
   if (!graph.deal_readiness.length) readiness.append(node("p","Start a deal to calculate a path-to-close readiness score.","muted small"));
