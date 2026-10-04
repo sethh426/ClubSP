@@ -163,6 +163,8 @@ function renderCommitmentGraph() {
       card.append(node("strong", (representative ? representative.market : "Search") + " · budget priority " + item.budget_priority_score + "/100"));
       card.append(node("p", item.demand_count + " demand path(s) · action " + readable(item.action) + (item.provider_id ? " · " + readable(item.provider_id) : ""), "small"));
       if(item.inventory_count!=null) card.append(node("p","Inventory preflight: " + item.inventory_count + " matching properties · " + item.inventory_per_demand_path + " per demand path","small"));
+      if(item.capital_required) card.append(node("p","Resale capital check: " + item.capital_path_count + " current path(s) covering up to " + amount("money",item.required_capital),"small"));
+      if(item.action==="capital_gap") card.append(node("p","Do not spend sourcing budget yet: this resale search has no current recorded capital path covering the buyer ceiling plus repair allowance.","muted small"));
       if(item.action==="no_inventory") card.append(node("p","Do not spend a record-fetch request on this query until demand criteria or inventory changes.","muted small"));
       if(item.action==="refine_query") card.append(node("p","Inventory is very broad; refine the buyer/search criteria before spending record-fetch requests.","muted small"));
       const r=item.rationale;
