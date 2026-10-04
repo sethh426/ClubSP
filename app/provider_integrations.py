@@ -321,7 +321,86 @@ class ProviderIntegrationMixin:
             "search_intent_id": intent["intent_id"],
             **self.route_property_provider(intent, connection=connection),
         } for intent in intents]
-        return {"providers": result, "routing": routing, "creates_deals": False, "automatic_search": False}
+        grouped = {}
+        for intent in intents:
+            try:
+                params = compile_rentcast_search(intent, max_results=PROVIDERS["rentcast"]["max_results_per_request"])
+            except ValueError:
+                continue
+            request_json = json.dumps(params, sort_keys=True)
+            group = grouped.setdefault(request_json, {
+                "request_json": request_json,
+                "params": params,
+                "search_intent_ids": [],
+                "mandate_ids": [],
+                "buyer_ids": [],
+                "demand_count": 0,
+                "priority": 0,
+                "representative": intent,
+            })
+            group["search_intent_ids"].append(intent["intent_id"])
+            if intent["mandate_id"] not in group["mandate_ids"]:
+                group["mandate_ids"].append(intent["mandate_id"])
+            if intent["buyer_id"] not in group["buyer_ids"]:
+                group["buyer_ids"].append(intent["buyer_id"])
+            group["demand_count"] += 1
+            group["priority"] = max(group["priority"], intent["priority"])
+        search_queue = []
+        now = utc_now()
+        for group in grouped.values():
+            route = self.route_property_provider(group["representative"], connection=connection)
+            provider_id = route["selected_provider_id"]
+            cached_age = None
+            last_run_id = None
+            if provider_id:
+                prior = connection.execute(
+                    """SELECT id,created_at FROM provider_search_runs
+                       WHERE provider_id=? AND request_json=? AND status='success'
+                       ORDER BY created_at DESC,id LIMIT 1""",
+                    (provider_id, group["request_json"]),
+                ).fetchone()
+                if prior:
+                    last_run_id = prior["id"]
+                    cached_age = max(0.0, (now - datetime.fromisoformat(prior["created_at"])).total_seconds() / 3600)
+            cache_hours = PROVIDERS.get(provider_id, {}).get("cache_hours", 0) if provider_id else 0
+            demand_points = min(40, group["demand_count"] * 10)
+            priority_points = round(group["priority"] * 0.30)
+            if cached_age is None:
+                refresh_points = 20
+            elif cache_hours and cached_age < cache_hours:
+                refresh_points = round(20 * cached_age / cache_hours)
+            else:
+                refresh_points = 20
+            provider_points = 10 if provider_id else 0
+            score = min(100, demand_points + priority_points + refresh_points + provider_points)
+            if not provider_id:
+                action = "manual_fallback"
+            elif cached_age is not None and cache_hours and cached_age < cache_hours:
+                action = "reuse_cached"
+            else:
+                action = "search_now"
+            search_queue.append({
+                "queue_id": sha256(group["request_json"].encode()).hexdigest()[:20],
+                "provider_id": provider_id,
+                "search_intent_ids": group["search_intent_ids"],
+                "mandate_ids": group["mandate_ids"],
+                "buyer_ids": group["buyer_ids"],
+                "demand_count": group["demand_count"],
+                "priority": group["priority"],
+                "budget_priority_score": score,
+                "action": action,
+                "cached_age_hours": round(cached_age, 2) if cached_age is not None else None,
+                "last_run_id": last_run_id,
+                "rationale": {
+                    "demand_points": demand_points,
+                    "mandate_priority_points": priority_points,
+                    "refresh_need_points": refresh_points,
+                    "provider_available_points": provider_points,
+                },
+                "score_semantics": "Operational search-budget priority only; not a closing probability or investment score.",
+            })
+        search_queue.sort(key=lambda item: (-item["budget_priority_score"], -item["demand_count"], -item["priority"], item["queue_id"]))
+        return {"providers": result, "routing": routing, "search_queue": search_queue, "creates_deals": False, "automatic_search": False}
 
     @staticmethod
     def _provider_cap(provider):
