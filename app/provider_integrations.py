@@ -73,6 +73,7 @@ def compile_rentcast_search(intent, max_results=50):
         "status": "Active",
         "limit": str(max_results),
         "offset": "0",
+        "includeTotalCount": "true",
     }
     max_price = intent.get("max_total_price")
     if isinstance(max_price, (int, float)) and not isinstance(max_price, bool) and max_price >= 0:
@@ -180,7 +181,17 @@ def _live_rentcast_fetch(provider, params, api_key):
     payload = response.json()
     if not isinstance(payload, list):
         raise ValueError("Provider schema changed; expected a listing array")
-    return payload, str(response.url)
+    metadata = {}
+    total = response.headers.get("X-Total-Count")
+    if total not in (None, ""):
+        try:
+            total_value = int(total)
+        except ValueError as exc:
+            raise ValueError("Provider returned malformed X-Total-Count") from exc
+        if total_value < 0 or total_value > 100_000_000:
+            raise ValueError("Provider total count is outside supported bounds")
+        metadata["total_count"] = total_value
+    return payload, str(response.url), metadata
 
 
 class ProviderIntegrationMixin:
@@ -527,7 +538,16 @@ class ProviderIntegrationMixin:
 
         fetcher = getattr(self, "_provider_fetch", _live_rentcast_fetch)
         try:
-            payload, source_url = fetcher(provider, params, api_key)
+            fetched = fetcher(provider, params, api_key)
+            if not isinstance(fetched, tuple) or len(fetched) not in {2, 3}:
+                raise ValueError("Provider adapter returned an unsupported result shape")
+            if len(fetched) == 2:
+                payload, source_url = fetched
+                provider_metadata = {}
+            else:
+                payload, source_url, provider_metadata = fetched
+                if not isinstance(provider_metadata, dict):
+                    raise ValueError("Provider adapter metadata must be an object")
             normalized = []
             seen = set()
             for raw in payload:
@@ -556,11 +576,16 @@ class ProviderIntegrationMixin:
                        SET status='success',result_count=?,response_hash=?,source_url=? WHERE id=?""",
                     (len(normalized), response_hash, source_url, run_id),
                 )
+                connection.execute(
+                    "INSERT OR REPLACE INTO provider_search_metadata(run_id,metadata_json) VALUES(?,?)",
+                    (run_id, json.dumps(provider_metadata, sort_keys=True, allow_nan=False)),
+                )
             return {
                 "id": run_id,
                 "provider_id": provider_id,
                 "search_intent_id": intent_id,
                 "result_count": len(normalized),
+                "provider_total_count": provider_metadata.get("total_count"),
                 "batch_id": batch_id,
                 "status": "success",
                 "cached": False,
