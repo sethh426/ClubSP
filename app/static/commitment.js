@@ -361,7 +361,7 @@ function renderCommitmentGraph() {
 
   const reservationBox = workspaceDetails("Reserve buyer demand for a deal", false);
   const reservableMandates = graph.buyer_mandates.filter(m => m.status === "active" && m.available_reservation_slots > 0 && commitmentFreshness(m,90).current);
-  const unreservedDeals = (state.deals || []).filter(d => !graph.reservations?.some(r => r.deal_id === d.id && r.status === "active"));
+  const unreservedDeals = (state.deals || []).filter(d => !graph.reservations?.some(r => r.deal_id === d.id && r.effective_status === "active"));
   if (!reservableMandates.length || !unreservedDeals.length) {
     reservationBox.append(node("p",
       !reservableMandates.length
@@ -388,7 +388,7 @@ function renderCommitmentGraph() {
     });
     reservationBox.append(node("p","A reservation converts general buyer demand into a deal-specific hold and prevents ClubSP from overbooking that mandate's active capacity.","muted small"),rf);
   }
-  (graph.reservations || []).filter(r=>r.status==="active").forEach(r=>{
+  (graph.reservations || []).filter(r=>r.effective_status==="active").forEach(r=>{
     const deal=state.deals.find(d=>d.id===r.deal_id);
     const buyer=state.buyers.find(b=>b.id===r.buyer_id);
     const card=node("article",undefined,"evidence-row");
