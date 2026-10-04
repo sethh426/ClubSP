@@ -77,6 +77,19 @@ class SourcingMixin:
                     outside.append("Property type is outside the saved buy box")
                 else:
                     reasons.append("Record an unambiguous property type")
+            commitment_matches = self.reverse_match_candidate(
+                connection,
+                market=market,
+                property_type=ptype,
+                asking_price=evidence["values"].get("asking_price"),
+            )
+            if commitment_matches:
+                score += min(25, round(commitment_matches[0]["score"] / 4))
+                reasons.append(
+                    f"{len(commitment_matches)} current standing buyer mandate(s) fit this research candidate"
+                )
+            else:
+                reasons.append("No current standing buyer mandate matches this research candidate")
             if evidence["values"].get("recorded_owner_name"):
                 score += 15
             else:
@@ -103,13 +116,23 @@ class SourcingMixin:
                 decision = "already_in_pipeline"
             candidates.append({"property_id": property_id, "address": prop["address"], "market": market,
                                "property_type": ptype, "score": score, "decision": decision,
+                               "commitment_matches": commitment_matches[:5],
+                               "commitment_match_count": len(commitment_matches),
+                               "best_commitment_score": commitment_matches[0]["score"] if commitment_matches else 0,
                                "reasons": outside + reasons,
                                "source": {"provider": batch["provider"], "url": batch["source_url"],
                                           "as_of": batch["source_date"], "batch_id": batch["id"]},
                                "economics_available": False,
                                "scope": "Research candidate only; no seller motivation, valuation, offer or execution authority"})
         order = {"research_candidate": 0, "already_in_pipeline": 1, "outside_buy_box": 2}
-        candidates.sort(key=lambda item: (order[item["decision"]], -item["score"], item["address"], item["property_id"]))
+        candidates.sort(key=lambda item: (
+            order[item["decision"]],
+            -item["commitment_match_count"],
+            -item["best_commitment_score"],
+            -item["score"],
+            item["address"],
+            item["property_id"],
+        ))
         return {"items": candidates, "policy_id": policy["id"] if policy else None,
                 "execution_authorized": False,
                 "scope": "Reviewed candidate imports only; no autonomous discovery or external actions"}
