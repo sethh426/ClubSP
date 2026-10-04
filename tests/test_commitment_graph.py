@@ -265,3 +265,51 @@ def test_active_mandates_generate_provider_neutral_search_intents(tmp_path):
     assert {x["market"] for x in intents} == {"Fort Wayne, IN", "New Haven, IN"}
     assert all(x["buyer_id"] == buyer["id"] for x in intents)
     assert all(x["purpose"] == "provider-neutral demand-first sourcing input" for x in intents)
+
+
+def test_outcome_can_preserve_exact_mandate_and_match_snapshot(tmp_path):
+    app, deal, buyer = setup_deal(tmp_path)
+    now = datetime.now(timezone.utc)
+    mandate = app.create_buyer_mandate({
+        "buyer_id": buyer["id"],
+        "name": "Exact outcome mandate",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 160000,
+        "max_repairs": 50000,
+        "priority": 95,
+        "status": "active",
+        "evidence_reference": "synthetic mandate evidence",
+        "verified_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=30)).isoformat(),
+    })
+    state = app.state()
+    match_run_id = state["deals"][0]["buyer_matches"]["id"]
+    outcome = app.record_commitment_outcome({
+        "deal_id": deal["id"],
+        "buyer_id": buyer["id"],
+        "buyer_mandate_id": mandate["id"],
+        "buyer_match_run_id": match_run_id,
+        "outcome": "closed",
+        "reason_code": "settled",
+        "evidence_reference": "synthetic settlement evidence",
+        "note": "fixture",
+    })
+    assert outcome["buyer_mandate_id"] == mandate["id"]
+    with app.database.session() as (connection, _):
+        row = connection.execute(
+            "SELECT * FROM commitment_outcome_context WHERE outcome_id=?",
+            (outcome["id"],),
+        ).fetchone()
+        assert row is not None
+        assert row["buyer_mandate_id"] == mandate["id"]
+        assert row["buyer_match_run_id"] == match_run_id
+    summary = next(
+        x for x in app.state()["commitment_graph"]["mandate_reliability"]
+        if x["buyer_mandate_id"] == mandate["id"]
+    )
+    assert summary["recorded_outcomes"] == 1
+    assert summary["closed_outcomes"] == 1
+    assert summary["descriptive_close_rate"] == 1.0
+    assert summary["calibrated_probability"] is False
