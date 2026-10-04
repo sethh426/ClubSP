@@ -258,7 +258,7 @@ class CommitmentGraphMixin:
             )
             if buyer_mandate_id or buyer_match_run_id:
                 context = {
-                    "buyer_mandate": self._mandate_json(mandate_row) if mandate_row is not None else None,
+                    "buyer_mandate": self._mandate_json(mandate_row, connection) if mandate_row is not None else None,
                     "buyer_match_run": {
                         "id": match_row["id"],
                         "created_at": match_row["created_at"],
@@ -397,7 +397,7 @@ class CommitmentGraphMixin:
 
     def search_intents(self):
         with self.database.session() as (connection, _):
-            mandates = [self._mandate_json(row) for row in connection.execute(
+            mandates = [self._mandate_json(row, connection) for row in connection.execute(
                 "SELECT * FROM buyer_mandates ORDER BY priority DESC,created_at DESC,id"
             )]
             return self._search_intents_from_mandates(mandates)
