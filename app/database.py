@@ -131,6 +131,26 @@ class Database:
                     mandate_id TEXT PRIMARY KEY REFERENCES buyer_mandates(id),
                     filters_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS buyer_mandate_capacity (
+                    mandate_id TEXT PRIMARY KEY REFERENCES buyer_mandates(id),
+                    max_active_reservations INTEGER NOT NULL,
+                    target_units_per_month INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS commitment_reservations (
+                    id TEXT PRIMARY KEY,
+                    deal_id TEXT NOT NULL REFERENCES deals(id),
+                    mandate_id TEXT NOT NULL REFERENCES buyer_mandates(id),
+                    status TEXT NOT NULL,
+                    evidence_reference TEXT NOT NULL,
+                    note TEXT NOT NULL,
+                    reserved_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    released_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS commitment_reservations_mandate
+                    ON commitment_reservations(mandate_id,status,reserved_at);
+                CREATE INDEX IF NOT EXISTS commitment_reservations_deal
+                    ON commitment_reservations(deal_id,status,reserved_at);
                 CREATE TABLE IF NOT EXISTS buyer_mandates (
                     id TEXT PRIMARY KEY,
                     buyer_id TEXT NOT NULL REFERENCES buyers(id),
