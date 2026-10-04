@@ -60,6 +60,7 @@ def test_rentcast_compiler_pushes_buyer_demand_into_provider_filters():
         "status": "Active",
         "limit": "10",
         "offset": "0",
+        "includeTotalCount": "true",
         "price": "*:160000",
         "propertyType": "Single Family",
     }
@@ -421,3 +422,32 @@ def test_search_budget_queue_marks_fresh_search_as_cache_reuse(tmp_path, monkeyp
     assert item["action"] == "reuse_cached"
     assert item["cached_age_hours"] is not None
     assert item["rationale"]["refresh_need_points"] < 20
+
+
+def test_provider_total_count_metadata_is_persisted_and_returned(tmp_path, monkeypatch):
+    app, deal, buyer = setup_deal(tmp_path)
+    intent = current_intent(app, buyer["id"])
+    monkeypatch.setenv("RENTCAST_API_KEY", "synthetic-key")
+    app._provider_fetch = lambda provider, params, api_key: (
+        [synthetic_listing()], provider["endpoint"], {"total_count": 321}
+    )
+    result = app.search_property_provider({
+        "provider_id": "auto",
+        "search_intent_id": intent["intent_id"],
+        "max_results": 10,
+        "confirm_paid_request": True,
+    })
+    assert result["provider_total_count"] == 321
+    with app.database.session() as (connection, _):
+        row = connection.execute(
+            "SELECT metadata_json FROM provider_search_metadata WHERE run_id=?", (result["id"],)
+        ).fetchone()
+        assert '"total_count": 321' in row["metadata_json"]
+    cached = app.search_property_provider({
+        "provider_id": "auto",
+        "search_intent_id": intent["intent_id"],
+        "max_results": 10,
+        "confirm_paid_request": True,
+    })
+    assert cached["cached"] is True
+    assert cached["provider_total_count"] == 321
