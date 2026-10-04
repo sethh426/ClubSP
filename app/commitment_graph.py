@@ -364,8 +364,32 @@ class CommitmentGraphMixin:
             "ORDER BY created_at DESC,id LIMIT 1", (deal_id,)
         ).fetchone()
         matches = json.loads(match_row["matches_json"]) if match_row else []
-        eligible = [m for m in matches if m.get("eligible_on_recorded_criteria")]
+        current_by_buyer = {}
+        if match_row:
+            try:
+                current_by_buyer = {
+                    item["buyer_id"]: item for item in self._compare_buyers(connection, deal)
+                }
+            except ValueError:
+                current_by_buyer = {}
+        stale_buyer_ids = []
+        fresh_matches = []
+        for stored in matches:
+            buyer_id = str(stored.get("buyer_id") or stored.get("id") or "")
+            current = current_by_buyer.get(buyer_id)
+            if (
+                current
+                and stored.get("match_fingerprint")
+                and stored.get("match_fingerprint") == current.get("match_fingerprint")
+            ):
+                fresh_matches.append(stored)
+            else:
+                stale_buyer_ids.append(buyer_id)
+        eligible = [m for m in fresh_matches if m.get("eligible_on_recorded_criteria")]
         eligible_ids = {str(m.get("buyer_id") or m.get("id") or "") for m in eligible}
+        if match_row and stale_buyer_ids:
+            blockers.append("Buyer-match evidence is stale because deal or buyer criteria changed.")
+            next_actions.append("Re-run buyer matching against the current underwriting, evidence, terms, and buyer criteria.")
         current_mandates = []
         for row in connection.execute("SELECT * FROM buyer_mandates WHERE status='active'"):
             item = self._mandate_json(row)
@@ -462,6 +486,9 @@ class CommitmentGraphMixin:
             "blockers": list(dict.fromkeys(blockers)),
             "next_actions": list(dict.fromkeys(next_actions)),
             "eligible_buyer_count": len(eligible),
+            "stored_buyer_match_count": len(matches),
+            "stale_buyer_match_count": len(stale_buyer_ids),
+            "buyer_matches_current": bool(match_row) and not stale_buyer_ids,
             "current_mandate_count": len(current_mandates),
             "required_cash_at_risk": None if required_cents is None else required_cents / 100,
             "calibrated_probability": False,
