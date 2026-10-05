@@ -64,7 +64,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
       await post("/api/gmail/refresh");
       await refresh();
-      document.getElementById("gmail-result").textContent = "Gmail access refreshed. Approved-draft sending is enabled; automatic sending remains disabled.";
+      document.getElementById("gmail-result").textContent = "Gmail access refreshed. Approved sending remains available only when the send permission is granted; automatic sending is disabled.";
     } catch (error) {
       status.textContent = error.message + " If the grant expired or was revoked, reconnect Gmail.";
     } finally { refreshAccess.disabled = false; }
