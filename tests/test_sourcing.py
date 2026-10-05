@@ -259,3 +259,38 @@ def test_http_intake_review_and_withdraw_routes(http_app):
     assert code == 404
     code, _, _ = request(http_app, "/api/sourcing/sales/unknown/withdraw", review_data())
     assert code == 404
+
+def test_candidate_optional_price_and_property_fields_become_reviewed_evidence(tmp_path):
+    app = Application(tmp_path / "intake.db")
+    csv_text = (
+        "address,zip,parcel_id,property_type,asking_price,beds,baths,sqft,year_built\n"
+        "Synthetic Priced Intake,46802,00124,single_family,125000,3,2,1450,1988"
+    )
+    row = staged_row(app, import_data(csv=csv_text))
+    assert row["value"]["asking_price"] == 125000
+    result = app.review_candidate(row["id"], review_data())
+    facts = [
+        fact for fact in app.state()["facts"]
+        if str(fact["subject_id"]) == result["property_id"]
+    ]
+    values = {fact["attribute"]: fact["value"] for fact in facts}
+    assert values["asking_price"] == 125000
+    assert values["beds"] == 3
+    assert values["baths"] == 2
+    assert values["sqft"] == 1450
+    assert values["year_built"] == 1988
+
+
+@pytest.mark.parametrize("field,value", [
+    ("asking_price", "NaN"),
+    ("asking_price", "-1"),
+    ("year_built", "1988.5"),
+])
+def test_invalid_optional_candidate_numeric_fields_do_not_stage_as_valid(tmp_path, field, value):
+    app = Application(tmp_path / "intake.db")
+    headers = "address,zip,parcel_id,property_type," + field
+    csv_text = headers + "\nSynthetic Bad Optional,46802,00125,single_family," + value
+    row = staged_row(app, import_data(csv=csv_text))
+    assert row["status"] == "invalid"
+    assert row["errors"]
+

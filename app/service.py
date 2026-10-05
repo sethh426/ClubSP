@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timezone
+import hashlib
 import json
 from math import isfinite
 from uuid import UUID, uuid4
@@ -22,6 +23,8 @@ from .economics import EconomicReviewsMixin
 from .opportunities import OpportunitiesMixin, property_evidence, canonical
 from .discovery import DiscoveryMixin
 from .sourcing import SourcingMixin, sale_snapshot
+from .commitment_graph import CommitmentGraphMixin
+from .provider_integrations import ProviderIntegrationMixin
 
 
 DEAL_STAGES = (
@@ -90,7 +93,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin):
+class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
@@ -118,6 +121,10 @@ class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchM
             result["opportunities"] = self._opportunity_state(connection, result["deals"])
             result["sourcing"] = self._sourcing_state(connection)
             result["discovery"] = self._discovery_state(connection)
+            result["commitment_graph"] = self._commitment_graph_state(
+                connection, result["deals"], result["discovery"]
+            )
+            result["provider_integrations"] = self._provider_state(connection)
             result["today"] = business_today().isoformat()
             result["research"] = self._research_snapshots(connection)
             result["providers"] = [PROVIDER]
@@ -420,7 +427,7 @@ class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchM
     def _compare_buyers(self, connection, deal):
         prop = connection.execute("SELECT * FROM properties WHERE id=?", (deal["property_id"],)).fetchone()
         uw = connection.execute(
-            "SELECT inputs_json,result_json FROM underwritings WHERE deal_id=? ORDER BY created_at DESC,id LIMIT 1",
+            "SELECT id,inputs_json,result_json,created_at FROM underwritings WHERE deal_id=? ORDER BY created_at DESC,id LIMIT 1",
             (str(deal["id"]),),
         ).fetchone()
         if uw is None:
@@ -474,11 +481,39 @@ class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchM
                     pass
             if not verification_recent:
                 reasons.append("funding evidence requires current owner verification")
+            fingerprint_payload = {
+                "deal_id": str(deal["id"]),
+                "strategy": deal["strategy"],
+                "location": location,
+                "underwriting_id": uw["id"],
+                "underwriting_created_at": uw["created_at"],
+                "underwriting_evidence_digest": result.get("evidence_digest"),
+                "sale_evidence_digest": result.get("sale_evidence", {}).get("digest"),
+                "current_property_evidence_digest": evidence["digest"],
+                "current_sale_evidence_digest": sales["digest"],
+                "price_basis": price_basis,
+                "buyer_total_price": money(total),
+                "repair_estimate": money(repair),
+                "plan_id": plan["id"] if plan else None,
+                "buyer": {
+                    "id": buyer["id"],
+                    "locations": buyer["locations"],
+                    "strategies": buyer["strategies"],
+                    "property_types": buyer["property_types"],
+                    "max_total_price": buyer["max_total_price"],
+                    "max_repairs": buyer["max_repairs"],
+                    "status": buyer["status"],
+                },
+            }
+            match_fingerprint = hashlib.sha256(
+                json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+            ).hexdigest()
             candidates.append({
                 "buyer_id": buyer["id"], "name": buyer["name"], "company": buyer["company"],
                 "eligible_on_recorded_criteria": not any(r != "funding evidence requires current owner verification" for r in reasons),
                 "funding_verified_currently": verification_recent,
                 "reasons": reasons,
+                "match_fingerprint": match_fingerprint,
                 "comparison": {"market": location, "buyer_total_price": money(total), "price_basis": price_basis,
                                "buyer_max_total_price": buyer["max_total_price"],
                                "repair_estimate": money(repair), "buyer_max_repairs": buyer["max_repairs"]},

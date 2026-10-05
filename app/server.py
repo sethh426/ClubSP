@@ -22,6 +22,7 @@ ASSETS = {
     "/communications.js": ("communications.js", "text/javascript; charset=utf-8"),
     "/knowledge.js": ("knowledge.js", "text/javascript; charset=utf-8"),
     "/discovery.js": ("discovery.js", "text/javascript; charset=utf-8"),
+    "/commitment.js": ("commitment.js", "text/javascript; charset=utf-8"),
     "/gmail.js": ("gmail.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/funding": ("funding.html", "text/html; charset=utf-8"),
@@ -198,6 +199,34 @@ def handler_for(application, gmail):
                     result = application.create_deal(data)
                 elif path == "/api/buyers":
                     result = application.create_buyer(data)
+                elif path == "/api/commitments/buyer-mandates":
+                    result = application.create_buyer_mandate(data)
+                elif path == "/api/commitments/capital":
+                    result = application.create_capital_profile(data)
+                elif path == "/api/commitments/outcomes":
+                    result = application.record_commitment_outcome(data)
+                elif path == "/api/commitments/reservations":
+                    result = application.reserve_buyer_commitment(data)
+                elif path.startswith("/api/commitments/reservations/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 5 or parts[4] != "release":
+                        raise LookupError("Route not found")
+                    result = application.release_buyer_commitment(parts[3], data)
+                elif path == "/api/providers/search":
+                    result = application.search_property_provider(data)
+                elif path == "/api/providers/preflight":
+                    result = application.preflight_property_count(data)
+                elif path.startswith("/api/commitments/"):
+                    parts = path.strip("/").split("/")
+                    if len(parts) != 5 or parts[4] not in {"status", "reconfirm"}:
+                        raise LookupError("Route not found")
+                    entity = {"buyer-mandates": "buyer_mandate", "capital": "capital_profile"}.get(parts[2])
+                    if entity is None:
+                        raise LookupError("Route not found")
+                    if parts[4] == "status":
+                        result = application.change_commitment_status(entity, parts[3], data)
+                    else:
+                        result = application.reconfirm_commitment(entity, parts[3], data)
                 elif path == "/api/opportunities/policy":
                     result = application.save_opportunity_policy(data)
                 elif path == "/api/sourcing/import":
@@ -256,6 +285,8 @@ def handler_for(application, gmail):
                         result = application.underwrite(parts[2], data)
                     elif parts[3] == "buyer-matches" and data == {}:
                         result = application.match_buyers(parts[2])
+                    elif parts[3] == "readiness" and data == {}:
+                        result = application.deal_readiness(parts[2])
                     elif parts[3] == "economic-review":
                         result = application.review_economics(parts[2], data)
                     elif parts[3] == "financial-plan":

@@ -204,6 +204,7 @@ function render() {
   renderScorecard();
   renderOpportunityQueue();
   renderSourcing();
+  renderCommitmentGraph();
   renderSellerInsights(); renderTraining(); renderKnowledge();
   $("count-properties").textContent = state.properties.length;
   $("count-facts").textContent = state.facts.length;

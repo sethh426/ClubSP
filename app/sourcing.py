@@ -113,6 +113,23 @@ class SourcingMixin:
                     outside.append("Property type is outside the saved buy box")
                 else:
                     reasons.append("Record an unambiguous property type")
+            commitment_matches = self.reverse_match_candidate(
+                connection,
+                market=market,
+                property_type=ptype,
+                asking_price=evidence["values"].get("asking_price"),
+                beds=evidence["values"].get("beds"),
+                baths=evidence["values"].get("baths"),
+                sqft=evidence["values"].get("sqft"),
+                year_built=evidence["values"].get("year_built"),
+            )
+            if commitment_matches:
+                score += min(25, round(commitment_matches[0]["score"] / 4))
+                reasons.append(
+                    f"{len(commitment_matches)} current standing buyer mandate(s) fit this research candidate"
+                )
+            else:
+                reasons.append("No current standing buyer mandate matches this research candidate")
             if evidence["values"].get("recorded_owner_name"):
                 score += 15
             else:
@@ -144,6 +161,9 @@ class SourcingMixin:
                 decision = "already_in_pipeline"
             candidates.append({"property_id": property_id, "address": prop["address"], "market": market,
                                "property_type": ptype, "score": score, "decision": decision,
+                               "commitment_matches": commitment_matches[:5],
+                               "commitment_match_count": len(commitment_matches),
+                               "best_commitment_score": commitment_matches[0]["score"] if commitment_matches else 0,
                                "reasons": outside + reasons,
                                "buyer_matches": buyer_matches,
                                "possible_buyer_count": len(possible_buyers),
@@ -152,8 +172,15 @@ class SourcingMixin:
                                "economics_available": False,
                                "scope": "Research candidate only; buyer fit uses known criteria only and does not confirm interest, funding or economics"})
         order = {"research_candidate": 0, "already_in_pipeline": 1, "outside_buy_box": 2}
-        candidates.sort(key=lambda item: (order[item["decision"]], -item["possible_buyer_count"], -item["score"],
-                                          item["address"], item["property_id"]))
+        candidates.sort(key=lambda item: (
+            order[item["decision"]],
+            -item["commitment_match_count"],
+            -item["best_commitment_score"],
+            -item["possible_buyer_count"],
+            -item["score"],
+            item["address"],
+            item["property_id"],
+        ))
         return {"items": candidates, "policy_id": policy["id"] if policy else None,
                 "execution_authorized": False,
                 "scope": "Reviewed candidate imports only; no autonomous discovery or external actions"}
@@ -220,6 +247,27 @@ class SourcingMixin:
                     if kind == "candidates":
                         row["zip"] = text_field(raw_row, "zip", 10)
                         row["property_type"] = text_field(raw_row, "property_type", 60)
+                        for header, key, integer_only in (
+                            ("asking_price", "asking_price", False),
+                            ("beds", "beds", False),
+                            ("baths", "baths", False),
+                            ("sqft", "sqft", False),
+                            ("year_built", "year_built", True),
+                        ):
+                            raw_value = raw_row.get(header, "")
+                            if raw_value is None or not raw_value.strip():
+                                continue
+                            try:
+                                numeric = Decimal(raw_value.strip().replace("$", "").replace(",", ""))
+                                if not numeric.is_finite() or numeric < 0 or numeric > Decimal("1000000000"):
+                                    raise InvalidOperation
+                                if header == "asking_price" and numeric != numeric.quantize(Decimal("0.01")):
+                                    raise InvalidOperation
+                                if integer_only and numeric != numeric.to_integral_value():
+                                    raise InvalidOperation
+                            except InvalidOperation:
+                                raise ValueError(f"{header} must be a finite nonnegative number") from None
+                            row[key] = int(numeric) if integer_only else float(numeric)
                     else:
                         value = text_field(raw_row, "Sale Date", 40)
                         try:
@@ -304,9 +352,13 @@ class SourcingMixin:
                     source = memory.add_source(SourceRecord(source_type="reviewed_official_notice" if batch.get("discovery") else "reviewed_csv", provider=batch["provider"], url=batch["source_url"],
                         published_at=datetime.combine(date.fromisoformat(batch["source_date"]), time(), timezone.utc),
                         raw_reference=f"import:{batch['id']}:row:{row_id}", content_hash=batch["raw_hash"]))
-                    for attribute in ("parcel_id", "property_type"):
+                    for attribute in ("parcel_id", "property_type", "asking_price", "beds", "baths", "sqft", "year_built"):
+                        if attribute not in value:
+                            continue
+                        is_number = attribute not in {"parcel_id", "property_type"}
                         memory.add_fact(Fact(subject_type="property", subject_id=UUID(property_id), attribute=attribute,
-                            value=value[attribute], value_type="text", source_id=source.id, observed_at=source.published_at, confidence=0.5))
+                            value=value[attribute], value_type="number" if is_number else "text",
+                            source_id=source.id, observed_at=source.published_at, confidence=0.5))
                 else:
                     property_id = str(property_exists(connection, data.get("property_id")))
                     prop = connection.execute("SELECT * FROM properties WHERE id=?", (property_id,)).fetchone()
