@@ -215,6 +215,17 @@ buy box and cash/downside review limits. It explains missing evidence, conflicti
 facts, changed underwriting context, current buyer-criteria fit and next reviews.
 It does not source leads or authorize offers, messages or spending. See
 [opportunity queue scope and limitations](docs/OPPORTUNITY_QUEUE.md).
+## Commitment Graph and Deal Readiness
+
+ClubSP now has a buyer-first Commitment Graph for standing buyer mandates,
+recorded capital availability and deal outcomes. The Deal Readiness Engine scores
+the *recorded path to close* and explains blockers/next actions. It is an
+operational evidence score, not a closing probability, valuation, lending
+approval or investment recommendation.
+
+See [Commitment Graph and dependency plan](docs/COMMITMENT_GRAPH.md).
+See [demand-first property provider integration](docs/PROVIDER_INTEGRATIONS.md) for the live-data adapter, request-budget, and evidence-staging design.
+
 
 ## Candidate intake and sale evidence
 
