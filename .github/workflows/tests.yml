@@ -40,6 +40,7 @@ jobs:
       - run: node --check app/static/workspace.js
       - run: node --check app/static/sourcing.js
       - run: node --check app/static/commitment.js
+      - run: node --check app/static/command-center.js
       - run: node --check app/static/communications.js
       - run: node --check app/static/knowledge.js
       - run: node --check app/static/gmail.js
