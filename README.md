@@ -24,10 +24,11 @@ Use another port or database file if needed:
 python -m app.server --port 8080 --db data/my-workspace.sqlite3
 ```
 
-This is a single-user local app. The server binds to the loopback interface,
-validates Host/Origin headers, and serves only fixed assets. It has no login or
-production hosting configuration. Use an authenticated production server before
-making it accessible remotely.
+This is a single-user private app. The server binds to the loopback interface,
+validates Host/Origin headers, and serves only fixed assets. Set
+`CLUBSP_OWNER_SECRET` to enable the built-in owner login/session gate before any
+remote private use. Keep the reverse proxy VPN-only and HTTPS; do not expose the
+Python listener publicly. See [private owner authentication](docs/OWNER_AUTH.md).
 
 ## Use the workspace
 

@@ -16,9 +16,12 @@ from .gmail_send import send_approved_draft
 from .funding import FundingBook
 from .relationships import RelationshipBook
 from .command_center import build_command_center
+from .auth import OwnerAuth, SESSION_COOKIE
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
+    "/login": ("login.html", "text/html; charset=utf-8"),
+    "/login.js": ("login.js", "text/javascript; charset=utf-8"),
     "/relationships": ("relationships.html", "text/html; charset=utf-8"),
     "/relationships.js": ("relationships.js", "text/javascript; charset=utf-8"),
     "/relationships.css": ("relationships.css", "text/css; charset=utf-8"),
@@ -46,9 +49,10 @@ def reject_constant(value):
     raise ValueError("Nonfinite JSON numbers are not supported")
 
 
-def handler_for(application, gmail):
+def handler_for(application, gmail, auth=None):
     funding = FundingBook(application.database)
     relationships = RelationshipBook(application)
+    auth = auth or OwnerAuth()
     class Handler(BaseHTTPRequestHandler):
         def send_content(self, code, body, content_type="application/json; charset=utf-8"):
             if isinstance(body, str):
@@ -80,6 +84,31 @@ def handler_for(application, gmail):
         def gmail_origin(self):
             return "http://" + self.headers["Host"]
 
+        def auth_secure(self):
+            return bool(gmail.external_callback)
+
+        def session_token(self):
+            try:
+                cookie = SimpleCookie(self.headers.get("Cookie", ""))
+                item = cookie.get(SESSION_COOKIE)
+                return item.value if item else ""
+            except CookieError:
+                return ""
+
+        def authenticated(self):
+            return auth.valid(self.session_token())
+
+        def require_auth(self, path):
+            if not auth.enabled or path in {"/login", "/login.js", "/style.css", "/api/health", CALLBACK}:
+                return True
+            if self.authenticated():
+                return True
+            if path.startswith("/api/"):
+                self.send_json(401, {"error": "Owner authentication required"})
+            else:
+                self.redirect("/login", auth.clear_cookie(secure=self.auth_secure()))
+            return False
+
         def relationship_state(self):
             state = relationships.state()
             send_enabled = gmail.status(self.gmail_origin())["sending_enabled"]
@@ -103,6 +132,8 @@ def handler_for(application, gmail):
                 self.send_json(403, {"error": "Use the local application URL"})
                 return
             path = urlsplit(self.path).path
+            if not self.require_auth(path):
+                return
             if path == "/api/discovery":
                 self.send_json(200, application.discovery_state())
             elif path == "/api/gmail/status":
@@ -168,6 +199,9 @@ def handler_for(application, gmail):
             if origin and origin != "http://" + self.headers["Host"]:
                 self.send_json(403, {"error": "Cross-origin requests are not allowed"})
                 return
+            path = urlsplit(self.path).path
+            if path != "/api/auth/login" and not self.require_auth(path):
+                return
             if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
                 self.send_json(415, {"error": "Use application/json"})
                 return
@@ -182,8 +216,33 @@ def handler_for(application, gmail):
                 data = json.loads(self.rfile.read(length), parse_constant=reject_constant)
                 if not isinstance(data, dict):
                     raise ValueError("Request body must be a JSON object")
-                path = urlsplit(self.path).path
-                if path == "/api/discovery/intake":
+                if path == "/api/auth/login":
+                    if not auth.enabled:
+                        raise ValueError("Owner authentication is not configured")
+                    if set(data) != {"secret"} or not auth.verify_secret(data.get("secret")):
+                        self.send_json(401, {"error": "Invalid owner secret"})
+                        return
+                    token = auth.issue()
+                    body = dumps({"authenticated": True}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Set-Cookie", auth.cookie(token, secure=self.auth_secure()))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                elif path == "/api/auth/logout":
+                    body = dumps({"authenticated": False}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Set-Cookie", auth.clear_cookie(secure=self.auth_secure()))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                elif path == "/api/discovery/intake":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
                         return
@@ -418,9 +477,11 @@ def handler_for(application, gmail):
     return Handler
 
 
-def create_server(database_path, port=8000, application=None, gmail=None):
+def create_server(database_path, port=8000, application=None, gmail=None, auth=None):
     connection = gmail or GmailConnection(Path(database_path).parent / "private")
-    return ThreadingHTTPServer(("127.0.0.1", port), handler_for(application or Application(database_path), connection))
+    return ThreadingHTTPServer(("127.0.0.1", port), handler_for(
+        application or Application(database_path), connection, auth=auth or OwnerAuth()
+    ))
 
 
 def main():

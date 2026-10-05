@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ClubSP · Owner access</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <section class="panel" style="max-width:520px;margin:10vh auto">
+      <p class="eyebrow">PRIVATE OWNER WORKSPACE</p>
+      <h1>Unlock ClubSP</h1>
+      <p class="muted">Enter the owner secret configured on the ClubSP server. The secret is used only to establish this browser session.</p>
+      <form id="owner-login">
+        <label>Owner secret <input name="secret" type="password" autocomplete="current-password" minlength="24" required></label>
+        <button class="button primary" type="submit">Unlock workspace</button>
+      </form>
+      <p id="login-message" role="status" class="muted small"></p>
+    </section>
+  </main>
+  <script src="/login.js"></script>
+</body>
+</html>
