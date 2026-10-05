@@ -178,10 +178,19 @@ class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchM
                 "SELECT id,matches_json,created_at FROM buyer_match_runs "
                 "WHERE deal_id=? ORDER BY created_at DESC,id LIMIT 1", (item["id"],)
             ).fetchone()
-            item["buyer_matches"] = ({
-                "id": run["id"], "matches": json.loads(run["matches_json"]),
-                "created_at": run["created_at"],
-            } if run else None)
+            if run:
+                saved_matches = json.loads(run["matches_json"])
+                current_matches = self._compare_buyers(connection, item)
+                matches_current = saved_matches == current_matches
+                item["buyer_matches"] = {
+                    "id": run["id"], "matches": saved_matches,
+                    "created_at": run["created_at"], "current": matches_current,
+                    "stale_reasons": [] if matches_current else [
+                        "Buyer criteria, funding freshness, underwriting, financial plan, or property evidence changed; rerun buyer matching."
+                    ],
+                }
+            else:
+                item["buyer_matches"] = None
             item["events"] = [dict(event) for event in connection.execute(
                 "SELECT stage_before,stage_after,note,evidence_reference,created_at "
                 "FROM deal_events WHERE deal_id=? ORDER BY created_at,id", (item["id"],)
