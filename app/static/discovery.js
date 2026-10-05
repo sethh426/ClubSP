@@ -50,6 +50,34 @@ document.addEventListener("DOMContentLoaded", () => {
       if (source.fetched_at) card.append(node("p", "Checked: " + source.fetched_at));
       if (source.excerpt) card.append(node("p", source.excerpt));
       const link = node("a", "Review official source"); link.href = source.url; link.target = "_blank"; link.rel = "noopener noreferrer"; card.append(link);
+      if (["source_access_blocked", "failed"].includes(source.status)) {
+        const fallback = node("details", ""); fallback.append(node("summary", "Record reviewed official-source snapshot"));
+        fallback.append(node("p", "Use this only with text copied from the configured official Allen County page. ClubSP will parse and save the snapshot with its reviewer and source URL; it still will not create a deal or authorize a bid."));
+        const snapshot = node("form", ""); snapshot.className = "workspace-form discovery-snapshot-form";
+        function snapField(name, label, tag = "input") {
+          const wrap = node("label", label), input = node(tag, ""); input.name = name; input.required = true;
+          wrap.append(input); snapshot.append(wrap); return input;
+        }
+        const url = snapField("source_url", "Official source URL"); url.value = source.url; url.readOnly = true;
+        snapField("reviewer", "Reviewer");
+        snapField("note", "How you verified this is the current official page", "textarea");
+        const body = snapField("body", "Official page text", "textarea"); body.maxLength = 100000;
+        const save = node("button", "Parse and save reviewed snapshot"); save.type = "submit"; save.className = "button";
+        const feedback = node("p", ""); feedback.setAttribute("role", "status"); snapshot.append(save, feedback);
+        snapshot.addEventListener("submit", async event => {
+          event.preventDefault(); save.disabled = true;
+          try {
+            const data = Object.fromEntries(new FormData(snapshot));
+            data.source_id = source.source_id;
+            const response = await fetch("/api/discovery/snapshot", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
+            const saved = await response.json(); if (!response.ok) throw new Error(saved.error || "Snapshot review failed");
+            feedback.textContent = "Reviewed official snapshot saved. Recheck its candidate/availability details before intake.";
+            await reload();
+          } catch (error) { feedback.textContent = error.message; }
+          finally { save.disabled = false; }
+        });
+        fallback.append(snapshot); card.append(fallback);
+      }
       for (const [index, candidate] of source.candidates.entries()) {
         card.append(node("h4", candidate.address), node("p", "Advertised minimum bid: $" + candidate.minimum_bid.toLocaleString("en-US")), node("p", candidate.availability), node("p", candidate.identity_note));
         card.append(node("p", "Bid window: " + candidate.bid_start + " to " + candidate.bid_end));

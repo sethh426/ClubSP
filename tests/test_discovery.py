@@ -99,3 +99,58 @@ def test_saved_notice_expiry_is_independent_of_purchase_policy(tmp_path):
     assert saved['stale']
     assert 'within_recorded_price_limit' not in candidate()
     assert any('ended' in gap for gap in candidate()['review_gaps'])
+
+
+def test_http_forbidden_is_recorded_as_source_access_blocked(tmp_path):
+    app = Application(tmp_path/'app.db')
+    def forbidden(url):
+        raise HTTPError(url, 403, 'Forbidden', {}, None)
+    app.discovery_fetch = forbidden
+    result = app.check_discovery({'source_id': 'north_campus'})
+    assert result['status'] == 'source_access_blocked'
+    assert result['retrieval_mode'] == 'server_fetch'
+    assert result['candidates'] == []
+    assert '403' not in json.dumps(result)
+    cached = app.check_discovery({'source_id': 'north_campus'})
+    assert cached['cached'] is True and cached['id'] == result['id']
+
+
+def test_reviewed_official_snapshot_parses_persists_and_creates_no_deal(tmp_path):
+    app = Application(tmp_path/'app.db')
+    result = app.record_discovery_snapshot({
+        'source_id': 'north_campus',
+        'source_url': 'https://www.allencounty.in.gov/1305/Sale-of-North-Campus-Property',
+        'body': NOTICE,
+        'reviewer': 'Owner review',
+        'note': 'Copied from the configured official Allen County page.',
+    })
+    assert result['retrieval_mode'] == 'reviewed_official_snapshot'
+    assert result['status'] == 'advertised_window'
+    assert result['candidates'][0]['minimum_bid'] == 100000
+    state = app.discovery_state()['sources'][1]
+    assert state['id'] == result['id']
+    assert state['reviewer'] == 'Owner review'
+    assert not app.state()['properties'] and not app.state()['deals']
+
+
+@pytest.mark.parametrize('change', [
+    {'source_url': 'https://evil.example'},
+    {'body': ''},
+    {'reviewer': ''},
+    {'note': ''},
+])
+def test_reviewed_snapshot_rejects_bad_provenance_atomically(tmp_path, change):
+    app = Application(tmp_path/'app.db')
+    data = {
+        'source_id': 'north_campus',
+        'source_url': 'https://www.allencounty.in.gov/1305/Sale-of-North-Campus-Property',
+        'body': NOTICE,
+        'reviewer': 'Owner review',
+        'note': 'Verified official page.',
+    }
+    data.update(change)
+    before = len(app.discovery_state()['sources'][1].get('candidates', []))
+    with pytest.raises(ValueError):
+        app.record_discovery_snapshot(data)
+    after = len(app.discovery_state()['sources'][1].get('candidates', []))
+    assert after == before

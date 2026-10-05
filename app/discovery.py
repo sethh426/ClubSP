@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 import json
 import re
 import threading
+from urllib.error import HTTPError
 from urllib.request import Request, build_opener
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -102,12 +103,62 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
                 parsed = parse_notice(source_id, body, now)
                 digest = sha256(body.encode()).hexdigest()
                 record.update(parsed, content_hash=digest, changed=bool(prior and prior.get('content_hash') != digest))
+            except HTTPError as error:
+                if error.code in {401, 403, 429}:
+                    record.update(
+                        status='source_access_blocked',
+                        excerpt='The official source refused this server-side request. Open the configured official page and record a reviewed source snapshot; no candidate was created from the blocked request.',
+                        retrieval_mode='server_fetch',
+                    )
+                else:
+                    record.update(status='failed', excerpt='Official source request failed. Open the original and review; no candidate saved.', retrieval_mode='server_fetch')
             except (OSError, ValueError, UnicodeError):
-                record.update(status='failed', excerpt='Source unavailable or its format changed. Open the original and review; no candidate saved.')
+                record.update(status='failed', excerpt='Source unavailable or its format changed. Open the original and review; no candidate saved.', retrieval_mode='server_fetch')
             with self.database.session(write=True) as (connection, _):
                 connection.execute('UPDATE discovery_checks SET body=? WHERE id=?', (json.dumps(record), record['id']))
             return {**record, 'cached': False}
         finally: self.discovery_lock.release()
+
+    def record_discovery_snapshot(self, data):
+        if not isinstance(data, dict) or set(data) != {'source_id', 'source_url', 'body', 'reviewer', 'note'}:
+            raise ValueError('Record the configured source, exact URL, bounded source text, reviewer and note')
+        source_id = data.get('source_id')
+        if source_id not in SOURCES:
+            raise ValueError('Choose a configured official notice source')
+        source = SOURCES[source_id]
+        if data.get('source_url') != source['url']:
+            raise ValueError('Source URL must exactly match the configured official source')
+        body = data.get('body')
+        reviewer = data.get('reviewer')
+        note = data.get('note')
+        if not isinstance(body, str) or not body.strip() or len(body) > 100000:
+            raise ValueError('Official source snapshot must contain 1 to 100000 characters')
+        if not isinstance(reviewer, str) or not reviewer.strip() or len(reviewer.strip()) > 120:
+            raise ValueError('Reviewer is required')
+        if not isinstance(note, str) or not note.strip() or len(note.strip()) > 1000:
+            raise ValueError('Review note is required')
+        now = datetime.now(timezone.utc)
+        parsed = parse_notice(source_id, body, now)
+        digest = sha256(body.encode()).hexdigest()
+        record = {
+            'id': str(uuid4()), 'source_id': source_id, **source,
+            'fetched_at': now.isoformat(), **parsed, 'content_hash': digest,
+            'changed': False, 'retrieval_mode': 'reviewed_official_snapshot',
+            'reviewer': reviewer.strip(), 'review_note': note.strip(),
+        }
+        with self.database.session(write=True) as (connection, _):
+            latest = connection.execute(
+                'SELECT body FROM discovery_checks WHERE source_id=? ORDER BY rowid DESC LIMIT 1',
+                (source_id,),
+            ).fetchone()
+            if latest:
+                prior = json.loads(latest['body'])
+                record['changed'] = bool(prior.get('content_hash') and prior.get('content_hash') != digest)
+            connection.execute(
+                'INSERT INTO discovery_checks VALUES(?,?,?,?)',
+                (record['id'], source_id, record['fetched_at'], json.dumps(record)),
+            )
+        return record
 
     def discovery_state(self):
         now = datetime.now(timezone.utc)
