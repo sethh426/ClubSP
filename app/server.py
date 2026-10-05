@@ -128,7 +128,15 @@ def handler_for(application, gmail):
                     self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/relationships":
                 try:
-                    self.send_json(200, relationships.state())
+                    relationship_state = relationships.state()
+                    gmail_state = gmail.status(self.gmail_origin())
+                    relationship_state["sending_enabled"] = gmail_state["sending_enabled"]
+                    for relationship in relationship_state["relationships"]:
+                        for draft in relationship["saved_drafts"]:
+                            draft["sending_enabled"] = bool(
+                                draft["sending_enabled"] and gmail_state["sending_enabled"]
+                            )
+                    self.send_json(200, relationship_state)
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/funding":
@@ -179,6 +187,22 @@ def handler_for(application, gmail):
                     if data != {}:
                         raise ValueError("Connection request must be empty")
                     url, state = gmail.begin(self.gmail_origin())
+                    self.send_response(200)
+                    body = dumps({"authorization_url": url}).encode()
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Set-Cookie", "clubsp_gmail=" + state + "; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=600")
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                elif path == "/api/gmail/enable-send":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "Enable Gmail sending from the ClubSP workspace"})
+                        return
+                    if data != {}:
+                        raise ValueError("Send-permission request must be empty")
+                    url, state = gmail.begin(self.gmail_origin(), include_send=True)
                     self.send_response(200)
                     body = dumps({"authorization_url": url}).encode()
                     self.send_header("Content-Type", "application/json")
