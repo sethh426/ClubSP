@@ -43,6 +43,7 @@ jobs:
       - run: node --check app/static/communications.js
       - run: node --check app/static/knowledge.js
       - run: node --check app/static/gmail.js
+      - run: node --check app/static/command.js
       - run: node --check app/static/funding.js
       - run: node --check app/static/relationships.js
       - run: npx playwright test
