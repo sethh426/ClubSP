@@ -75,7 +75,7 @@ def test_transaction_document_binds_to_current_economics(tmp_path):
     inputs = next(d for d in app.state()["deals"] if d["id"] == did)["underwriting"]["inputs"]
     inputs["buyer_repairs"] = 35000
     app.underwrite(did, inputs)
-    with pytest.raises(ValueError, match="changed"):
+    with pytest.raises(ValueError, match="Current underwriting and financial plan"):
         executed_document(app, did, uw, plan)
 
 
