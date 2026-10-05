@@ -44,7 +44,8 @@ def test_token_private_persistent_and_never_returned(tmp_path):
     assert finish(connection) == "owner@example.test"
     assert stat.S_IMODE(connection.path.stat().st_mode) == 0o600
     status = connection.status(ORIGIN)
-    assert status["connected"] and not status["sending_enabled"] and not status["sync_enabled"]
+    assert status["connected"] and not status["sending_enabled"] and status["sync_enabled"]
+    assert not status["automatic_sync"]
     assert "synthetic-access" not in json.dumps(status)
     assert "synthetic-refresh" not in json.dumps(status)
     assert len(calls) == 2
@@ -166,3 +167,142 @@ def test_disconnect_cancels_inflight_connection(tmp_path):
     with pytest.raises(ValueError, match="cancelled"):
         finish(connection)
     assert not connection.path.exists()
+
+
+def test_configured_https_callback_used_consistently(tmp_path):
+    callback = "https://clubsp.online/auth/gmail/callback"
+    connection, calls = make_connection(tmp_path)
+    connection.external_callback = callback
+    url, state = connection.begin(ORIGIN)
+    assert parse_qs(urlsplit(url).query)["redirect_uri"] == [callback]
+    assert connection.status(ORIGIN)["redirect_uri"] == callback
+    connection.complete({"state": state, "code": "synthetic-code"}, state, ORIGIN)
+    assert calls[0][1]["data"]["redirect_uri"] == callback
+    with pytest.raises(ValueError):
+        connection.begin("https://untrusted.example")
+
+
+@pytest.mark.parametrize("callback", ["http://example.test/auth/gmail/callback",
+    "https://user:pass@example.test/auth/gmail/callback",
+    "https://example.test/other", "https://example.test/auth/gmail/callback?x=1",
+    "https://example.test/auth/gmail/callback#fragment"])
+def test_reject_unsafe_external_callback(tmp_path, callback):
+    with pytest.raises(ValueError):
+        GmailConnection(tmp_path, config=dict(CONFIG, GOOGLE_REDIRECT_URI=callback))
+
+
+def test_refresh_preserves_refresh_token_and_private_storage(tmp_path):
+    connection, calls = make_connection(tmp_path)
+    finish(connection)
+    assert connection.ensure_access_token() == "synthetic-access"
+    assert len(calls) == 2  # Valid tokens do not cause network calls.
+    connection.clock = lambda: 3700
+    def refresh_request(url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("/token"):
+            assert kwargs["data"]["grant_type"] == "refresh_token"
+            assert kwargs["data"]["refresh_token"] == "synthetic-refresh"
+            return {"access_token": "new-access", "expires_in": 3600}
+        return {"emailAddress": "owner@example.test"}
+    connection.request = refresh_request
+    assert connection.ensure_access_token() == "new-access"
+    saved = json.loads(connection.path.read_text())
+    assert saved["refresh_token"] == "synthetic-refresh"
+    assert saved["expires_at"] == 7300
+    assert stat.S_IMODE(connection.path.stat().st_mode) == 0o600
+    assert "new-access" not in json.dumps(connection.status(ORIGIN))
+
+
+@pytest.mark.parametrize("response", [{}, {"access_token": "a", "expires_in": 0},
+    {"access_token": "a", "expires_in": 3600, "scope": "openid"},
+    {"access_token": "a", "expires_in": 3600, "refresh_token": ""}])
+def test_invalid_refresh_preserves_saved_tokens(tmp_path, response):
+    connection, _ = make_connection(tmp_path)
+    finish(connection)
+    original = connection.path.read_bytes()
+    connection.request = lambda *args, **kwargs: response
+    with pytest.raises(ValueError):
+        connection.ensure_access_token(force=True)
+    assert connection.path.read_bytes() == original
+
+
+def test_disconnect_during_refresh_never_restores_tokens(tmp_path):
+    connection, _ = make_connection(tmp_path)
+    finish(connection)
+    original_request = connection.request
+    def request(url, **kwargs):
+        result = original_request(url, **kwargs)
+        if url.endswith("/profile"):
+            connection.disconnect()
+        return result
+    connection.request = request
+    with pytest.raises(ValueError, match="cancelled"):
+        connection.ensure_access_token(force=True)
+    assert not connection.path.exists()
+
+
+def test_failed_provider_refresh_preserves_tokens(tmp_path):
+    connection, _ = make_connection(tmp_path)
+    finish(connection)
+    before = connection.path.read_bytes()
+    def unavailable(*args, **kwargs):
+        raise ValueError("Google connection failed")
+    connection.request = unavailable
+    with pytest.raises(ValueError):
+        connection.ensure_access_token(force=True)
+    assert connection.path.read_bytes() == before
+
+
+def test_refresh_rejects_changed_mailbox(tmp_path):
+    connection, _ = make_connection(tmp_path)
+    finish(connection)
+    before = connection.path.read_bytes()
+    request = connection.request
+    connection.request = lambda url, **kwargs: ({"emailAddress": "other@example.test"}
+        if url.endswith("/profile") else request(url, **kwargs))
+    with pytest.raises(ValueError, match="mailbox"):
+        connection.ensure_access_token(force=True)
+    assert connection.path.read_bytes() == before
+
+
+def test_refresh_does_not_overwrite_newer_connection(tmp_path):
+    connection, _ = make_connection(tmp_path)
+    finish(connection)
+    request = connection.request
+    def replaced(url, **kwargs):
+        result = request(url, **kwargs)
+        if url.endswith("/profile"):
+            saved = json.loads(connection.path.read_text())
+            saved["access_token"] = "newer-consent-access"
+            connection.path.write_text(json.dumps(saved))
+        return result
+    connection.request = replaced
+    with pytest.raises(ValueError, match="changed"):
+        connection.ensure_access_token(force=True)
+    assert json.loads(connection.path.read_text())["access_token"] == "newer-consent-access"
+
+
+def test_refresh_route_checks_origin_and_hides_tokens(tmp_path):
+    import threading
+    from urllib.request import Request, urlopen
+    from urllib.error import HTTPError
+    from app.server import create_server
+    connection, _ = make_connection(tmp_path / "private")
+    finish(connection)
+    server = create_server(tmp_path / "app.db", port=0, gmail=connection)
+    origin = "http://127.0.0.1:" + str(server.server_address[1])
+    worker = threading.Thread(target=server.serve_forever)
+    worker.start()
+    try:
+        with pytest.raises(HTTPError) as missing:
+            urlopen(Request(origin + "/api/gmail/refresh", data=b"{}",
+                            headers={"Content-Type": "application/json"}))
+        assert missing.value.code == 403
+        with urlopen(Request(origin + "/api/gmail/refresh", data=b"{}",
+                headers={"Content-Type": "application/json", "Origin": origin})) as response:
+            status = json.load(response)
+        assert status["connected"] and not status["access_token_expired"]
+        assert "synthetic-access" not in json.dumps(status)
+        assert "synthetic-refresh" not in json.dumps(status)
+    finally:
+        server.shutdown(); server.server_close(); worker.join()
