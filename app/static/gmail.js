@@ -65,9 +65,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     return node;
   }
   async function renderInbox() {
-    const responses = await Promise.all([fetch("/api/gmail/inbox"), fetch("/api/state")]);
-    if (responses.some(response => !response.ok)) throw new Error("Saved previews unavailable");
-    const [data, state] = await Promise.all(responses.map(response => response.json()));
+    const inboxResponse = await fetch("/api/gmail/inbox");
+    if (!inboxResponse.ok) throw new Error("Saved previews unavailable");
+    const data = await inboxResponse.json();
+    let state = {properties: [], communications: {contacts: []}};
+    try {
+      const stateResponse = await fetch("/api/state");
+      if (stateResponse.ok) state = await stateResponse.json();
+    } catch (_) {
+      // Relationship candidates are already part of the Gmail preview payload.
+      // Property-contact linking can temporarily degrade without hiding the inbox.
+    }
     document.getElementById("gmail-inbox-count").textContent = "Showing " + data.messages.length + " of " + data.total + " saved previews.";
     inbox.replaceChildren();
     for (const message of data.messages) {
