@@ -169,6 +169,125 @@ function renderFinance(deal, box) {
   }
   box.append(panel);
 }
+
+function renderTransactions(deal, box) {
+  const tx = state.transactions?.[deal.id];
+  if (!tx) return;
+  const panel=node("section",undefined,"panel transaction-workspace");
+  panel.append(node("p","OPERATIONS 13–15 / TRANSACTION FILE","eyebrow"),node("h2","Contracts, title & closing"));
+  panel.append(node("p","Record reviewed versions and closing evidence. ClubSP does not sign documents, clear title, move money, or treat a signature as proof of funds.","muted small"));
+  const summary=node("div",undefined,"scenario-grid");
+  [["Current signed document",tx.fully_signed_current_document?"yes":"no"],["Open conditions",tx.open_condition_count],["Latest closing state",tx.latest_closing_state?readable(tx.latest_closing_state):"not started"]]
+    .forEach(([label,value])=>{const card=node("article",undefined,"scenario-card");card.append(node("span",label),node("strong",String(value)));summary.append(card);});
+  panel.append(summary);
+
+  const active=["offer_decision","contracted","disposition","closing"].includes(deal.stage);
+  if(active && deal.underwriting && deal.finance.plan){
+    const details=workspaceDetails("Save or revise a transaction document");
+    const form=node("form",undefined,"workspace-form transaction-document-form");
+    workspaceSelect(form,"document_kind","Document type",[
+      ["purchase_agreement","Purchase agreement"],["assignment_agreement","Assignment agreement"],["amendment","Amendment"],
+      ["disclosure","Disclosure"],["title_commitment","Title commitment"],["closing_instructions","Closing instructions"],
+      ["settlement_statement","Settlement statement"],["other","Other"]
+    ]);
+    workspaceField(form,"document_reference","Private document/e-sign reference");
+    workspaceField(form,"version_reference","Exact version / hash reference");
+    workspaceSelect(form,"status","Document status",[["draft","Draft"],["reviewed","Reviewed"],["executed","Executed"],["voided","Voided"]]);
+    workspaceSelect(form,"signature_status","Signature status",[["not_signed","Not signed"],["partially_signed","Partially signed"],["fully_signed","Fully signed"],["not_applicable","Not applicable"]]);
+    workspaceSelect(form,"title_status","Title status",[["unknown","Unknown"],["open","Open"],["conditions_pending","Conditions pending"],["cleared_by_professional","Cleared by professional"],["not_applicable","Not applicable"]]);
+    workspaceField(form,"professional_review_reference","Attorney/title/closing professional review reference","text","",false);
+    workspaceField(form,"title_review_reference","Professional title review/clearance reference","text","",false);
+    workspaceField(form,"closing_professional","Closing/title professional","text","",false);
+    workspaceField(form,"effective_on","Effective date","date","",false);
+    workspaceField(form,"expires_on","Expiry date","date","",false);
+    workspaceField(form,"note","Review notes and limits","textarea");
+    const confirmLabel=node("label",undefined,"check-label"),confirm=node("input");confirm.type="checkbox";
+    confirmLabel.append(confirm,document.createTextNode(" I reviewed the exact document/version shown above"));form.append(confirmLabel);
+    workspaceSubmit(form,"Save transaction document");
+    form.addEventListener("submit",event=>{
+      event.preventDefault();
+      const data=values(form);
+      const latest=tx.documents.find(item=>item.document_kind===data.document_kind);
+      Object.assign(data,{
+        request_key:requestUUID(),
+        previous_id:latest?.id||"",
+        underwriting_id:deal.underwriting.id,
+        financial_plan_id:deal.finance.plan.id,
+        owner_confirmed_review:confirm.checked,
+      });
+      runForm(form,()=>api("/api/deals/"+deal.id+"/transaction-document",data),"Transaction document version saved.");
+    });
+    details.append(form);panel.append(details);
+  }
+
+  if(["contracted","disposition","closing"].includes(deal.stage)){
+    const details=workspaceDetails("Add or update a transaction condition");
+    const form=node("form",undefined,"workspace-form transaction-condition-form");
+    workspaceField(form,"name","Condition / requirement");
+    workspaceSelect(form,"category","Category",[["title","Title"],["contract","Contract"],["buyer","Buyer"],["funding","Funding"],["closing","Closing"],["other","Other"]]);
+    workspaceSelect(form,"status","Status",[["open","Open"],["satisfied","Satisfied"],["waived_by_owner","Waived by owner"],["not_applicable","Not applicable"]]);
+    workspaceField(form,"owner","Responsible party","text","Owner");
+    workspaceField(form,"due_on","Due date","date","",false);
+    workspaceField(form,"evidence_reference","Evidence reference","text","",false);
+    workspaceField(form,"professional_reference","Professional reference when applicable","text","",false);
+    workspaceField(form,"note","Condition notes","textarea");
+    workspaceSubmit(form,"Save condition");
+    form.addEventListener("submit",event=>{
+      event.preventDefault();
+      const data=values(form);
+      const latest=tx.conditions.find(item=>item.name.toLowerCase()===data.name.trim().toLowerCase());
+      Object.assign(data,{request_key:requestUUID(),previous_id:latest?.id||""});
+      runForm(form,()=>api("/api/deals/"+deal.id+"/transaction-condition",data),"Transaction condition saved.");
+    });
+    details.append(form);panel.append(details);
+
+    const closing=workspaceDetails("Record closing milestone");
+    const form2=node("form",undefined,"workspace-form closing-event-form");
+    workspaceSelect(form2,"state","Closing state",[
+      ["scheduled","Scheduled"],["conditions_pending","Conditions pending"],["ready_by_professional","Ready per professional"],
+      ["signed","Signed"],["funded_disbursed","Funded / disbursed"],["recorded_complete","Recorded / complete"]
+    ]);
+    workspaceField(form2,"occurred_on","Date","date",state.today);
+    workspaceField(form2,"evidence_reference","Evidence reference");
+    workspaceField(form2,"professional_reference","Closing professional reference","text","",false);
+    workspaceField(form2,"note","Milestone notes","textarea");
+    workspaceSubmit(form2,"Record closing milestone");
+    form2.addEventListener("submit",event=>{
+      event.preventDefault();
+      runForm(form2,()=>api("/api/deals/"+deal.id+"/closing-event",{...values(form2),request_key:requestUUID()}),"Closing milestone recorded.");
+    });
+    closing.append(form2);panel.append(closing);
+  }
+
+  const conditions=workspaceDetails("Current transaction conditions",tx.open_condition_count>0);
+  tx.conditions.forEach(item=>{
+    const row=node("article",undefined,"evidence-row");
+    row.append(node("strong",item.name+" · "+readable(item.status)),
+      node("p",readable(item.category)+" · Owner: "+item.owner+" · Due: "+(item.due_on||"not set"),"small"),
+      node("p",item.note+(item.evidence_reference?" · Evidence: "+item.evidence_reference:""),"muted small"));
+    conditions.append(row);
+  });
+  if(!tx.conditions.length)conditions.append(node("p","No transaction conditions recorded.","muted small"));
+  panel.append(conditions);
+
+  const docs=workspaceDetails("Document/version history");
+  tx.documents.forEach(item=>{
+    const row=node("article",undefined,"evidence-row");
+    row.append(node("strong",readable(item.document_kind)+" · "+readable(item.status)),
+      node("p","Version: "+item.version_reference+" · Signature: "+readable(item.signature_status)+" · Title: "+readable(item.title_status),"small"),
+      node("p",(item.context_current?"Current economics context":"STALE economics context")+(item.expired?" · expired":"")+" · Reference: "+item.document_reference,"muted small"));
+    docs.append(row);
+  });
+  if(!tx.documents.length)docs.append(node("p","No transaction documents recorded.","muted small"));
+  panel.append(docs);
+
+  const events=workspaceDetails("Closing-state history");
+  tx.closing_events.forEach(item=>events.append(node("p",readable(item.state)+" · "+item.occurred_on+" · "+item.note+" · Evidence: "+item.evidence_reference,"small")));
+  if(!tx.closing_events.length)events.append(node("p","No closing milestones recorded.","muted small"));
+  panel.append(events);
+  box.append(panel);
+}
+
 function renderOperations(deal, box) {
   const panel=node("section",undefined,"panel operations-workspace");panel.append(node("h2","Operations & exceptions"));
   const details=workspaceDetails("Add task or exception");const form=node("form",undefined,"task-form workspace-form");
