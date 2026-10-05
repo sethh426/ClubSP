@@ -13,6 +13,7 @@
   <script src="/gmail.js" defer></script>
   <script src="/discovery.js" defer></script>
   <script src="/commitment.js" defer></script>
+  <script src="/command-center.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -61,6 +62,12 @@
     <section id="money-scorecard" class="metrics money-scorecard" aria-label="Money and operation totals"></section>
     <p><a class="button" href="/funding">Funding Desk · Review partner and lender commitments</a></p>
     <p><a class="button" href="/relationships">Relationship Desk · Investors, partners and follow-ups</a></p>
+    <section class="panel" id="daily-money-center" aria-labelledby="daily-money-title">
+      <div class="panel-heading"><div><p class="eyebrow">TODAY'S MONEY PATH</p><h2 id="daily-money-title">Daily Money Command Center</h2></div><button id="daily-money-refresh" class="button" type="button">Refresh priorities</button></div>
+      <p class="muted small">Read-only priorities from current buyer demand, opportunities, relationships, Gmail reviews, and sourcing state. Nothing here sends, spends, offers, or runs a provider automatically.</p>
+      <p id="daily-money-status" class="muted small" role="status"></p>
+      <div id="daily-money-actions"></div>
+    </section>
     <section class="panel" aria-labelledby="commitment-title">
       <p class="eyebrow">BUYER-FIRST EXECUTION</p><h2 id="commitment-title">Commitment Graph</h2>
       <p class="muted small">Record standing buyer demand and current capital availability before searching for deals. ClubSP uses these records to rank research candidates and explain the path to close.</p>
