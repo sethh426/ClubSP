@@ -51,11 +51,16 @@ test("stage candidate, review sale, preserve withdrawal and render source text s
   const sale = page.locator(".sale-evidence-row").filter({hasText: compAddress});
   await sale.locator("..").evaluate(element => { element.open = true; });
   await expect(sale).toContainText("accepted");
+  const screen = page.locator(".comp-screen-row").filter({hasText: compAddress});
+  await expect(screen).toContainText("needs review");
+  await expect(screen).toContainText("Confirm valid subject and sale living_area");
+  await expect(screen).toContainText("No exit-price estimate");
   for (const name of ["reviewer", "note", "evidence_reference"]) await sale.locator('[name="' + name + '"]').fill("Synthetic withdrawal " + name);
   await sale.getByRole("button", {name: "Withdraw comparable"}).click();
   await expect(page.locator("#message")).toContainText("Comparable withdrawn");
   await sale.locator("..").evaluate(element => { element.open = true; });
   await expect(sale).toContainText("withdrawn");
+  await expect(page.locator(".comp-screen-row").filter({hasText: compAddress})).toHaveCount(0);
   expect(await page.locator("#sourcing-workspace img").count()).toBe(0);
   expect(await page.evaluate(() => window.injected)).toBeUndefined();
   expect(errors).toEqual([]);

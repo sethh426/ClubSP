@@ -86,6 +86,23 @@ function renderSourcing() {
       batchBox.append(card);
     }); box.append(batchBox);
   });
+  if (state.sourcing.comparable_screens?.length) {
+    const screens = workspaceDetails("Comparable suitability screen", true);
+    screens.append(node("p", "Screen limits: sales within 365 days, same market/class/neighborhood, area within 25%, year within 20 years, baths within 1 and acreage within 50%. Missing or stale subject evidence requires review. Condition and concessions still need separate checks.", "muted small"));
+    state.sourcing.comparable_screens.forEach(screen => {
+      screen.items.forEach(item => {
+        const card = node("article", undefined, "evidence-row comp-screen-row");
+        card.append(node("strong", item.address + " → " + screen.address + " · " + readable(item.decision)));
+        card.append(node("p", item.reasons.length ? item.reasons.join(" · ") : "Fits recorded screening limits; review condition and concessions.", "small"));
+        Object.entries(item.comparisons).forEach(([key, value]) => {
+          card.append(node("p", readable(key) + ": subject " + value.subject + ", sale " + value.sale, "muted small"));
+        });
+        card.append(node("p", "Source: " + item.source_url + " · as of " + item.source_date + ". Historical price per sq ft: " + (item.historical_price_per_sqft ?? "unknown") + ". No exit-price estimate.", "muted small"));
+        screens.append(card);
+      });
+    });
+    box.append(screens);
+  }
   if (state.sourcing.sales.length) {
     const sales = workspaceDetails("Reviewed comparable sales");
     sales.append(node("p", "All accepted sales for a subject are captured with its next underwriting. Exit price remains a manual assumption; no automatic appraisal or averaging is performed.", "muted small"));

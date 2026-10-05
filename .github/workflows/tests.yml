@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install "pytest>=8,<9"
+      - run: python -m pip install -e ".[dev]"
       - run: python -m pytest -q
   browser:
     runs-on: ubuntu-latest
@@ -27,6 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - run: python -m pip install -e .
       - run: npm install --no-save @playwright/test@1.55.1
       - run: npx playwright install --with-deps chromium
       - run: node --check app/static/app.js

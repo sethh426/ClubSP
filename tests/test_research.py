@@ -110,22 +110,17 @@ def test_provider_maps_only_whitelisted_fields_and_keeps_unknowns_unknown(monkey
         "sde.CurrentOwner.MailingAddress1": "Must not be imported",
         "sde.CurrentOwner.TransferDate": 0,
     }}]}
-    class Response:
-        def __enter__(self): return self
-        def __exit__(self, *args): pass
-        def read(self, n): return json.dumps(payload).encode()
-    class Opener:
-        def open(self, request, timeout):
-            assert timeout == 10
-            assert "MailingAddress" not in request.full_url
-            assert request.full_url.startswith(providers.COUNTY_LAYER + "/query?")
-            return Response()
-    monkeypatch.setattr(providers, "build_opener", lambda *args: Opener())
-    result = AllenCountyAdapter().fetch(KEY)
+    import httpx
+    def respond(request):
+        assert "MailingAddress" not in str(request.url)
+        assert str(request.url).startswith(providers.COUNTY_LAYER + "/query?")
+        return httpx.Response(200, json=payload)
+    adapter = AllenCountyAdapter(transport=httpx.MockTransport(respond))
+    result = adapter.fetch(KEY)
     assert result["record"] == {"parcel_id": KEY, "recorded_owner_name": "SYNTHETIC OWNER", "reported_transfer_date": "1970-01-01"}
     payload["features"][0]["attributes"]["GISPublished.SDE.Parcel_Poly.PIN"] = "028888888888888888"
     with pytest.raises(ValueError, match="different parcel"):
-        AllenCountyAdapter().fetch(KEY)
+        adapter.fetch(KEY)
 
 
 def test_http_research_and_review_roundtrip(tmp_path):

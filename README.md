@@ -13,10 +13,11 @@ underwriting, owner cash and profit, seller conversations and sales practice.
 Install Python 3.11 or newer, download or clone this repository, and run from its root:
 
 ```sh
+python -m pip install -e .
 python -m app.server
 ```
 
-Open **http://127.0.0.1:8000** in your browser. No runtime packages or paid API keys
+Open **http://127.0.0.1:8000** in your browser. HTTPX and Pydantic are installed by the command above. No paid API keys
 are required. Stop the server with Ctrl+C. Your data remains in
 `data/clubsp.sqlite3` and is loaded again when you restart.
 
@@ -177,7 +178,7 @@ tax/accounting and transaction-specific reviews remain coverage gaps.
 ## Test
 
 ```sh
-python -m pip install "pytest>=8,<9"
+python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
 
