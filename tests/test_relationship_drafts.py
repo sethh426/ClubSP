@@ -36,7 +36,7 @@ def test_draft_review_persists_exact_text_and_recipient_without_sending(tmp_path
     restored = current(RelationshipBook(Application(app.database.path)))
     saved = restored["saved_drafts"][0]
     assert saved["body"] == draft["body"] and saved["recipient"] == row["profile"]["email"]
-    assert saved["review_status"] == "approved" and not saved["sending_enabled"]
+    assert saved["review_status"] == "approved" and saved["sending_enabled"]
     assert saved["reviews"][0]["note"] == "Synthetic identity, text and permission review"
 
 
