@@ -76,9 +76,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     return node;
   }
   async function renderInbox() {
-    const responses = await Promise.all([fetch("/api/gmail/inbox"), fetch("/api/state")]);
-    if (responses.some(response => !response.ok)) throw new Error("Saved previews unavailable");
-    const [data, state] = await Promise.all(responses.map(response => response.json()));
+    const inboxResponse = await fetch("/api/gmail/inbox");
+    if (!inboxResponse.ok) throw new Error("Saved previews unavailable");
+    const data = await inboxResponse.json();
+    let state = {properties: [], communications: {contacts: []}};
+    try {
+      const stateResponse = await fetch("/api/state");
+      if (stateResponse.ok) state = await stateResponse.json();
+    } catch (_) {
+      // Relationship candidates already come from the Gmail preview payload.
+      // Property-contact linking can degrade without hiding inbound replies.
+    }
     document.getElementById("gmail-inbox-count").textContent = "Showing " + data.messages.length + " of " + data.total + " saved previews.";
     inbox.replaceChildren();
     for (const message of data.messages) {
@@ -113,9 +121,70 @@ document.addEventListener("DOMContentLoaded", async () => {
         card.append(save);
         if (!choices.length) card.append(element("p", "Add a contact under the correct property with this sender's email, then reload saved previews.", "muted small"));
       }
+      const relBox = element("section", "", "gmail-relationship-review");
+      if (message.relationship_id) {
+        relBox.append(element("p", "Relationship Desk: " + (message.relationship_name || message.relationship_id), "small"));
+        if (message.relationship_interaction_id) {
+          relBox.append(element("p", "Imported into relationship history · " + message.relationship_imported_at, "muted small"));
+        } else {
+          const unlinkRel = element("button", "Unlink relationship", "button"); unlinkRel.type = "button";
+          unlinkRel.addEventListener("click", () => relationshipReview(message.id, {action:"unlink"}, unlinkRel));
+          relBox.append(unlinkRel);
+          const form = element("form", "", "workspace-form gmail-reply-import");
+          const outcomeLabel = element("label", "Reviewed reply outcome"), outcome = element("select");
+          outcome.name = "outcome";
+          [["general","General"],["interested","Interested"],["not_interested","Not interested"],["stop","Stop request"],["wrong_person","Wrong person"]]
+            .forEach(([value,label])=>{const option=element("option",label);option.value=value;outcome.append(option);});
+          outcomeLabel.append(outcome); form.append(outcomeLabel);
+          const dateLabel=element("label","Interaction date"), occurred=element("input");occurred.type="date";occurred.name="occurred_on";occurred.required=true;occurred.value=(message.received_at||"").slice(0,10);dateLabel.append(occurred);form.append(dateLabel);
+          const noteLabel=element("label","Owner review / what this reply means"), note=element("textarea");note.name="review_note";note.required=true;note.maxLength=2000;noteLabel.append(note);form.append(noteLabel);
+          const followLabel=element("label","Next follow-up date"), follow=element("input");follow.type="date";follow.name="follow_up_on";followLabel.append(follow);form.append(followLabel);
+          const nextLabel=element("label","Next action"), nextAction=element("input");nextAction.name="next_action";nextAction.maxLength=500;nextLabel.append(nextAction);form.append(nextLabel);
+          form.append(element("p","The Gmail snippet is evidence context, not the full message. Choose the outcome after reviewing the original in Gmail. Stop/wrong-person immediately suppresses future outreach.","muted small full-width"));
+          const importButton=element("button","Import reviewed reply","button primary");importButton.type="submit";form.append(importButton);
+          const key=requestUUID();
+          form.addEventListener("submit",async event=>{
+            event.preventDefault();importButton.disabled=true;
+            try{
+              const data=Object.fromEntries(new FormData(form));
+              data.action="import";data.relationship_id=message.relationship_id;data.request_key=key;
+              await post("/api/gmail/previews/"+encodeURIComponent(message.id)+"/relationship",data);
+              document.getElementById("gmail-result").textContent="Reviewed Gmail reply imported into Relationship Desk.";
+              await renderInbox();
+            }catch(error){document.getElementById("gmail-result").textContent=error.message;importButton.disabled=false;}
+          });
+          relBox.append(form);
+        }
+      } else {
+        const candidates=message.relationship_candidates || [];
+        if (candidates.length) {
+          const label=element("label","Link to matching Relationship Desk record"), select=element("select");
+          select.setAttribute("aria-label","Link to matching Relationship Desk record");
+          const empty=element("option","Choose a relationship");empty.value="";select.append(empty);
+          candidates.forEach(candidate=>{const option=element("option",candidate.name+" · "+candidate.status);option.value=candidate.id;select.append(option);});
+          label.append(select);relBox.append(label);
+          const button=element("button","Link relationship","button");button.type="button";button.disabled=true;
+          select.addEventListener("change",()=>{button.disabled=!select.value;});
+          button.addEventListener("click",()=>relationshipReview(message.id,{action:"link",relationship_id:select.value},button));
+          relBox.append(button);
+        } else {
+          relBox.append(element("p","No current Relationship Desk record has this sender email. Add or update the relationship before importing the reply.","muted small"));
+        }
+      }
+      card.append(relBox);
       const remove = element("button", "Remove preview", "button"); remove.type = "button";
       remove.addEventListener("click", () => review(message.id, {action: "remove"}, remove));
       card.append(remove); inbox.append(card);
+    }
+  }
+  async function relationshipReview(id, data, button) {
+    button.disabled = true;
+    try {
+      await post("/api/gmail/previews/" + encodeURIComponent(id) + "/relationship", data);
+      await renderInbox();
+    } catch (error) {
+      document.getElementById("gmail-result").textContent = error.message;
+      button.disabled = false;
     }
   }
   async function review(id, data, button) {

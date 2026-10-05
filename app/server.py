@@ -227,12 +227,15 @@ def handler_for(application, gmail):
                     result = sync_previews(gmail, application, data)
                 elif path.startswith("/api/gmail/previews/"):
                     parts = path.strip("/").split("/")
-                    if len(parts) != 5 or parts[4] != "review":
+                    if len(parts) != 5 or parts[4] not in {"review", "relationship"}:
                         raise LookupError("Route not found")
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "Review Gmail from the ClubSP workspace"})
                         return
-                    result = application.review_gmail_preview(parts[3], data)
+                    if parts[4] == "relationship":
+                        result = relationships.review_gmail_reply(parts[3], data)
+                    else:
+                        result = application.review_gmail_preview(parts[3], data)
                 elif path == "/api/gmail/disconnect":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "Open Disconnect from the ClubSP workspace"})
