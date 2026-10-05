@@ -9,6 +9,7 @@ Current schema-owning components are:
 - `gmail_inbox`
 - `discovery`
 - `funding`
+- `transactions`
 
 Each component registers its supported version after its baseline tables/indexes exist. On startup, the code checks any existing version **before** running that component's current DDL. If the database says a component was created by a newer ClubSP build, the older build refuses to continue instead of guessing that the schema is compatible.
 

@@ -10,6 +10,7 @@ COMPONENT_VERSIONS = {
     "gmail_inbox": 1,
     "discovery": 1,
     "funding": 1,
+    "transactions": 1,
 }
 
 
