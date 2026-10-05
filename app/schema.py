@@ -23,12 +23,34 @@ def _initialize_registry(connection):
     """)
 
 
-def component_version(connection, component):
-    _initialize_registry(connection)
+def registered_version(connection, component):
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='clubsp_schema_versions'"
+    ).fetchone()
+    if not exists:
+        return 0
     row = connection.execute(
         "SELECT version FROM clubsp_schema_versions WHERE component=?", (component,)
     ).fetchone()
     return int(row[0]) if row else 0
+
+
+def assert_component_compatible(connection, component, target=None):
+    if component not in COMPONENT_VERSIONS:
+        raise ValueError("Unknown schema component")
+    target = COMPONENT_VERSIONS[component] if target is None else target
+    current = registered_version(connection, component)
+    if current > target:
+        raise RuntimeError(
+            f"Database schema component {component} is version {current}; "
+            f"this ClubSP build supports only {target}"
+        )
+    return current
+
+
+def component_version(connection, component):
+    _initialize_registry(connection)
+    return registered_version(connection, component)
 
 
 def ensure_component(connection, component, target=None, migrations=None):
@@ -42,12 +64,8 @@ def ensure_component(connection, component, target=None, migrations=None):
     target = COMPONENT_VERSIONS[component] if target is None else target
     if type(target) is not int or target < 1:
         raise ValueError("Schema target must be a positive integer")
-    current = component_version(connection, component)
-    if current > target:
-        raise RuntimeError(
-            f"Database schema component {component} is version {current}; "
-            f"this ClubSP build supports only {target}"
-        )
+    current = assert_component_compatible(connection, component, target)
+    _initialize_registry(connection)
     if current == 0:
         if target != 1:
             raise RuntimeError(f"Cannot bootstrap {component} directly to schema version {target}")
