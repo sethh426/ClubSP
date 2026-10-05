@@ -1,0 +1,31 @@
+[Unit]
+Description=ClubSP private operating workspace
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=clubsp
+Group=clubsp
+WorkingDirectory=/opt/clubsp
+EnvironmentFile=/opt/clubsp/.env
+ExecStartPre=/opt/clubsp/.venv/bin/python -m app.preflight --db /var/lib/clubsp/clubsp.sqlite3 --env-file /opt/clubsp/.env
+ExecStart=/opt/clubsp/.venv/bin/python -m app.server --db /var/lib/clubsp/clubsp.sqlite3 --port 8000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+# Keep the process private and reduce filesystem/device exposure.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/clubsp
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
