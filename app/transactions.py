@@ -23,6 +23,15 @@ CLOSING_STATES = {
     "scheduled", "conditions_pending", "ready_by_professional",
     "signed", "funded_disbursed", "recorded_complete",
 }
+CLOSING_NEXT = {
+    None: {"scheduled", "conditions_pending"},
+    "scheduled": {"conditions_pending", "ready_by_professional"},
+    "conditions_pending": {"scheduled", "ready_by_professional"},
+    "ready_by_professional": {"conditions_pending", "signed"},
+    "signed": {"conditions_pending", "funded_disbursed"},
+    "funded_disbursed": {"recorded_complete"},
+    "recorded_complete": set(),
+}
 
 
 def uid(data, key, required=True):
@@ -223,13 +232,13 @@ class TransactionMixin:
                         deal["id"], previous_id, encoded):
                     raise ValueError("request_key already records different condition data")
                 return self._decode(existing)
-            if previous_id:
-                previous = connection.execute(
-                    "SELECT id FROM transaction_conditions WHERE id=? AND deal_id=?",
-                    (previous_id, deal["id"]),
-                ).fetchone()
-                if not previous:
-                    raise ValueError("previous_id is not a condition on this deal")
+            latest = connection.execute(
+                "SELECT id FROM transaction_conditions WHERE deal_id=? "
+                "AND lower(json_extract(payload_json,'$.name'))=lower(?) ORDER BY rowid DESC LIMIT 1",
+                (deal["id"], payload["name"]),
+            ).fetchone()
+            if previous_id != (latest["id"] if latest else None):
+                raise ValueError("Refresh and supersede the latest version of this condition")
             record_id = str(uuid4())
             connection.execute(
                 "INSERT INTO transaction_conditions VALUES(?,?,?,?,?,?)",
@@ -265,6 +274,16 @@ class TransactionMixin:
                 if actual != expected:
                     raise ValueError("request_key already records a different closing event")
                 return dict(existing)
+            latest_event = connection.execute(
+                "SELECT state FROM closing_events WHERE deal_id=? ORDER BY rowid DESC LIMIT 1",
+                (deal["id"],),
+            ).fetchone()
+            previous_state = latest_event["state"] if latest_event else None
+            if state not in CLOSING_NEXT[previous_state]:
+                raise ValueError(
+                    "Closing state cannot move from "
+                    + (previous_state or "not started") + " to " + state
+                )
             open_conditions = connection.execute(
                 "SELECT COUNT(*) FROM transaction_conditions tc "
                 "WHERE tc.deal_id=? AND tc.rowid IN (SELECT MAX(rowid) FROM transaction_conditions WHERE deal_id=? GROUP BY json_extract(payload_json,'$.name')) "
@@ -274,11 +293,15 @@ class TransactionMixin:
             if state in {"ready_by_professional", "signed", "funded_disbursed", "recorded_complete"} and open_conditions:
                 raise ValueError("Open transaction conditions block this closing state")
             if state in {"signed", "funded_disbursed", "recorded_complete"}:
+                _, current_uw, current_plan = self._current_context(connection, deal["id"])
                 executed = connection.execute(
                     "SELECT 1 FROM transaction_documents WHERE deal_id=? "
+                    "AND underwriting_id=? AND financial_plan_id=? "
                     "AND json_extract(payload_json,'$.status')='executed' "
-                    "AND json_extract(payload_json,'$.signature_status')='fully_signed' LIMIT 1",
-                    (deal["id"],),
+                    "AND json_extract(payload_json,'$.signature_status')='fully_signed' "
+                    "AND (json_extract(payload_json,'$.expires_on')='' OR json_extract(payload_json,'$.expires_on')>=?) "
+                    "LIMIT 1",
+                    (deal["id"], current_uw, current_plan, business_today().isoformat()),
                 ).fetchone()
                 if not executed:
                     raise ValueError("Record a fully signed executed transaction document first")
