@@ -7,7 +7,8 @@ import pytest
 
 from app.gmail_send import SEND_URL, send_approved_draft
 from app.operations import business_today
-from tests.test_gmail import make_connection, finish
+from app.gmail import READ_SCOPE, SEND_SCOPE
+from tests.test_gmail import ORIGIN, make_connection
 from tests.test_relationships import current, interaction
 from tests.test_relationship_drafts import ready, review_data
 
@@ -18,8 +19,9 @@ def approved(tmp_path):
     book.review_draft(row["id"], review_data(draft))
     row = current(book)
     draft = row["saved_drafts"][0]
-    gmail, _ = make_connection(tmp_path / "private")
-    finish(gmail)
+    gmail, _ = make_connection(tmp_path / "private", scope=READ_SCOPE + " " + SEND_SCOPE)
+    _, state = gmail.begin(ORIGIN, include_send=True)
+    gmail.complete({"state": state, "code": "synthetic-code"}, state, ORIGIN)
     return app, book, row, draft, gmail
 
 
@@ -105,8 +107,9 @@ def test_suppression_or_context_change_after_approval_blocks_transport(tmp_path)
 def test_send_requires_current_approval_and_explicit_owner_confirmation(tmp_path):
     _, book, row = ready(tmp_path)
     draft = row["saved_drafts"][0]
-    gmail, _ = make_connection(tmp_path / "private")
-    finish(gmail)
+    gmail, _ = make_connection(tmp_path / "private", scope=READ_SCOPE + " " + SEND_SCOPE)
+    _, state = gmail.begin(ORIGIN, include_send=True)
+    gmail.complete({"state": state, "code": "synthetic-code"}, state, ORIGIN)
     gmail.request = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Gmail must not be called"))
     with pytest.raises(ValueError, match="current review"):
         send_approved_draft(gmail, book, row["id"], {
