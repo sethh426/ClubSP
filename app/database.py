@@ -11,6 +11,7 @@ from uuid import UUID
 from core.memory import (
     Fact, LearningRecord, MemoryStore, Observation, Prediction, SourceRecord, WorkflowEvent,
 )
+from .schema import assert_component_compatible, ensure_component
 
 COLLECTIONS = {
     "sources": SourceRecord,
@@ -59,6 +60,7 @@ class Database:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.path) as connection:
+            assert_component_compatible(connection, "core")
             connection.executescript("""
                 CREATE TABLE IF NOT EXISTS properties (
                     id TEXT PRIMARY KEY,
@@ -371,6 +373,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS knowledge_budget ON knowledge_snapshots(request_day,is_attempt);
                 CREATE UNIQUE INDEX IF NOT EXISTS knowledge_active_source ON knowledge_items(source_id) WHERE status='active';
             """)
+            ensure_component(connection, "core")
 
     @contextmanager
     def session(self, write=False):
