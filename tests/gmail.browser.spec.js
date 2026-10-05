@@ -6,7 +6,7 @@ test("Gmail shows exact callback with sending disabled", async ({ page }) => {
   await expect(page.locator("#gmail-callback")).toHaveText("http://127.0.0.1:8765/auth/gmail/callback");
   await expect(page.locator("#gmail-connect")).toBeDisabled();
   await expect(page.locator("#gmail-status")).toContainText("missing");
-  await expect(page.getByText("Read-only permission;", { exact: false })).toContainText("sending is disabled");
+  await expect(page.getByText("Read-only permission is the default.", { exact: false })).toContainText("separate Google consent step");
   await expect(page.locator("#gmail-disconnect")).toBeHidden();
   await expect(page.locator("#gmail-refresh")).toBeHidden();
 });
@@ -55,8 +55,8 @@ test("manual previews are text, paged, and linked only after review", async ({ p
   expect(await page.locator("#gmail-callback").evaluate(node => node.getBoundingClientRect().right <= innerWidth)).toBe(true);
 });
 
-test("authorized mailbox can refresh with approved-send capability", async ({ page }) => {
-  const status = {configured: true, connected: true, email: "owner@example.test",
+test("refresh preserves read-only status until send permission is granted", async ({ page }) => {
+  const status = {configured: true, connected: true, sending_enabled: false, email: "owner@example.test",
     access_token_expired: true, redirect_uri: "https://clubsp.online/auth/gmail/callback"};
   await page.route("**/api/gmail/status", route => route.fulfill({json: status}));
   await page.route("**/api/gmail/refresh", route => {
@@ -69,6 +69,7 @@ test("authorized mailbox can refresh with approved-send capability", async ({ pa
   await page.getByText("Gmail · Connect your mailbox", {exact: true}).click();
   await expect(page.locator("#gmail-status")).toContainText("expired");
   await page.locator("#gmail-refresh").click();
-  await expect(page.locator("#gmail-result")).toHaveText("Gmail access refreshed. Approved-draft sending is enabled; automatic sending remains disabled.");
-  await expect(page.locator("#gmail-status")).toContainText("Read access plus approved-draft sending.");
+  await expect(page.locator("#gmail-result")).toHaveText("Gmail access refreshed. Approved sending remains available only when the send permission is granted; automatic sending is disabled.");
+  await expect(page.locator("#gmail-status")).toContainText("Read-only access; approved sending not enabled.");
+  await expect(page.locator("#gmail-enable-send")).toBeVisible();
 });

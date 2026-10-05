@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const status = document.getElementById("gmail-status");
   const connect = document.getElementById("gmail-connect");
   const disconnect = document.getElementById("gmail-disconnect");
+  const enableSend = document.getElementById("gmail-enable-send");
   const refreshAccess = document.getElementById("gmail-refresh");
   const callback = document.getElementById("gmail-callback");
   const syncForm = document.getElementById("gmail-sync-form");
@@ -22,10 +23,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const data = await response.json();
     callback.textContent = data.redirect_uri;
     status.textContent = data.connected
-      ? "Authorized mailbox: " + data.email + (data.access_token_expired ? " · Access token expired; refresh access or reconnect." : " · Read access plus approved-draft sending.")
+      ? "Authorized mailbox: " + data.email + (data.access_token_expired ? " · Access token expired; refresh access or reconnect." : data.sending_enabled ? " · Read access plus approved-draft sending." : " · Read-only access; approved sending not enabled.")
       : data.configured ? "Ready for Google authorization: " + data.expected_email : "Google credentials or expected mailbox are missing from private configuration.";
     connect.disabled = !data.configured;
     disconnect.hidden = !data.connected;
+    enableSend.hidden = !data.connected || data.sending_enabled;
     refreshAccess.hidden = !data.connected;
     syncForm.hidden = !data.connected;
   }
@@ -44,6 +46,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       location.assign(url.href);
     } catch (error) { status.textContent = error.message; connect.disabled = false; }
   });
+  enableSend.addEventListener("click", async () => {
+    enableSend.disabled = true;
+    try {
+      const result = await post("/api/gmail/enable-send");
+      const url = new URL(result.authorization_url);
+      if (url.origin !== "https://accounts.google.com") throw new Error("Unexpected authorization destination");
+      location.assign(url.href);
+    } catch (error) { status.textContent = error.message; enableSend.disabled = false; }
+  });
   disconnect.addEventListener("click", async () => {
     try { await post("/api/gmail/disconnect"); await refresh(); }
     catch (error) { status.textContent = error.message; }
@@ -53,7 +64,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
       await post("/api/gmail/refresh");
       await refresh();
-      document.getElementById("gmail-result").textContent = "Gmail access refreshed. Approved-draft sending is enabled; automatic sending remains disabled.";
+      document.getElementById("gmail-result").textContent = "Gmail access refreshed. Approved sending remains available only when the send permission is granted; automatic sending is disabled.";
     } catch (error) {
       status.textContent = error.message + " If the grant expired or was revoked, reconnect Gmail.";
     } finally { refreshAccess.disabled = false; }

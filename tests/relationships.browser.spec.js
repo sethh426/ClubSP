@@ -41,8 +41,8 @@ test("property-independent relationship, reply schedule and stop request",async(
   await saved.getByRole("button",{name:"Record draft review",exact:true}).click();
   await card.getByText("Saved message drafts · 1",{exact:true}).click();
   await expect(saved).toContainText("Draft: approved");
-  await expect(saved.getByRole("button",{name:"Send approved email",exact:true})).toBeVisible();
-  await expect(saved.getByText("authorize this send now",{exact:false})).toBeVisible();
+  await expect(saved.getByRole("button",{name:"Send approved email",exact:true})).toHaveCount(0);
+  await expect(saved.getByText("authorize this send now",{exact:false})).toHaveCount(0);
   await saved.screenshot({path:testInfo.outputPath("reviewed-message.png")});
   await card.getByText("Record conversation / next step",{exact:true}).click();
   const eventForm=card.locator("form").first();

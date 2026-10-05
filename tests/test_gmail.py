@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from app.gmail import GmailConnection, SCOPE, load_local_environment
+from app.gmail import GmailConnection, READ_SCOPE, SEND_SCOPE, SCOPE, load_local_environment
 
 ORIGIN = "http://127.0.0.1:8000"
 CONFIG = {"GOOGLE_CLIENT_ID": "synthetic-client", "GOOGLE_CLIENT_SECRET": "synthetic-secret",
@@ -44,7 +44,7 @@ def test_token_private_persistent_and_never_returned(tmp_path):
     assert finish(connection) == "owner@example.test"
     assert stat.S_IMODE(connection.path.stat().st_mode) == 0o600
     status = connection.status(ORIGIN)
-    assert status["connected"] and status["sending_enabled"] and status["sync_enabled"]
+    assert status["connected"] and not status["sending_enabled"] and status["sync_enabled"]
     assert not status["automatic_sync"]
     assert "synthetic-access" not in json.dumps(status)
     assert "synthetic-refresh" not in json.dumps(status)
@@ -306,3 +306,25 @@ def test_refresh_route_checks_origin_and_hides_tokens(tmp_path):
         assert "synthetic-refresh" not in json.dumps(status)
     finally:
         server.shutdown(); server.server_close(); worker.join()
+
+
+def test_send_scope_is_incremental_and_read_only_connection_remains_valid(tmp_path):
+    connection, _ = make_connection(tmp_path)
+    finish(connection)
+    status = connection.status(ORIGIN)
+    assert status["connected"] and not status["sending_enabled"]
+    with pytest.raises(ValueError, match="Enable approved Gmail sending"):
+        connection.ensure_access_token(required_scope=SEND_SCOPE)
+
+    connection.request = lambda url, **kwargs: (
+        {"access_token": "send-access", "expires_in": 3600,
+         "scope": READ_SCOPE + " " + SEND_SCOPE}
+        if url.endswith("/token") else {"emailAddress": "owner@example.test"}
+    )
+    url, state = connection.begin(ORIGIN, include_send=True)
+    query = parse_qs(urlsplit(url).query)
+    assert set(query["scope"][0].split()) == {READ_SCOPE, SEND_SCOPE}
+    assert query["include_granted_scopes"] == ["true"]
+    connection.complete({"state": state, "code": "send-code"}, state, ORIGIN)
+    assert connection.status(ORIGIN)["sending_enabled"]
+    assert connection.ensure_access_token(required_scope=SEND_SCOPE) == "send-access"
