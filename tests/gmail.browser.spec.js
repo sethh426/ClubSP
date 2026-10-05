@@ -55,7 +55,7 @@ test("manual previews are text, paged, and linked only after review", async ({ p
   expect(await page.locator("#gmail-callback").evaluate(node => node.getBoundingClientRect().right <= innerWidth)).toBe(true);
 });
 
-test("authorized mailbox can refresh without claiming inbox import or sending", async ({ page }) => {
+test("authorized mailbox can refresh with approved-send capability", async ({ page }) => {
   const status = {configured: true, connected: true, email: "owner@example.test",
     access_token_expired: true, redirect_uri: "https://clubsp.online/auth/gmail/callback"};
   await page.route("**/api/gmail/status", route => route.fulfill({json: status}));
@@ -69,6 +69,6 @@ test("authorized mailbox can refresh without claiming inbox import or sending", 
   await page.getByText("Gmail · Connect your mailbox", {exact: true}).click();
   await expect(page.locator("#gmail-status")).toContainText("expired");
   await page.locator("#gmail-refresh").click();
-  await expect(page.locator("#gmail-result")).toHaveText("Gmail access refreshed. Sending remains disabled.");
-  await expect(page.locator("#gmail-status")).toContainText("Read-only access.");
+  await expect(page.locator("#gmail-result")).toHaveText("Gmail access refreshed. Approved-draft sending is enabled; automatic sending remains disabled.");
+  await expect(page.locator("#gmail-status")).toContainText("Read access plus approved-draft sending.");
 });

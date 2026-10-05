@@ -1,4 +1,4 @@
-"""Local, read-only Gmail authorization. No send or inbox import operations."""
+"""Owner-controlled Gmail authorization for manual previews and approved sends."""
 from __future__ import annotations
 
 import base64
@@ -13,7 +13,14 @@ import time
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
-SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+SCOPES = (READ_SCOPE, SEND_SCOPE)
+SCOPE = " ".join(SCOPES)
+
+
+def has_required_scopes(value):
+    return isinstance(value, str) and set(SCOPES).issubset(set(value.split()))
 CALLBACK = "/auth/gmail/callback"
 
 
@@ -33,13 +40,17 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def google_request(url, *, data=None, token=None):
+def google_request(url, *, data=None, json_body=None, token=None):
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = "Bearer " + token
-    body = urlencode(data).encode() if data is not None else None
-    if body:
+    if data is not None and json_body is not None:
+        raise ValueError("Use one Google request body format")
+    body = urlencode(data).encode() if data is not None else json.dumps(json_body).encode() if json_body is not None else None
+    if data is not None:
         headers["Content-Type"] = "application/x-www-form-urlencoded"
+    elif json_body is not None:
+        headers["Content-Type"] = "application/json"
     try:
         with build_opener(NoRedirect()).open(Request(url, data=body, headers=headers), timeout=10) as response:
             content = response.read(65537)
@@ -82,14 +93,15 @@ class GmailConnection:
         result = {"configured": bool(self.client_id and self.client_secret and self.expected_email),
                   "connected": False, "sending_enabled": False, "sync_enabled": True,
                   "automatic_sync": False, "sync_mode": "manual_previews",
-                  "redirect_uri": self.callback_uri(origin), "scope": "Read-only Gmail",
+                  "redirect_uri": self.callback_uri(origin), "scope": "Read and approved-send Gmail",
                   "refresh_enabled": True,
                   "expected_email": self.expected_email}
         try:
             saved = json.loads(self.path.read_text())
             if isinstance(saved, dict) and isinstance(saved.get("email"), str) and saved["email"].lower() == self.expected_email and saved.get("client_fingerprint") == self.fingerprint():
-                result.update(connected=True, email=saved["email"],
-                              access_token_expired=self.clock() >= saved["expires_at"])
+                if saved.get("scope") == SCOPE:
+                    result.update(connected=True, sending_enabled=True, email=saved["email"],
+                                  access_token_expired=self.clock() >= saved["expires_at"])
         except (OSError, ValueError, KeyError, TypeError):
             pass
         return result
@@ -134,8 +146,8 @@ class GmailConnection:
             "code": code, "code_verifier": pending[1], "redirect_uri": pending[2],
             "grant_type": "authorization_code",
         })
-        if not isinstance(tokens.get("scope"), str) or SCOPE not in tokens["scope"].split():
-            raise ValueError("Google did not grant the required read-only permission")
+        if not has_required_scopes(tokens.get("scope")):
+            raise ValueError("Google did not grant the required read and send permissions")
         access = tokens.get("access_token")
         refresh = tokens.get("refresh_token")
         if not isinstance(access, str) or not access or not isinstance(refresh, str) or not refresh:
@@ -200,7 +212,7 @@ class GmailConnection:
                 lifetime = int(tokens["expires_in"])
                 if not isinstance(access, str) or not access or not 0 < lifetime <= 86400:
                     raise ValueError()
-                if "scope" in tokens and (not isinstance(tokens["scope"], str) or SCOPE not in tokens["scope"].split()):
+                if "scope" in tokens and not has_required_scopes(tokens["scope"]):
                     raise ValueError()
                 refresh = tokens.get("refresh_token", saved["refresh_token"])
                 if not isinstance(refresh, str) or not refresh:

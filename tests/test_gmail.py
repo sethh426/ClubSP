@@ -27,7 +27,7 @@ def finish(connection):
     return connection.complete({"state": state, "code": "synthetic-code"}, state, ORIGIN)
 
 
-def test_authorization_is_read_only_pkce_and_fixed_destination(tmp_path):
+def test_authorization_uses_read_and_send_scopes_with_pkce(tmp_path):
     connection, _ = make_connection(tmp_path)
     url, state = connection.begin(ORIGIN)
     query = parse_qs(urlsplit(url).query)
@@ -44,7 +44,7 @@ def test_token_private_persistent_and_never_returned(tmp_path):
     assert finish(connection) == "owner@example.test"
     assert stat.S_IMODE(connection.path.stat().st_mode) == 0o600
     status = connection.status(ORIGIN)
-    assert status["connected"] and not status["sending_enabled"] and status["sync_enabled"]
+    assert status["connected"] and status["sending_enabled"] and status["sync_enabled"]
     assert not status["automatic_sync"]
     assert "synthetic-access" not in json.dumps(status)
     assert "synthetic-refresh" not in json.dumps(status)

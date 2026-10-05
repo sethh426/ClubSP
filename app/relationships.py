@@ -56,6 +56,10 @@ class RelationshipBook:
                 "CREATE TABLE IF NOT EXISTS relationship_drafts (id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL REFERENCES relationships(id), profile_id TEXT NOT NULL REFERENCES relationship_profiles(id), event_id TEXT REFERENCES relationship_interactions(id), previous_id TEXT UNIQUE REFERENCES relationship_drafts(id), request_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, created_at TEXT NOT NULL)",
                 "CREATE INDEX IF NOT EXISTS relationship_draft_lookup ON relationship_drafts(relationship_id)",
                 "CREATE TABLE IF NOT EXISTS relationship_draft_reviews (id TEXT PRIMARY KEY, draft_id TEXT NOT NULL REFERENCES relationship_drafts(id), request_key TEXT NOT NULL UNIQUE, previous_id TEXT UNIQUE REFERENCES relationship_draft_reviews(id), payload TEXT NOT NULL, created_at TEXT NOT NULL)",
+                "CREATE TABLE IF NOT EXISTS relationship_sends (id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL REFERENCES relationships(id), draft_id TEXT NOT NULL UNIQUE REFERENCES relationship_drafts(id), review_id TEXT NOT NULL REFERENCES relationship_draft_reviews(id), request_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, created_at TEXT NOT NULL)",
+                "CREATE INDEX IF NOT EXISTS relationship_send_lookup ON relationship_sends(relationship_id,created_at)",
+                "CREATE TABLE IF NOT EXISTS relationship_send_events (id TEXT PRIMARY KEY, send_id TEXT NOT NULL REFERENCES relationship_sends(id), status TEXT NOT NULL, provider_message_id TEXT NOT NULL, provider_thread_id TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL)",
+                "CREATE INDEX IF NOT EXISTS relationship_send_event_lookup ON relationship_send_events(send_id,created_at)",
             ]
             for statement in statements:
                 connection.execute(statement)
@@ -240,6 +244,152 @@ class RelationshipBook:
             connection.execute("INSERT INTO relationship_draft_reviews VALUES(?,?,?,?,?,?)", (review_id, did, key, previous, encoded, utc_now().isoformat()))
             return self.decode(connection.execute("SELECT * FROM relationship_draft_reviews WHERE id=?", (review_id,)).fetchone())
 
+    def _send_json(self, connection, row):
+        item = self.decode(row)
+        event = connection.execute(
+            "SELECT * FROM relationship_send_events WHERE send_id=? ORDER BY rowid DESC LIMIT 1",
+            (row["id"],),
+        ).fetchone()
+        item["latest_event"] = dict(event) if event else None
+        item["status"] = event["status"] if event else "reserved"
+        return item
+
+    def reserve_send(self, rid, data, sender_email):
+        key = identifier(data, "request_key")
+        draft_id = identifier(data, "draft_id")
+        review_id = identifier(data, "review_id")
+        if data.get("owner_confirmed_send") is not True:
+            raise ValueError("Explicit owner send confirmation is required")
+        follow_up_on = day(data, "follow_up_on")
+        next_action = text_field(data, "next_action", 500, required=bool(follow_up_on))
+        sender_email = str(sender_email or "").strip().lower()
+        if not sender_email:
+            raise ValueError("Configured Gmail sender is missing")
+        with self.database.session(write=True) as (connection, _):
+            existing = connection.execute(
+                "SELECT * FROM relationship_sends WHERE request_key=?", (key,)
+            ).fetchone()
+            if existing:
+                saved = self.decode(existing)
+                expected = {
+                    "owner_confirmed_send": True,
+                    "follow_up_on": follow_up_on,
+                    "next_action": next_action,
+                    "sender": sender_email,
+                }
+                if (existing["relationship_id"] != rid or existing["draft_id"] != draft_id
+                        or existing["review_id"] != review_id
+                        or any(saved.get(k) != v for k, v in expected.items())):
+                    raise ValueError("request_key already records a different send attempt")
+                return {"created": False, "send": self._send_json(connection, existing)}
+
+            prior = connection.execute(
+                "SELECT * FROM relationship_sends WHERE draft_id=?", (draft_id,)
+            ).fetchone()
+            if prior:
+                raise ValueError("This exact draft already has a send attempt; reconcile it before any new outreach")
+
+            draft = connection.execute(
+                "SELECT * FROM relationship_drafts WHERE id=? AND relationship_id=?",
+                (draft_id, rid),
+            ).fetchone()
+            if not draft:
+                raise LookupError("Draft not found for this relationship")
+            profile = self.decode(self.latest(connection, "relationship_profiles", rid))
+            blockers = self.draft_blockers(connection, rid, profile, draft)
+            if blockers:
+                raise ValueError("; ".join(blockers))
+            review = connection.execute(
+                "SELECT * FROM relationship_draft_reviews WHERE id=? AND draft_id=?",
+                (review_id, draft_id),
+            ).fetchone()
+            latest_review = connection.execute(
+                "SELECT * FROM relationship_draft_reviews WHERE draft_id=? ORDER BY rowid DESC LIMIT 1",
+                (draft_id,),
+            ).fetchone()
+            if not review or not latest_review or latest_review["id"] != review_id:
+                raise ValueError("Use the current review for this draft")
+            reviewed = self.decode(review)
+            if reviewed["decision"] != "approved":
+                raise ValueError("The current draft review is not approved")
+            message = self.decode(draft)
+            payload = {
+                "recipient": profile["email"],
+                "sender": sender_email,
+                "subject": message["subject"],
+                "body": message["body"],
+                "profile_id": profile["id"],
+                "event_id": (self.latest(connection, "relationship_interactions", rid) or {"id": None})["id"],
+                "owner_confirmed_send": True,
+                "follow_up_on": follow_up_on,
+                "next_action": next_action,
+            }
+            send_id = str(uuid4())
+            now = utc_now().isoformat()
+            connection.execute(
+                "INSERT INTO relationship_sends VALUES(?,?,?,?,?,?,?)",
+                (send_id, rid, draft_id, review_id, key, json.dumps(payload, sort_keys=True), now),
+            )
+            connection.execute(
+                "INSERT INTO relationship_send_events VALUES(?,?,?,?,?,?,?)",
+                (str(uuid4()), send_id, "reserved", "", "", "Reserved before Gmail transport", now),
+            )
+            row = connection.execute("SELECT * FROM relationship_sends WHERE id=?", (send_id,)).fetchone()
+            return {"created": True, "send": self._send_json(connection, row)}
+
+    def record_send_result(self, send_id, status, provider_message_id="", provider_thread_id="", note=""):
+        if status not in {"sent", "unknown"}:
+            raise ValueError("Unsupported send result")
+        send_id = identifier({"send_id": send_id}, "send_id")
+        if status == "sent" and (not provider_message_id or not provider_thread_id):
+            raise ValueError("Sent Gmail records require message and thread IDs")
+        with self.database.session(write=True) as (connection, _):
+            row = connection.execute("SELECT * FROM relationship_sends WHERE id=?", (send_id,)).fetchone()
+            if not row:
+                raise LookupError("Send record not found")
+            latest = connection.execute(
+                "SELECT * FROM relationship_send_events WHERE send_id=? ORDER BY rowid DESC LIMIT 1",
+                (send_id,),
+            ).fetchone()
+            if latest and latest["status"] in {"sent", "unknown"}:
+                if (latest["status"], latest["provider_message_id"], latest["provider_thread_id"]) != (
+                        status, provider_message_id, provider_thread_id):
+                    raise ValueError("Send result is already finalized")
+                return self._send_json(connection, row)
+            now = utc_now().isoformat()
+            connection.execute(
+                "INSERT INTO relationship_send_events VALUES(?,?,?,?,?,?,?)",
+                (str(uuid4()), send_id, status, provider_message_id, provider_thread_id,
+                 text_field({"note": note}, "note", 1000, required=False), now),
+            )
+            if status == "sent":
+                payload = json.loads(row["payload"])
+                current_profile = self.latest(connection, "relationship_profiles", row["relationship_id"])
+                current_event = self.latest(connection, "relationship_interactions", row["relationship_id"])
+                context_unchanged = bool(
+                    current_profile and current_profile["id"] == payload["profile_id"]
+                    and (current_event["id"] if current_event else None) == payload["event_id"]
+                )
+                already_recorded = connection.execute(
+                    "SELECT 1 FROM relationship_interactions WHERE request_key=?", (send_id,)
+                ).fetchone()
+                if context_unchanged and not already_recorded:
+                    interaction = {
+                        "direction": "outgoing",
+                        "outcome": "general",
+                        "note": "Sent approved Gmail draft: " + payload["subject"],
+                        "evidence_reference": "gmail_message:" + provider_message_id,
+                        "occurred_on": business_today().isoformat(),
+                        "follow_up_on": payload["follow_up_on"],
+                        "next_action": payload["next_action"],
+                    }
+                    connection.execute(
+                        "INSERT INTO relationship_interactions VALUES(?,?,?,?,?,?,?)",
+                        (str(uuid4()), row["relationship_id"], send_id, payload["profile_id"],
+                         payload["event_id"], json.dumps(interaction, sort_keys=True), now),
+                    )
+            return self._send_json(connection, row)
+
     def state(self):
         today = business_today().isoformat()
         with self.database.session() as (connection, _):
@@ -276,7 +426,16 @@ class RelationshipBook:
                     saved["review_blockers"] = self.draft_blockers(connection, rid, profile, saved)
                     saved["review_status"] = "blocked" if saved["review_blockers"] else saved["reviews"][0]["decision"] if saved["reviews"] else "pending"
                     saved["recipient"] = self.decode(connection.execute("SELECT * FROM relationship_profiles WHERE id=?", (saved["profile_id"],)).fetchone())["email"]
-                    saved["sending_enabled"] = False
+                    send_row = connection.execute(
+                        "SELECT * FROM relationship_sends WHERE draft_id=? ORDER BY rowid DESC LIMIT 1",
+                        (saved["id"],),
+                    ).fetchone()
+                    saved["send"] = self._send_json(connection, send_row) if send_row else None
+                    current_review = saved["reviews"][0] if saved["reviews"] else None
+                    saved["sending_enabled"] = bool(
+                        not saved["review_blockers"] and current_review
+                        and current_review["decision"] == "approved" and not send_row
+                    )
                     saved_drafts.append(saved)
                 records.append({"id": rid, "profile": profile, "profile_history": history,
                     "interactions": interactions, "event_id": last["id"] if last else None,
