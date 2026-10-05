@@ -127,6 +127,25 @@ class Database:
                 CREATE TABLE IF NOT EXISTS buyer_match_runs (
                     id TEXT PRIMARY KEY,
                     deal_id TEXT NOT NULL REFERENCES deals(id),
+                    matches_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS buyer_mandates (
+                    id TEXT PRIMARY KEY,
+                    buyer_id TEXT NOT NULL REFERENCES buyers(id),
+                    name TEXT NOT NULL,
+                    markets_json TEXT NOT NULL,
+                    strategies_json TEXT NOT NULL,
+                    property_types_json TEXT NOT NULL,
+                    max_total_price REAL NOT NULL,
+                    max_repairs REAL NOT NULL,
+                    priority INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    evidence_reference TEXT NOT NULL,
+                    verified_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS buyer_mandate_filters (
                     mandate_id TEXT PRIMARY KEY REFERENCES buyer_mandates(id),
                     filters_json TEXT NOT NULL
@@ -151,22 +170,6 @@ class Database:
                     ON commitment_reservations(mandate_id,status,reserved_at);
                 CREATE INDEX IF NOT EXISTS commitment_reservations_deal
                     ON commitment_reservations(deal_id,status,reserved_at);
-                CREATE TABLE IF NOT EXISTS buyer_mandates (
-                    id TEXT PRIMARY KEY,
-                    buyer_id TEXT NOT NULL REFERENCES buyers(id),
-                    name TEXT NOT NULL,
-                    markets_json TEXT NOT NULL,
-                    strategies_json TEXT NOT NULL,
-                    property_types_json TEXT NOT NULL,
-                    max_total_price REAL NOT NULL,
-                    max_repairs REAL NOT NULL,
-                    priority INTEGER NOT NULL,
-                    status TEXT NOT NULL,
-                    evidence_reference TEXT NOT NULL,
-                    verified_at TEXT NOT NULL,
-                    expires_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
                 CREATE TABLE IF NOT EXISTS capital_profiles (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -240,9 +243,6 @@ class Database:
                     metadata_json TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS commitment_events_entity ON commitment_events(entity_type,entity_id,created_at);
-                    matches_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
                 CREATE TABLE IF NOT EXISTS memory (
                     collection TEXT NOT NULL,
                     id TEXT NOT NULL,
