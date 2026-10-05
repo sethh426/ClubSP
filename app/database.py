@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
+import threading
 from uuid import UUID
 
 from core.memory import (
@@ -50,14 +51,29 @@ def decode_record(model, body):
 
 
 class Database:
-    """Each write reloads and commits a complete memory unit under a SQLite lock.
+    """Each write reloads and commits a complete memory unit under two locks.
 
-    This reference implementation favors correctness for a small local workspace.
-    Large datasets should replace the full snapshot with targeted repository queries.
+    SQLite BEGIN IMMEDIATE protects the file across processes. A per-database
+    process lock also prevents two ClubSP threads/Application instances from
+    loading and later rewriting overlapping full-memory snapshots in one process.
     """
 
+    _locks_guard = threading.Lock()
+    _write_locks = {}
+
+    @classmethod
+    def _lock_for(cls, path):
+        key = str(Path(path).resolve())
+        with cls._locks_guard:
+            lock = cls._write_locks.get(key)
+            if lock is None:
+                lock = threading.RLock()
+                cls._write_locks[key] = lock
+            return lock
+
     def __init__(self, path):
-        self.path = str(path)
+        self.path = str(Path(path).resolve())
+        self._write_lock = self._lock_for(self.path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.path) as connection:
             assert_component_compatible(connection, "core")
@@ -377,6 +393,9 @@ class Database:
 
     @contextmanager
     def session(self, write=False):
+        lock = self._write_lock if write else None
+        if lock is not None:
+            lock.acquire()
         connection = sqlite3.connect(self.path, timeout=15)
         connection.row_factory = sqlite3.Row
         try:
@@ -404,3 +423,5 @@ class Database:
             raise
         finally:
             connection.close()
+            if lock is not None:
+                lock.release()
