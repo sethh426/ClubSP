@@ -227,6 +227,41 @@ def test_changes_invalidate_queue_matching_and_contract_then_preserve_history(tm
 
 def test_old_sales_keep_sale_date_not_import_freshness(tmp_path):
     app, did = fixture_deal(tmp_path)
+
+def test_candidate_optional_price_and_property_fields_become_reviewed_evidence(tmp_path):
+    app = Application(tmp_path / "intake.db")
+    csv_text = (
+        "address,zip,parcel_id,property_type,asking_price,beds,baths,sqft,year_built\n"
+        "Synthetic Priced Intake,46802,00124,single_family,125000,3,2,1450,1988"
+    )
+    row = staged_row(app, import_data(csv=csv_text))
+    assert row["value"]["asking_price"] == 125000
+    result = app.review_candidate(row["id"], review_data())
+    facts = [
+        fact for fact in app.state()["facts"]
+        if str(fact["subject_id"]) == result["property_id"]
+    ]
+    values = {fact["attribute"]: fact["value"] for fact in facts}
+    assert values["asking_price"] == 125000
+    assert values["beds"] == 3
+    assert values["baths"] == 2
+    assert values["sqft"] == 1450
+    assert values["year_built"] == 1988
+
+
+@pytest.mark.parametrize("field,value", [
+    ("asking_price", "NaN"),
+    ("asking_price", "-1"),
+    ("year_built", "1988.5"),
+])
+def test_invalid_optional_candidate_numeric_fields_do_not_stage_as_valid(tmp_path, field, value):
+    app = Application(tmp_path / "intake.db")
+    headers = "address,zip,parcel_id,property_type," + field
+    csv_text = headers + "\nSynthetic Bad Optional,46802,00125,single_family," + value
+    row = staged_row(app, import_data(csv=csv_text))
+    assert row["status"] == "invalid"
+    assert row["errors"]
+
     pid = app.state()["properties"][0]["id"]
     accept_sale(app, pid, csv="Parcel Number,Address,Sale Date,Sale Price,Living Area\n2,Old comp,2020-01-01,200000,1000")
     app.underwrite(did, app.state()["deals"][0]["underwriting"]["inputs"])
