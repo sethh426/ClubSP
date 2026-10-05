@@ -69,3 +69,10 @@ Treat database backups as private because they can contain email previews.
 
 References: https://developers.google.com/identity/protocols/oauth2/web-server
 and https://developers.google.com/workspace/gmail/api/auth/scopes
+
+
+## Approved send safety
+
+A Relationship Desk message can be sent only when its relationship is current, contact permission is owner-reviewed, no stop/wrong-person suppression exists, the exact latest draft has a current approval, and the owner checks the final send confirmation. ClubSP reserves an immutable send record before contacting Gmail and permits only one send attempt per exact draft. If the Gmail request outcome is ambiguous, ClubSP records the status as `unknown` and will not silently retry it; verify the Gmail Sent mailbox before creating any new outreach. Confirmed sends retain Gmail message/thread IDs and can schedule the next relationship follow-up.
+
+Google documents `gmail.send` as the focused scope for sending mail and notes that users are prompted again when requested scopes change. See the Gmail API scope and web-server authorization documentation.
