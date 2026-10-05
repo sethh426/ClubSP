@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from .providers import NoRedirect, parcel_key
 from .discovery_intake import DiscoveryIntakeMixin, notice_blockers, preliminary_notice_buyers
+from .schema import assert_component_compatible, ensure_component
 
 SOURCES = {
     'accdc': {'name': 'Allen County ACCDC availability', 'url': 'https://www.allencounty.in.gov/334/ACCDC-Properties'},
@@ -77,7 +78,9 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
         self.discovery_lock = threading.Lock()
         self.discovery_fetch = fetch_notice
         with self.database.session(write=True) as (connection, _):
+            assert_component_compatible(connection, "discovery")
             connection.execute('CREATE TABLE IF NOT EXISTS discovery_checks (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, fetched_at TEXT NOT NULL, body TEXT NOT NULL)')
+            ensure_component(connection, "discovery")
 
     def check_discovery(self, data):
         if set(data) != {'source_id'} or data['source_id'] not in SOURCES:

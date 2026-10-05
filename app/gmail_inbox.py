@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from .communications import contact_exists
 from .validation import text_field
+from .schema import assert_component_compatible, ensure_component
 
 ROOT = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 DEFAULT_QUERY = "in:inbox newer_than:30d"
@@ -104,6 +105,7 @@ def sync_previews(gmail, app, data):
 class GmailInboxMixin:
     def _initialize_gmail_inbox(self):
         with self.database.session(write=True) as (connection, _):
+            assert_component_compatible(connection, "gmail_inbox")
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS gmail_previews (
                     id TEXT PRIMARY KEY, mailbox TEXT NOT NULL, gmail_id TEXT NOT NULL,
@@ -123,6 +125,7 @@ class GmailInboxMixin:
                     imported_at TEXT
                 );
             """)
+            ensure_component(connection, "gmail_inbox")
 
     def save_gmail_previews(self, batch):
         inserted = 0
