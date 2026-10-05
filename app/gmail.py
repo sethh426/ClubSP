@@ -31,7 +31,7 @@ def load_local_environment(path):
         return
     for line in path.read_text().splitlines():
         key, sep, value = line.partition("=")
-        if sep and key in {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL", "GOOGLE_REDIRECT_URI"}:
+        if sep and key in {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL", "GOOGLE_REDIRECT_URI", "CLUBSP_OWNER_SECRET", "CLUBSP_ENV"}:
             os.environ.setdefault(key, value.strip())
 
 
