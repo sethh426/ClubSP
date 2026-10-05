@@ -328,3 +328,49 @@ def test_send_scope_is_incremental_and_read_only_connection_remains_valid(tmp_pa
     connection.complete({"state": state, "code": "send-code"}, state, ORIGIN)
     assert connection.status(ORIGIN)["sending_enabled"]
     assert connection.ensure_access_token(required_scope=SEND_SCOPE) == "send-access"
+
+
+def test_private_https_browser_origin_and_callback_must_match(tmp_path):
+    config = dict(CONFIG, CLUBSP_BROWSER_ORIGIN="https://clubsp.online",
+                  GOOGLE_REDIRECT_URI="https://clubsp.online/auth/gmail/callback")
+    connection = GmailConnection(tmp_path, config=config)
+    assert connection.browser_origin == "https://clubsp.online"
+    assert connection.callback_uri("https://clubsp.online") == "https://clubsp.online/auth/gmail/callback"
+    with pytest.raises(ValueError, match="same origin"):
+        GmailConnection(tmp_path / "mismatch", config=dict(
+            config, GOOGLE_REDIRECT_URI="https://other.example/auth/gmail/callback"))
+    with pytest.raises(ValueError, match="canonical HTTPS"):
+        GmailConnection(tmp_path / "http", config=dict(CONFIG, CLUBSP_BROWSER_ORIGIN="http://clubsp.online"))
+
+
+def test_private_https_connect_uses_exact_origin_and_secure_state_cookie(tmp_path):
+    import threading
+    from urllib.request import Request, urlopen
+    from app.server import create_server
+
+    config = dict(CONFIG, CLUBSP_BROWSER_ORIGIN="https://clubsp.online",
+                  GOOGLE_REDIRECT_URI="https://clubsp.online/auth/gmail/callback")
+    gmail = GmailConnection(tmp_path / "private", config=config)
+    server = create_server(tmp_path / "app.db", port=0, gmail=gmail)
+    worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+    base = "http://127.0.0.1:" + str(server.server_address[1])
+    try:
+        req = Request(base + "/api/gmail/connect", data=b"{}",
+            headers={"Content-Type":"application/json", "Host":"clubsp.online",
+                     "Origin":"https://clubsp.online"}, method="POST")
+        with urlopen(req) as response:
+            result = json.load(response)
+            cookie = response.headers["Set-Cookie"]
+        query = parse_qs(urlsplit(result["authorization_url"]).query)
+        assert query["redirect_uri"] == ["https://clubsp.online/auth/gmail/callback"]
+        assert "Secure" in cookie and "HttpOnly" in cookie and "SameSite=Lax" in cookie
+
+        bad = Request(base + "/api/gmail/connect", data=b"{}",
+            headers={"Content-Type":"application/json", "Host":"clubsp.online",
+                     "Origin":"https://evil.example"}, method="POST")
+        from urllib.error import HTTPError
+        with pytest.raises(HTTPError) as error:
+            urlopen(bad)
+        assert error.value.code == 403
+    finally:
+        server.shutdown(); server.server_close(); worker.join()
