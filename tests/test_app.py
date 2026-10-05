@@ -332,3 +332,22 @@ def test_unprofitable_deal_cannot_be_marked_contracted(tmp_path):
             "stage": "contracted", "note": "Should remain blocked",
             "owner_confirmed_signed": True, "evidence_reference": "contract-ref",
         })
+
+
+def test_private_https_proxy_host_and_origin_are_explicitly_bounded(tmp_path):
+    from app.gmail import GmailConnection
+    gmail = GmailConnection(tmp_path / "private", config={"CLUBSP_BROWSER_ORIGIN":"https://clubsp.online"})
+    server = create_server(tmp_path / "private.db", port=0, gmail=gmail)
+    worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+    base = "http://127.0.0.1:" + str(server.server_address[1])
+    try:
+        code, body, _ = request(base, "/api/health", headers={"Host":"clubsp.online"})
+        assert code == 200 and json.loads(body)["mode"] == "private_https"
+        payload = {"address":"Private Test", "city":"Fort Wayne", "state":"IN"}
+        assert request(base, "/api/properties", payload,
+                       {"Host":"clubsp.online", "Origin":"https://clubsp.online"})[0] == 201
+        assert request(base, "/api/properties", payload,
+                       {"Host":"clubsp.online", "Origin":"https://evil.example"})[0] == 403
+        assert request(base, "/api/state", headers={"Host":"other.example"})[0] == 403
+    finally:
+        server.shutdown(); server.server_close(); worker.join()
