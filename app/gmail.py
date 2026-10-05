@@ -31,7 +31,7 @@ def load_local_environment(path):
         return
     for line in path.read_text().splitlines():
         key, sep, value = line.partition("=")
-        if sep and key in {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL", "GOOGLE_REDIRECT_URI"}:
+        if sep and key in {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL", "GOOGLE_REDIRECT_URI", "CLUBSP_BROWSER_ORIGIN"}:
             os.environ.setdefault(key, value.strip())
 
 
@@ -72,11 +72,26 @@ class GmailConnection:
         self.client_secret = config.get("GOOGLE_CLIENT_SECRET", "")
         self.expected_email = config.get("GOOGLE_MAILBOX_EMAIL", "").strip().lower()
         self.external_callback = config.get("GOOGLE_REDIRECT_URI", "").strip()
+        callback_origin = ""
         if self.external_callback:
             parsed = urlsplit(self.external_callback)
             if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
                     or parsed.path != CALLBACK or parsed.query or parsed.fragment):
                 raise ValueError("GOOGLE_REDIRECT_URI must be an HTTPS Gmail callback URL")
+            callback_origin = parsed.scheme + "://" + parsed.netloc
+        self.browser_origin = config.get("CLUBSP_BROWSER_ORIGIN", "").strip()
+        if self.browser_origin:
+            parsed = urlsplit(self.browser_origin)
+            canonical = parsed.scheme + "://" + parsed.netloc
+            if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+                    or parsed.path not in {"", "/"} or parsed.query or parsed.fragment
+                    or self.browser_origin.rstrip("/") != canonical):
+                raise ValueError("CLUBSP_BROWSER_ORIGIN must be one canonical HTTPS origin")
+            self.browser_origin = canonical
+        elif callback_origin:
+            self.browser_origin = callback_origin
+        if callback_origin and self.browser_origin and callback_origin != self.browser_origin:
+            raise ValueError("GOOGLE_REDIRECT_URI and CLUBSP_BROWSER_ORIGIN must use the same origin")
         self.path = Path(directory) / "gmail-token.json"
         self.request = request or google_request
         self.clock = clock or time.time
@@ -87,7 +102,7 @@ class GmailConnection:
         self.sync_lock = threading.Lock()
 
     def callback_uri(self, origin):
-        return self.external_callback or origin + CALLBACK
+        return self.external_callback or (self.browser_origin + CALLBACK if self.browser_origin else origin + CALLBACK)
 
     def _saved(self):
         saved = json.loads(self.path.read_text())
@@ -120,8 +135,10 @@ class GmailConnection:
 
     def begin(self, origin, include_send=False):
         parts = urlsplit(origin)
-        if parts.hostname not in {"127.0.0.1", "localhost"} or parts.scheme != "http":
-            raise ValueError("This release supports the trusted local application origin only")
+        local = parts.hostname in {"127.0.0.1", "localhost"} and parts.scheme == "http"
+        external = bool(self.browser_origin and origin == self.browser_origin)
+        if not (local or external):
+            raise ValueError("Use the trusted ClubSP browser origin")
         if not self.status(origin)["configured"]:
             raise ValueError("Configure the Google client and expected mailbox before connecting")
         state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
