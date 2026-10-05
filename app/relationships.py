@@ -390,6 +390,113 @@ class RelationshipBook:
                     )
             return self._send_json(connection, row)
 
+    def review_gmail_reply(self, preview_id, data):
+        preview_id = identifier({"preview_id": preview_id}, "preview_id")
+        action = text_field(data, "action", 20)
+        if action not in {"link", "unlink", "import"}:
+            raise ValueError("Unsupported Gmail relationship review action")
+        relationship_id = identifier(data, "relationship_id", required=action == "link")
+        if action == "unlink":
+            with self.database.session(write=True) as (connection, _):
+                link = connection.execute(
+                    "SELECT * FROM gmail_preview_relationship_links WHERE preview_id=?", (preview_id,)
+                ).fetchone()
+                if not link:
+                    return {"action": "unlink", "id": preview_id}
+                if link["interaction_id"]:
+                    raise ValueError("Imported replies cannot be unlinked; correct the relationship history instead")
+                connection.execute("DELETE FROM gmail_preview_relationship_links WHERE preview_id=?", (preview_id,))
+            return {"action": "unlink", "id": preview_id}
+
+        if action == "link":
+            with self.database.session(write=True) as (connection, _):
+                preview = connection.execute("SELECT * FROM gmail_previews WHERE id=?", (preview_id,)).fetchone()
+                if not preview:
+                    raise LookupError("Gmail preview not found")
+                profile = self.latest(connection, "relationship_profiles", relationship_id)
+                if not profile:
+                    raise LookupError("Relationship not found")
+                current = self.decode(profile)
+                if not preview["sender_email"] or current["email"].lower() != preview["sender_email"].lower():
+                    raise ValueError("Choose a relationship whose current email matches the Gmail sender")
+                existing = connection.execute(
+                    "SELECT * FROM gmail_preview_relationship_links WHERE preview_id=?", (preview_id,)
+                ).fetchone()
+                if existing and existing["interaction_id"]:
+                    raise ValueError("Imported replies cannot be relinked")
+                if existing and existing["relationship_id"] == relationship_id:
+                    return {"action": "link", "id": preview_id, "relationship_id": relationship_id}
+                now = utc_now().isoformat()
+                connection.execute(
+                    "INSERT OR REPLACE INTO gmail_preview_relationship_links(preview_id,relationship_id,interaction_id,linked_at,imported_at) VALUES(?,?,?,?,?)",
+                    (preview_id, relationship_id, None, now, None),
+                )
+            return {"action": "link", "id": preview_id, "relationship_id": relationship_id}
+
+        key = identifier(data, "request_key")
+        outcome = text_field(data, "outcome", 30)
+        if outcome not in {"general", "interested", "not_interested", "stop", "wrong_person"}:
+            raise ValueError("Unsupported reply outcome")
+        occurred_on = day(data, "occurred_on", required=True, past=True)
+        follow_up_on = day(data, "follow_up_on")
+        next_action = text_field(data, "next_action", 500, required=bool(follow_up_on))
+        review_note = text_field(data, "review_note", 2000)
+        if outcome in {"stop", "wrong_person"}:
+            follow_up_on, next_action = "", ""
+
+        with self.database.session() as (connection, _):
+            preview = connection.execute("SELECT * FROM gmail_previews WHERE id=?", (preview_id,)).fetchone()
+            if not preview:
+                raise LookupError("Gmail preview not found")
+            link = connection.execute(
+                "SELECT * FROM gmail_preview_relationship_links WHERE preview_id=?", (preview_id,)
+            ).fetchone()
+            if not link:
+                raise ValueError("Link this Gmail preview to a matching relationship before importing it")
+            if relationship_id and relationship_id != link["relationship_id"]:
+                raise ValueError("Gmail preview relationship link changed; reload before importing")
+            relationship_id = link["relationship_id"]
+            if link["interaction_id"]:
+                prior = connection.execute(
+                    "SELECT * FROM relationship_interactions WHERE id=?", (link["interaction_id"],)
+                ).fetchone()
+                if prior and prior["request_key"] == key:
+                    return {"action": "import", "id": preview_id, "relationship_id": relationship_id,
+                            "interaction": self.decode(prior)}
+                raise ValueError("This Gmail preview is already imported")
+            profile = self.latest(connection, "relationship_profiles", relationship_id)
+            if not profile:
+                raise LookupError("Relationship not found")
+            profile_data = self.decode(profile)
+            if not preview["sender_email"] or profile_data["email"].lower() != preview["sender_email"].lower():
+                raise ValueError("Relationship email changed; relink the preview before importing")
+            latest_event = self.latest(connection, "relationship_interactions", relationship_id)
+            profile_id = profile["id"]
+            event_id = latest_event["id"] if latest_event else ""
+            evidence = "gmail_preview:" + preview_id + ";gmail_message:" + preview["gmail_id"]
+            note = "Gmail preview: " + (preview["snippet"] or "(no snippet)") + "\nOwner review: " + review_note
+
+        interaction = self.interact(relationship_id, {
+            "request_key": key, "profile_id": profile_id, "event_id": event_id,
+            "direction": "incoming", "outcome": outcome, "note": note,
+            "evidence_reference": evidence, "occurred_on": occurred_on,
+            "follow_up_on": follow_up_on, "next_action": next_action,
+        })
+        with self.database.session(write=True) as (connection, _):
+            link = connection.execute(
+                "SELECT * FROM gmail_preview_relationship_links WHERE preview_id=?", (preview_id,)
+            ).fetchone()
+            if not link or link["relationship_id"] != relationship_id:
+                raise ValueError("Gmail relationship link changed during import")
+            if link["interaction_id"] and link["interaction_id"] != interaction["id"]:
+                raise ValueError("Gmail preview was imported concurrently")
+            connection.execute(
+                "UPDATE gmail_preview_relationship_links SET interaction_id=?,imported_at=? WHERE preview_id=?",
+                (interaction["id"], utc_now().isoformat(), preview_id),
+            )
+        return {"action": "import", "id": preview_id, "relationship_id": relationship_id,
+                "interaction": interaction}
+
     def state(self):
         today = business_today().isoformat()
         with self.database.session() as (connection, _):
