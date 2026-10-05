@@ -62,7 +62,7 @@ function renderContacts() {
   communicationText(messageForm.form, "body", "Actual message or conversation notes", "", true);
   workspaceField(messageForm.form, "evidence_reference", "Conversation evidence reference");
   workspaceSubmit(messageForm.form, "Save conversation");
-  const messageKey = crypto.randomUUID();
+  const messageKey = requestUUID();
   messageForm.form.addEventListener("submit", e=>{e.preventDefault();const data=values(messageForm.form);data.message_key=messageKey;runForm(messageForm.form,()=>api("/api/contacts/"+contact.id+"/messages",data),"Conversation saved.");});
   box.append(messageForm.details);
   const history = workspaceDetails("Conversation history · " + contact.messages.length);
@@ -106,7 +106,7 @@ function renderTraining() {
   const ratings=node("div",undefined,"assessment-grid full-width");
   Object.entries(training.rubric).forEach(([key,label])=>{workspaceSelect(ratings,key,readable(key)+": "+label,[["","Choose a score"],["0","0 — Missing / unsuitable"],["1","1 — Partial"],["2","2 — Supported and clear"]]);ratings.querySelector("select[name="+key+"]").required=true;});form.append(ratings);
   const issues=node("fieldset",undefined,"full-width");issues.append(node("legend","Hard failures observed"));const checks=node("div",undefined,"pain-point-list");Object.entries(training.hard_failures).forEach(([key,label])=>{const wrap=node("label",label);const input=node("input");input.type="checkbox";input.name="hard_failures";input.value=key;wrap.prepend(input);checks.append(wrap);});issues.append(checks);form.append(issues);
-  communicationText(form,"review_note","Review evidence: what worked and what needs to improve","",true);workspaceSubmit(form,"Save practice & self-assessment");const key=crypto.randomUUID();
+  communicationText(form,"review_note","Review evidence: what worked and what needs to improve","",true);workspaceSubmit(form,"Save practice & self-assessment");const key=requestUUID();
   form.addEventListener("submit",e=>{e.preventDefault();const data=values(form);data.attempt_key=key;data.scenario_id=lesson.id;data.ratings=Object.fromEntries(Object.keys(training.rubric).map(k=>[k,Number(form.elements[k].value)]));data.hard_failures=new FormData(form).getAll("hard_failures");runForm(form,()=>api("/api/training/practice",data),"Practice and owner self-assessment saved.");});
   box.append(node("p",training.assessment_method+". The practice threshold is 10/12 with no hard failure; it does not approve a live template.","muted small"),form);
   const history=workspaceDetails("Practice history · "+training.attempts.length);
