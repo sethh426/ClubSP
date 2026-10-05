@@ -12,6 +12,7 @@ from .database import dumps
 from .service import Application
 from .gmail import GmailConnection, load_local_environment, CALLBACK
 from .gmail_inbox import sync_previews
+from .gmail_send import send_approved_draft
 from .funding import FundingBook
 from .relationships import RelationshipBook
 
@@ -220,10 +221,16 @@ def handler_for(application, gmail):
                     result = relationships.save(data)
                 elif path.startswith("/api/relationships/"):
                     parts = path.strip("/").split("/")
-                    if len(parts) != 4 or parts[3] not in {"interactions", "drafts", "draft-reviews"}:
+                    if len(parts) != 4 or parts[3] not in {"interactions", "drafts", "draft-reviews", "send"}:
                         raise LookupError("Route not found")
-                    action = {"interactions": relationships.interact, "drafts": relationships.save_draft, "draft-reviews": relationships.review_draft}[parts[3]]
-                    result = action(parts[2], data)
+                    if parts[3] == "send":
+                        if origin != self.gmail_origin():
+                            self.send_json(403, {"error": "Send Gmail from the ClubSP workspace"})
+                            return
+                        result = send_approved_draft(gmail, relationships, parts[2], data)
+                    else:
+                        action = {"interactions": relationships.interact, "drafts": relationships.save_draft, "draft-reviews": relationships.review_draft}[parts[3]]
+                        result = action(parts[2], data)
                 elif path == "/api/properties":
                     result = application.create_property(data)
                 elif path.startswith("/api/properties/"):
