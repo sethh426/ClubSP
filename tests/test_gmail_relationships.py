@@ -70,6 +70,8 @@ def test_reviewed_reply_import_is_idempotent_and_updates_followup_queue(tmp_path
         book.review_gmail_reply(saved["id"], {**data, "request_key": str(uuid4())})
     with pytest.raises(ValueError, match="cannot be unlinked"):
         book.review_gmail_reply(saved["id"], {"action": "unlink"})
+    with pytest.raises(ValueError, match="retained"):
+        app.review_gmail_preview(saved["id"], {"action": "remove"})
 
 
 def test_stop_reply_immediately_suppresses_future_outreach(tmp_path):
