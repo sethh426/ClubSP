@@ -114,6 +114,15 @@ class GmailInboxMixin:
                     linked_at TEXT, UNIQUE(mailbox,gmail_id)
                 );
             """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS gmail_preview_relationship_links (
+                    preview_id TEXT PRIMARY KEY REFERENCES gmail_previews(id),
+                    relationship_id TEXT NOT NULL,
+                    interaction_id TEXT,
+                    linked_at TEXT NOT NULL,
+                    imported_at TEXT
+                );
+            """)
 
     def save_gmail_previews(self, batch):
         inserted = 0
@@ -138,7 +147,41 @@ class GmailInboxMixin:
                 p.address AS property_address FROM gmail_previews g
                 LEFT JOIN contacts c ON c.id=g.contact_id LEFT JOIN properties p ON p.id=c.property_id
                 ORDER BY received_ms DESC,g.id LIMIT 100""").fetchall()
-            return {"messages": [dict(row) for row in rows],
+            messages = [dict(row) for row in rows]
+            has_relationships = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='relationship_profiles'"
+            ).fetchone()
+            profiles = {}
+            if has_relationships:
+                latest = connection.execute(
+                    """SELECT p.* FROM relationship_profiles p
+                    JOIN (SELECT relationship_id,MAX(rowid) AS rowid FROM relationship_profiles GROUP BY relationship_id) x
+                    ON x.rowid=p.rowid"""
+                ).fetchall()
+                for row in latest:
+                    import json
+                    payload = json.loads(row["payload"])
+                    profiles[row["relationship_id"]] = {
+                        "id": row["relationship_id"], "profile_id": row["id"],
+                        "name": payload.get("name", ""), "email": payload.get("email", "").lower(),
+                        "status": payload.get("status", ""), "permission": payload.get("permission", ""),
+                    }
+            for message in messages:
+                link = connection.execute(
+                    "SELECT * FROM gmail_preview_relationship_links WHERE preview_id=?",
+                    (message["id"],),
+                ).fetchone()
+                message["relationship_id"] = link["relationship_id"] if link else None
+                message["relationship_interaction_id"] = link["interaction_id"] if link else None
+                message["relationship_linked_at"] = link["linked_at"] if link else None
+                message["relationship_imported_at"] = link["imported_at"] if link else None
+                profile = profiles.get(message["relationship_id"]) if link else None
+                message["relationship_name"] = profile["name"] if profile else None
+                message["relationship_candidates"] = [
+                    p for p in profiles.values()
+                    if message["sender_email"] and p["email"] == message["sender_email"]
+                ]
+            return {"messages": messages,
                     "total": connection.execute("SELECT COUNT(*) FROM gmail_previews").fetchone()[0]}
 
     def review_gmail_preview(self, preview_id, data):
@@ -150,6 +193,7 @@ class GmailInboxMixin:
             if row is None:
                 raise LookupError("Gmail preview not found")
             if action == "remove":
+                connection.execute("DELETE FROM gmail_preview_relationship_links WHERE preview_id=?", (preview_id,))
                 connection.execute("DELETE FROM gmail_previews WHERE id=?", (preview_id,))
             elif action == "unlink":
                 connection.execute("UPDATE gmail_previews SET contact_id=NULL,linked_at=NULL WHERE id=?", (preview_id,))
