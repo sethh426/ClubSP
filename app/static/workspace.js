@@ -1,5 +1,17 @@
 "use strict";
 
+// Form request IDs must also work on private HTTP/VPN addresses.
+function requestUUID() {
+  const source = globalThis.crypto;
+  if (typeof source?.randomUUID === "function") return source.randomUUID();
+  if (typeof source?.getRandomValues !== "function") throw new Error("This browser cannot generate secure request IDs");
+  const bytes = source.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join("-");
+}
+
 function renderOpportunityQueue() {
   const box = $("opportunity-queue"); box.replaceChildren();
   const queue = state.opportunities, policy = queue.policy;
@@ -131,7 +143,7 @@ function renderFinance(deal, box) {
   workspaceField(entryForm,"evidence_reference","Receipt, bank or settlement reference");
   workspaceField(entryForm,"note","What this movement records","textarea");
   workspaceSubmit(entryForm,"Record cash movement");
-  const entryKey=crypto.randomUUID();
+  const entryKey=requestUUID();
   entryForm.addEventListener("submit",e=>{e.preventDefault();runForm(entryForm,()=>api("/api/deals/"+deal.id+"/ledger",{...values(entryForm),entry_key:entryKey}),"Cash movement recorded.");});
   entryDetails.append(entryForm);panel.append(entryDetails);
   const history=node("div",undefined,"ledger-history");
@@ -142,7 +154,7 @@ function renderFinance(deal, box) {
     if(active.has(entry.id)){
       const d=workspaceDetails("Correct this entry");const f=node("form",undefined,"workspace-form reversal-form");
       workspaceField(f,"note","Correction reason");workspaceField(f,"evidence_reference","Correction evidence reference");workspaceSubmit(f,"Reverse entry");
-      const key=crypto.randomUUID();
+      const key=requestUUID();
       f.addEventListener("submit",e=>{e.preventDefault();runForm(f,()=>api("/api/deals/"+deal.id+"/ledger",{...values(f),kind:entry.kind,category:entry.category,amount:String(entry.amount_cents/100),occurred_on:state.today,entry_key:key,reversal_of:entry.id}),"Reversal recorded. Add the corrected movement if needed.");});d.append(f);row.append(d);
     }else row.append(node("span",entry.reversal_of?"Audit reversal":"Reversed","pill"));
     history.append(row);
