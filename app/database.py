@@ -9,6 +9,7 @@ import sqlite3
 from uuid import UUID
 
 from core.memory import (
+from .schema import ensure_component
     Fact, LearningRecord, MemoryStore, Observation, Prediction, SourceRecord, WorkflowEvent,
 )
 
@@ -371,6 +372,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS knowledge_budget ON knowledge_snapshots(request_day,is_attempt);
                 CREATE UNIQUE INDEX IF NOT EXISTS knowledge_active_source ON knowledge_items(source_id) WHERE status='active';
             """)
+            ensure_component(connection, "core")
 
     @contextmanager
     def session(self, write=False):
