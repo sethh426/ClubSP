@@ -362,6 +362,32 @@ class RelationshipBook:
                 (str(uuid4()), send_id, status, provider_message_id, provider_thread_id,
                  text_field({"note": note}, "note", 1000, required=False), now),
             )
+            if status == "sent":
+                payload = json.loads(row["payload"])
+                current_profile = self.latest(connection, "relationship_profiles", row["relationship_id"])
+                current_event = self.latest(connection, "relationship_interactions", row["relationship_id"])
+                context_unchanged = bool(
+                    current_profile and current_profile["id"] == payload["profile_id"]
+                    and (current_event["id"] if current_event else None) == payload["event_id"]
+                )
+                already_recorded = connection.execute(
+                    "SELECT 1 FROM relationship_interactions WHERE request_key=?", (send_id,)
+                ).fetchone()
+                if context_unchanged and not already_recorded:
+                    interaction = {
+                        "direction": "outgoing",
+                        "outcome": "general",
+                        "note": "Sent approved Gmail draft: " + payload["subject"],
+                        "evidence_reference": "gmail_message:" + provider_message_id,
+                        "occurred_on": business_today().isoformat(),
+                        "follow_up_on": payload["follow_up_on"],
+                        "next_action": payload["next_action"],
+                    }
+                    connection.execute(
+                        "INSERT INTO relationship_interactions VALUES(?,?,?,?,?,?,?)",
+                        (str(uuid4()), row["relationship_id"], send_id, payload["profile_id"],
+                         payload["event_id"], json.dumps(interaction, sort_keys=True), now),
+                    )
             return self._send_json(connection, row)
 
     def state(self):
