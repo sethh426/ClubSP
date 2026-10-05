@@ -21,9 +21,10 @@ def setup_reply(tmp_path, email="seller@example.test"):
 
 def test_preview_exposes_only_exact_email_relationship_candidates(tmp_path):
     app, book, saved = setup_reply(tmp_path)
+    original = current(book)
     book.save(profile(email="other@example.test", name="Other Investor"))
     message_state = app.gmail_inbox()["messages"][0]
-    assert [c["id"] for c in message_state["relationship_candidates"]] == [current(book)["id"]]
+    assert [c["id"] for c in message_state["relationship_candidates"]] == [original["id"]]
     assert message_state["relationship_id"] is None
 
 
