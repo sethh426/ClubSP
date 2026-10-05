@@ -152,11 +152,49 @@ class OpportunitiesMixin:
             reviews = [t["title"] for t in deal["tasks"] if t["status"] == "open" and t["blocking_stage"] in {"contracted", "any"}]
             if reviews:
                 gaps.append("Complete pre-contract evidence reviews: " + "; ".join(reviews))
+
+            evidence_current = bool(
+                prop_type is not None
+                and evidence["values"].get("recorded_owner_name")
+                and not evidence["conflicts"]
+                and (not policy or all(recent(f["observed_at"], policy["evidence_max_age_days"], now) for f in evidence["facts"]))
+            )
+            sales_current = bool(
+                sales["items"] and not sales["conflicts"]
+                and all((now.date() - datetime.fromisoformat(s["sale"]["sale_date"]).date()).days <= 365
+                        for s in sales["items"])
+            )
+            underwriting_current = bool(
+                uw
+                and uw["result"].get("sale_evidence", {}).get("digest") == sales["digest"]
+                and uw["result"].get("evidence_digest") == evidence["digest"]
+                and (not policy or recent(uw["created_at"], policy["evidence_max_age_days"], now))
+            )
+            plan_current = bool(
+                plan and not finance["contract_blockers"]
+                and (not policy or (
+                    cents(plan["seller_price"]) <= cents(policy["max_seller_price"])
+                    and cents(finance["projected_cash_at_risk"]) <= cents(policy["max_deal_cash_at_risk"])
+                    and cents_signed(plan["forecasts"]["downside"]["net_contribution"]) >= cents(policy["min_downside_net"])
+                ))
+            )
+            readiness = {
+                "buy_box_fit": 20 if policy and not outside else 0,
+                "property_evidence": 15 if evidence_current else 0,
+                "comparable_sales": 15 if sales_current else 0,
+                "underwriting": 20 if underwriting_current else 0,
+                "financial_plan": 15 if plan_current else 0,
+                "buyer_demand": 10 if current_buyers else 0,
+                "precontract_reviews": 5 if not reviews else 0,
+            }
+            score = sum(readiness.values())
             decision = "outside_buy_box" if outside else "blocked" if blockers else "research" if gaps else "owner_review"
             reasons = outside + blockers + gaps
             items.append({"deal_id": deal["id"], "property_id": prop["id"], "address": prop["address"],
                           "market": location, "strategy": deal["strategy"], "stage": deal["stage"],
                           "decision": decision, "reasons": reasons,
+                          "opportunity_score": score, "score_breakdown": readiness,
+                          "score_type": "evidence-and-readiness score; not a probability of profit or closing",
                           "next_action": reasons[0] if reasons else "Owner review of terms and evidence; no execution authorized",
                           "current_fact_ids": [f["id"] for f in evidence["facts"]],
                           "conflicts": evidence["conflicts"], "buyer_candidates": buyer_candidates,
@@ -165,7 +203,8 @@ class OpportunitiesMixin:
                           "estimated_cash_at_risk": finance["projected_cash_at_risk"],
                           "underwriting_id": uw["id"] if uw else None, "policy_id": policy["id"] if policy else None})
         order = {"owner_review": 0, "research": 1, "blocked": 2, "outside_buy_box": 3}
-        items.sort(key=lambda item: (order[item["decision"]], -item["current_criteria_fit_buyers"], item["address"], item["deal_id"]))
+        items.sort(key=lambda item: (order[item["decision"]], -item["opportunity_score"],
+                                     -item["current_criteria_fit_buyers"], item["address"], item["deal_id"]))
         return {"policy": policy, "items": items, "estimated_portfolio_cash_at_risk": dollars(exposure),
                 "unknown_exposure_deal_ids": unknown_exposure, "execution_authorized": False,
                 "scope": "Entered pre-contract deals only; no discovery, valuation, spending, sending or offers"}

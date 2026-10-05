@@ -55,6 +55,13 @@ def test_queue_is_read_only_and_policy_survives_restart(tmp_path):
     first = item(app, did)
     assert first["decision"] == "owner_review"
     assert first["current_criteria_fit_buyers"] == 1
+    assert first["opportunity_score"] == 100
+    assert first["score_breakdown"] == {
+        "buy_box_fit": 20, "property_evidence": 15, "comparable_sales": 15,
+        "underwriting": 20, "financial_plan": 15, "buyer_demand": 10,
+        "precontract_reviews": 5,
+    }
+    assert "not a probability" in first["score_type"]
     assert first == item(app, did)
     assert app.state()["opportunities"]["execution_authorized"] is False
     with app.database.session() as (connection, _):
@@ -69,6 +76,9 @@ def test_missing_setup_is_unknown_not_profitable(tmp_path):
     result = item(app, did)
     assert result["decision"] == "research"
     assert result["economics"] is None
+    assert result["opportunity_score"] < 100
+    assert result["score_breakdown"]["buy_box_fit"] == 0
+    assert result["score_breakdown"]["buyer_demand"] == 0
     assert "Save a buy box" in result["next_action"]
     assert any("owner-of-record" in reason for reason in result["reasons"])
 
@@ -111,6 +121,18 @@ def test_any_fact_change_invalidates_underwriting_and_live_matches(tmp_path):
     assert "Financial plan must reference the latest underwriting" in item(app, did)["reasons"]
     plan(app, did, seller_price=80000)
     assert item(app, did)["decision"] == "owner_review"
+
+
+def test_opportunity_score_drops_when_evidence_invalidates_underwriting(tmp_path):
+    app, did, pid = setup_deal(tmp_path)
+    before = item(app, did)
+    assert before["opportunity_score"] == 100
+    fact(app, pid, "roof_condition", "Needs inspection")
+    after = item(app, did)
+    assert after["opportunity_score"] < before["opportunity_score"]
+    assert after["score_breakdown"]["underwriting"] == 0
+    assert after["current_criteria_fit_buyers"] == 0
+    assert after["decision"] == "research"
 
 
 def test_legacy_underwriting_requires_explicit_review(tmp_path):
