@@ -184,7 +184,7 @@ function renderDealBoard() {
   if (["contracted","disposition","closing","completed","lost"].includes(deal.stage)) { [...underwriting.elements].forEach(x=>x.disabled=true); }
   box.append(node("h3","Manual underwriting"),node("p","Enter your supported assumptions. Blank costs remain unknown and must be filled before saving.","muted small"),underwriting);
   if(deal.underwriting){const result=deal.underwriting.result;box.append(node("p",result.warning,"note"));const grid=node("div",undefined,"scenario-grid");Object.entries(result.scenarios).forEach(([name,s])=>{const card=node("article",undefined,"scenario-card");card.append(node("h3",name.toUpperCase()));card.append(node("p","Owner max contract: "+amount("money",s.owner_max_contract_price)));card.append(node("p","Planned owner net at ceiling: "+amount("money",s.planned_owner_net)));if(s.buyer_acquisition_ceiling!==null)card.append(node("p","Buyer ceiling: "+amount("money",s.buyer_acquisition_ceiling)));card.append(node("span",s.profitable?"Meets entered target":"Below entered target","pill "+(s.profitable?"":"open")));grid.append(card);});box.append(grid);}
-  renderFinance(deal, box); renderOperations(deal, box);
+  renderFinance(deal, box); renderTransactions(deal, box); renderOperations(deal, box);
   const match=node("button","Run buyer matching","button");match.type="button";match.addEventListener("click",()=>runForm(match.form||box,()=>api("/api/deals/"+deal.id+"/buyer-matches",{}),"Buyer matching complete."));
   box.append(match);
   const matches=deal.buyer_matches?.matches||[];
