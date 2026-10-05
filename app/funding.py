@@ -8,7 +8,7 @@ from .money import cents, dollars
 from .operations import business_today
 from .validation import deal_exists, list_field, text_field
 from .deal_actions import attach_actions
-from .schema import ensure_component
+from .schema import assert_component_compatible, ensure_component
 
 
 AMOUNTS = ("required_funding", "committed_funding", "owner_cash_required", "contingent_liability", "known_financing_cost")
@@ -31,6 +31,7 @@ class FundingBook:
     def __init__(self, database):
         self.database = database
         with database.session(write=True) as (connection, _):
+            assert_component_compatible(connection, "funding")
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS funding_reviews (
                     id TEXT PRIMARY KEY,
