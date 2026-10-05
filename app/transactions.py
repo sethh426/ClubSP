@@ -172,6 +172,8 @@ class TransactionMixin:
         encoded = json.dumps(payload, sort_keys=True, allow_nan=False)
         with self.database.session(write=True) as (connection, _):
             deal, current_uw, current_plan = self._current_context(connection, deal_id)
+            if deal["stage"] not in {"offer_decision", "contracted", "disposition", "closing"}:
+                raise ValueError("Transaction documents require an active deal at offer decision or later")
             if (expected_uw, expected_plan) != (current_uw, current_plan):
                 raise ValueError("Deal economics changed; reload before saving the transaction document")
             existing = connection.execute(
@@ -224,6 +226,8 @@ class TransactionMixin:
         encoded = json.dumps(payload, sort_keys=True, allow_nan=False)
         with self.database.session(write=True) as (connection, _):
             deal = deal_exists(connection, deal_id)
+            if deal["stage"] not in {"contracted", "disposition", "closing"}:
+                raise ValueError("Transaction conditions require an active contracted deal")
             existing = connection.execute(
                 "SELECT * FROM transaction_conditions WHERE request_key=?", (request_key,)
             ).fetchone()
@@ -263,6 +267,8 @@ class TransactionMixin:
             raise ValueError("This closing state requires a closing professional reference")
         with self.database.session(write=True) as (connection, _):
             deal = deal_exists(connection, deal_id)
+            if deal["stage"] not in {"contracted", "disposition", "closing"}:
+                raise ValueError("Closing events require an active contracted deal")
             existing = connection.execute(
                 "SELECT * FROM closing_events WHERE request_key=?", (request_key,)
             ).fetchone()
