@@ -455,6 +455,12 @@ def handler_for(application, gmail, auth=None):
                         result = application.reconcile_deal(parts[2], data)
                     elif parts[3] == "tasks":
                         result = application.create_task(parts[2], data)
+                    elif parts[3] == "transaction-document":
+                        result = application.save_transaction_document(parts[2], data)
+                    elif parts[3] == "transaction-condition":
+                        result = application.save_transaction_condition(parts[2], data)
+                    elif parts[3] == "closing-event":
+                        result = application.record_closing_event(parts[2], data)
                     else:
                         raise LookupError("Route not found")
                 elif path.startswith("/api/predictions/") and path.endswith("/outcome"):
