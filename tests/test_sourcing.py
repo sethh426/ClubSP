@@ -227,6 +227,38 @@ def test_changes_invalidate_queue_matching_and_contract_then_preserve_history(tm
 
 def test_old_sales_keep_sale_date_not_import_freshness(tmp_path):
     app, did = fixture_deal(tmp_path)
+    pid = app.state()["properties"][0]["id"]
+    accept_sale(app, pid, csv="Parcel Number,Address,Sale Date,Sale Price,Living Area\n2,Old comp,2020-01-01,200000,1000")
+    app.underwrite(did, app.state()["deals"][0]["underwriting"]["inputs"])
+    queue = app.state()["opportunities"]["items"][0]
+    assert any("older than one year" in reason for reason in queue["reasons"])
+
+
+def test_county_optional_assessor_fields_are_normalized_and_retained(tmp_path):
+    app = Application(tmp_path / "intake.db")
+    csv_text = ("Parcel Number,Address,Sale Date,Sale Price,Class,Acreage,Neighborhood Code,Property Code,"
+                "Property Class,Year Built,Living Area,Bath,Price/SqFt,Land Value,Improvement Value,Total Value\n"
+                "9,Comp,2025-01-01,240000,R,0.25,N1,P1,Residential,1980,1800,2,133.33,50000,150000,200000")
+    row = staged_row(app, import_data("county_sales", csv=csv_text))
+    value = row["value"]
+    assert value["acreage"] == 0.25 and value["year_built"] == 1980
+    assert value["bath"] == 2 and value["price_per_sqft"] == 133.33
+    assert value["neighborhood_code"] == "N1" and value["property_code"] == "P1"
+    assert value["land_value"] == 50000 and value["improvement_value"] == 150000
+    assert value["total_value"] == 200000
+
+
+def test_http_intake_review_and_withdraw_routes(http_app):
+    code, body, _ = request(http_app, "/api/sourcing/import", import_data())
+    assert code == 201
+    code, body, _ = request(http_app, "/api/state")
+    row = json.loads(body)["sourcing"]["rows"][0]
+    code, body, _ = request(http_app, "/api/sourcing/rows/" + row["id"] + "/review", review_data())
+    assert code == 201 and json.loads(body)["property_id"]
+    code, _, _ = request(http_app, "/api/sourcing/rows/unknown/wrong", review_data())
+    assert code == 404
+    code, _, _ = request(http_app, "/api/sourcing/sales/unknown/withdraw", review_data())
+    assert code == 404
 
 def test_candidate_optional_price_and_property_fields_become_reviewed_evidence(tmp_path):
     app = Application(tmp_path / "intake.db")
@@ -262,35 +294,3 @@ def test_invalid_optional_candidate_numeric_fields_do_not_stage_as_valid(tmp_pat
     assert row["status"] == "invalid"
     assert row["errors"]
 
-    pid = app.state()["properties"][0]["id"]
-    accept_sale(app, pid, csv="Parcel Number,Address,Sale Date,Sale Price,Living Area\n2,Old comp,2020-01-01,200000,1000")
-    app.underwrite(did, app.state()["deals"][0]["underwriting"]["inputs"])
-    queue = app.state()["opportunities"]["items"][0]
-    assert any("older than one year" in reason for reason in queue["reasons"])
-
-
-def test_county_optional_assessor_fields_are_normalized_and_retained(tmp_path):
-    app = Application(tmp_path / "intake.db")
-    csv_text = ("Parcel Number,Address,Sale Date,Sale Price,Class,Acreage,Neighborhood Code,Property Code,"
-                "Property Class,Year Built,Living Area,Bath,Price/SqFt,Land Value,Improvement Value,Total Value\n"
-                "9,Comp,2025-01-01,240000,R,0.25,N1,P1,Residential,1980,1800,2,133.33,50000,150000,200000")
-    row = staged_row(app, import_data("county_sales", csv=csv_text))
-    value = row["value"]
-    assert value["acreage"] == 0.25 and value["year_built"] == 1980
-    assert value["bath"] == 2 and value["price_per_sqft"] == 133.33
-    assert value["neighborhood_code"] == "N1" and value["property_code"] == "P1"
-    assert value["land_value"] == 50000 and value["improvement_value"] == 150000
-    assert value["total_value"] == 200000
-
-
-def test_http_intake_review_and_withdraw_routes(http_app):
-    code, body, _ = request(http_app, "/api/sourcing/import", import_data())
-    assert code == 201
-    code, body, _ = request(http_app, "/api/state")
-    row = json.loads(body)["sourcing"]["rows"][0]
-    code, body, _ = request(http_app, "/api/sourcing/rows/" + row["id"] + "/review", review_data())
-    assert code == 201 and json.loads(body)["property_id"]
-    code, _, _ = request(http_app, "/api/sourcing/rows/unknown/wrong", review_data())
-    assert code == 404
-    code, _, _ = request(http_app, "/api/sourcing/sales/unknown/withdraw", review_data())
-    assert code == 404
