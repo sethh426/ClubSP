@@ -178,6 +178,9 @@ class OpportunitiesMixin:
                     and cents_signed(plan["forecasts"]["downside"]["net_contribution"]) >= cents(policy["min_downside_net"])
                 ))
             )
+            from .economics import economic_screen
+            assessment = economic_screen(connection, deal, policy, deals)
+
             readiness = {
                 "buy_box_fit": 20 if policy and not outside else 0,
                 "property_evidence": 15 if evidence_current else 0,
@@ -190,7 +193,7 @@ class OpportunitiesMixin:
             score = sum(readiness.values())
             decision = "outside_buy_box" if outside else "blocked" if blockers else "research" if gaps else "owner_review"
             reasons = outside + blockers + gaps
-            items.append({"deal_id": deal["id"], "property_id": prop["id"], "address": prop["address"],
+            items.append({"economic_screen": assessment, "deal_id": deal["id"], "property_id": prop["id"], "address": prop["address"],
                           "market": location, "strategy": deal["strategy"], "stage": deal["stage"],
                           "decision": decision, "reasons": reasons,
                           "opportunity_score": score, "score_breakdown": readiness,

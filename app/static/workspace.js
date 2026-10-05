@@ -43,6 +43,7 @@ function renderOpportunityQueue() {
       });
       card.append(scenarios, node("p", "Manual, fixed-price, pre-tax scenarios; not expected profit or verified valuation.", "muted small"));
     }
+    if (item.economic_screen) renderEconomicScreen(item, card);
     const reasons = node("ul", undefined, "blocker-list"); item.reasons.forEach(reason => reasons.append(node("li", reason))); card.append(reasons);
     const open = node("button", "Open deal file", "button secondary"); open.type = "button";
     open.addEventListener("click", () => { selected = item.property_id; selectedDeal = item.deal_id; render(); $("property-title").scrollIntoView({ block: "start" }); });
@@ -219,4 +220,35 @@ function renderResearch() {
     if(snapshot.status==="accepted")card.append(node("p",snapshot.fact_ids.length+" sourced facts accepted; original history retained.","muted small"));
     box.append(card);
   });
+}
+
+function renderEconomicScreen(item, card) {
+  const screen = item.economic_screen;
+  const details = workspaceDetails("Economic evidence · " + readable(screen.status), true);
+  details.classList.add("economic-screen");
+  details.append(node("p", "Screen-fit comparable sales: " + screen.fit_comparable_count + ". Owner review records your assessment, not an independent appraisal, buyer commitment or permission to act.", "muted small"));
+  [...screen.gaps, ...screen.failed_limits].forEach(reason => details.append(node("p", reason, "note")));
+  const assumptions = workspaceDetails("Recorded price, costs and reserves");
+  Object.entries(screen.assumptions).forEach(([name, value]) => assumptions.append(node("p", readable(name) + ": " + amount("money", value), "small")));
+  details.append(assumptions);
+  if (screen.review) details.append(node("p", (screen.review_current ? "Current owner review" : "Previous review needs refresh") + " · " + screen.review.reviewer + " · " + screen.review.created_at, "economic-review-status"));
+  if (screen.review) {
+    const evidence = workspaceDetails("Saved review references");
+    Object.entries(screen.review).filter(([key]) => key.endsWith("_reference") || key === "note").forEach(([key, value]) => evidence.append(node("p", readable(key) + ": " + value, "small")));
+    details.append(evidence);
+  }
+  if (screen.review_allowed && !screen.review_current) {
+    const form = node("form", undefined, "workspace-form economic-review-form");
+    [["reviewer", "Reviewer"], ["exit_price_reference", "Exit-price support and comparison adjustments"],
+     ["repair_reference", "Repair scope / estimate evidence"], ["funding_cost_reference", "Funding and holding-cost evidence"],
+     ["closing_selling_reference", "Closing and selling-cost evidence"], ["owner_cost_partner_reference", "Owner costs, partner payout and contingency evidence"],
+     ["condition_concessions_reference", "Comp condition, concessions and sale-validity review"], ["note", "Limits and review notes"]
+    ].forEach(([name, label]) => workspaceField(form, name, label, name === "note" ? "textarea" : "text"));
+    const label = node("label", "I checked all assumptions, including zero costs, payouts and contingencies"), check = node("input");
+    check.type = "checkbox"; check.required = true; label.append(check); form.append(label);
+    workspaceSubmit(form, "Save economic evidence review");
+    form.addEventListener("submit", event => { event.preventDefault(); runForm(form, () => api("/api/deals/" + item.deal_id + "/economic-review", {...values(form), context_digest: screen.context_digest, owner_confirmed_assumptions: check.checked}), "Economic evidence review saved; no external action authorized."); });
+    details.append(form);
+  }
+  card.append(details);
 }

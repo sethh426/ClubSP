@@ -78,6 +78,9 @@ class Database:
                     id TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES sourcing_batches(id),
                     body TEXT NOT NULL, status TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS economic_reviews (
+                    id TEXT PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES deals(id), body TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS sale_evidence (
                     id TEXT PRIMARY KEY, property_id TEXT NOT NULL REFERENCES properties(id),
                     body TEXT NOT NULL, status TEXT NOT NULL
