@@ -79,7 +79,7 @@ test("reviewed Gmail reply can be linked and imported into Relationship Desk", a
   });
   await page.goto("/");
   await page.getByText("Gmail · Connect your mailbox",{exact:true}).click();
-  const card=page.locator(".gmail-preview");
+  const card=page.locator("#gmail-inbox .gmail-preview");
   await expect(card.getByLabel("Link to matching Relationship Desk record",{exact:true})).toBeVisible();
   await card.getByLabel("Link to matching Relationship Desk record",{exact:true}).selectOption("relationship-1");
   await card.getByRole("button",{name:"Link relationship",exact:true}).click();
