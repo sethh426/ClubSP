@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const query = new URLSearchParams(location.search).get("gmail");
   if (query) {
     document.getElementById("gmail-result").textContent = query === "connected"
-      ? "Google authorization completed. You can now manually sync message previews. Sending remains disabled."
+      ? "Google authorization completed. You can now manually sync previews and send only current owner-approved Relationship Desk drafts."
       : "Connection was not saved. Check the callback URL, Gmail API, test-user access, and selected mailbox, then try again.";
     history.replaceState(null, "", "/");
   }
@@ -53,7 +53,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
       await post("/api/gmail/refresh");
       await refresh();
-      document.getElementById("gmail-result").textContent = "Gmail access refreshed. Sending remains disabled.";
+      document.getElementById("gmail-result").textContent = "Gmail access refreshed. Approved-draft sending is enabled; automatic sending remains disabled.";
     } catch (error) {
       status.textContent = error.message + " If the grant expired or was revoked, reconnect Gmail.";
     } finally { refreshAccess.disabled = false; }
@@ -122,7 +122,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const result = await post("/api/gmail/sync", {query, limit: Number(syncForm.elements.limit.value), page_token: pageToken});
       nextToken = result.next_page_token; batchQuery = query;
       next.hidden = !nextToken || batchQuery !== syncForm.elements.query.value;
-      document.getElementById("gmail-result").textContent = result.inserted + " new previews saved; " + result.duplicates + " duplicates skipped. Sending remains disabled.";
+      document.getElementById("gmail-result").textContent = result.inserted + " new previews saved; " + result.duplicates + " duplicates skipped. Automatic sending remains disabled.";
       await renderInbox(); await refresh();
     } catch (error) { document.getElementById("gmail-result").textContent = error.message; }
     finally { syncing = false; syncForm.querySelectorAll("button").forEach(button => { button.disabled = false; }); }
