@@ -18,6 +18,7 @@ from .providers import PROVIDER
 from .communications import CommunicationsMixin
 from .training import TrainingMixin
 from .knowledge import KnowledgeMixin
+from .economics import EconomicReviewsMixin
 from .opportunities import OpportunitiesMixin, property_evidence, canonical
 from .discovery import DiscoveryMixin
 from .sourcing import SourcingMixin, sale_snapshot
@@ -89,7 +90,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin):
+class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
@@ -177,19 +178,10 @@ class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMi
                 "SELECT id,matches_json,created_at FROM buyer_match_runs "
                 "WHERE deal_id=? ORDER BY created_at DESC,id LIMIT 1", (item["id"],)
             ).fetchone()
-            if run:
-                saved_matches = json.loads(run["matches_json"])
-                current_matches = self._compare_buyers(connection, item)
-                matches_current = saved_matches == current_matches
-                item["buyer_matches"] = {
-                    "id": run["id"], "matches": saved_matches,
-                    "created_at": run["created_at"], "current": matches_current,
-                    "stale_reasons": [] if matches_current else [
-                        "Buyer criteria, funding freshness, underwriting, financial plan, or property evidence changed; rerun buyer matching."
-                    ],
-                }
-            else:
-                item["buyer_matches"] = None
+            item["buyer_matches"] = ({
+                "id": run["id"], "matches": json.loads(run["matches_json"]),
+                "created_at": run["created_at"],
+            } if run else None)
             item["events"] = [dict(event) for event in connection.execute(
                 "SELECT stage_before,stage_after,note,evidence_reference,created_at "
                 "FROM deal_events WHERE deal_id=? ORDER BY created_at,id", (item["id"],)

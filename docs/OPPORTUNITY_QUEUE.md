@@ -84,3 +84,41 @@ evidence invalidation, legacy snapshots, downside limits, portfolio unknowns,
 lost-deal cash, policy validation/versioning and read-only behavior. Browser tests
 cover policy save/reload, safe text rendering and opening the selected deal on
 desktop/mobile. No real owner outreach or paid data is used in tests.
+
+## Economic evidence review
+
+The opportunity queue also exposes `economic_screen`, separate from its existing
+pipeline decision. Fixed seller terms retain their existing downside/base/upside
+contribution calculations; the new screen does not derive an ARV from sales.
+It shows the entered exit price, repair/funding/closing/selling costs, buyer margin,
+owner costs, partner allowance, contingency and desired net alongside current comps.
+
+Statuses are `incomplete`, `fails_economic_limits`, `evidence_review_required` and
+`owner_reviewed`. An owner review requires current underwriting and terms, a saved
+policy, at least one screen-fit accepted comp and no accepted comp with outstanding
+screen exclusions/gaps. One comp is a minimum evidence-presence check, not proof
+of valuation adequacy. Condition, concessions, adjustments and cost assumptions
+still require review. The screen also enforces market/type/strategy, seller-price,
+deal cash, portfolio cash and downside limits. Downside must support the actual
+seller price and assignment fee, rather than only a reduced hypothetical fee.
+
+`POST /api/deals/{id}/economic-review` accepts `context_digest`, `reviewer`,
+`owner_confirmed_assumptions: true`, and nonempty references:
+`exit_price_reference`, `repair_reference`, `funding_cost_reference`,
+`closing_selling_reference`, `owner_cost_partner_reference`,
+`condition_concessions_reference`, and `note`.
+
+References are owner-supplied, not independently checked documents. Confirmation
+includes zero-valued assumptions, partner payouts and contingencies. The existing
+pre-tax and overhead limitations still apply. A review cannot override failures
+and is not contract, outreach, spending, funding or payment authority.
+
+The review stores context digests and IDs for underwriting, seller terms, policy,
+subject facts, sales and portfolio stages/plans/ledger/exposure. Changed context
+or an expired review interval makes it noncurrent. Screen fit is recalculated from
+current facts and sale dates. Identical retries reuse a current review; new reviews
+append history. Original reviews are retained and their references render as text.
+
+This is an additive SQLite table. Existing records and financial forecasts are
+preserved. It adds no external services or scheduled jobs. The existing contract
+stage gates are unchanged; the economic screen is an internal review workflow.
