@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from email.message import EmailMessage
 import os
 from pathlib import Path
 import secrets
@@ -13,7 +14,13 @@ import time
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
-READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+READ_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+SCOPE = READ_SCOPE
+
+
+def scope_set(value):
+    return set(value.split()) if isinstance(value, str) else set()
 SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 SCOPES = (READ_SCOPE, SEND_SCOPE)
 SCOPE = " ".join(SCOPES)
@@ -109,7 +116,7 @@ class GmailConnection:
     def fingerprint(self):
         return hashlib.sha256(self.client_id.encode()).hexdigest()
 
-    def begin(self, origin):
+    def begin(self, origin, include_send=False):
         if urlsplit(origin).hostname not in {"127.0.0.1", "localhost"} or urlsplit(origin).scheme != "http":
             raise ValueError("This release supports a local connection only")
         if not self.status(origin)["configured"]:
@@ -120,12 +127,14 @@ class GmailConnection:
             self.pending = {k: v for k, v in self.pending.items() if v[0] > self.clock()}
             if len(self.pending) >= 32:
                 raise ValueError("Too many connection attempts; wait ten minutes")
-            self.pending[state] = (self.clock() + 600, verifier, self.callback_uri(origin), self.generation)
+            requested = (READ_SCOPE, SEND_SCOPE) if include_send else (READ_SCOPE,)
+            self.pending[state] = (self.clock() + 600, verifier, self.callback_uri(origin), self.generation, requested)
         return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode({
             "client_id": self.client_id, "redirect_uri": self.callback_uri(origin),
-            "response_type": "code", "scope": SCOPE, "state": state,
+            "response_type": "code", "scope": " ".join(requested), "state": state,
             "code_challenge": challenge, "code_challenge_method": "S256",
-            "access_type": "offline", "prompt": "consent", "login_hint": self.expected_email,
+            "access_type": "offline", "prompt": "consent", "include_granted_scopes": "true",
+            "login_hint": self.expected_email,
         }), state
 
     def complete(self, params, cookie_state, origin):
@@ -184,7 +193,7 @@ class GmailConnection:
             if os.path.exists(temp):
                 os.unlink(temp)
 
-    def ensure_access_token(self, force=False):
+    def ensure_access_token(self, force=False, required_scope=READ_SCOPE):
         """Refresh on demand; never return credentials through a public route."""
         with self.refresh_lock:
             with self.lock:
@@ -193,7 +202,7 @@ class GmailConnection:
                     saved = json.loads(original)
                     if (not isinstance(saved, dict) or saved.get("email") != self.expected_email
                             or saved.get("client_fingerprint") != self.fingerprint()
-                            or saved.get("scope") != SCOPE
+                            or required_scope not in scope_set(saved.get("scope"))
                             or not all(isinstance(saved.get(k), str) and saved[k]
                                        for k in ("access_token", "refresh_token"))
                             or not isinstance(saved.get("expires_at"), (int, float))):
@@ -223,8 +232,36 @@ class GmailConnection:
             if str(profile.get("emailAddress", "")).lower() != self.expected_email:
                 raise ValueError("The selected mailbox does not match the configured ClubSP mailbox")
             saved.update(access_token=access, refresh_token=refresh, expires_at=self.clock() + lifetime)
+            if isinstance(tokens.get("scope"), str):
+                saved["scope"] = tokens["scope"]
             self._save(saved, generation, expected=original)
             return access
+
+    def send_message(self, recipient, subject, body, request_id):
+        """Send one owner-approved plain-text message. No automatic retry."""
+        if not isinstance(recipient, str) or not recipient or any(ch in recipient for ch in "\r\n<>"):
+            raise ValueError("Recipient email is invalid")
+        if not isinstance(subject, str) or not subject or "\r" in subject or "\n" in subject or len(subject) > 200:
+            raise ValueError("Subject is invalid")
+        if not isinstance(body, str) or not body or len(body) > 8000:
+            raise ValueError("Message body is invalid")
+        if not isinstance(request_id, str) or len(request_id) > 80:
+            raise ValueError("Send request identity is invalid")
+        access = self.ensure_access_token(required_scope=SEND_SCOPE)
+        message = EmailMessage()
+        message["To"] = recipient
+        message["From"] = self.expected_email
+        message["Subject"] = subject
+        message["X-ClubSP-Request-ID"] = request_id
+        message.set_content(body)
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
+        result = self.request("https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+                              token=access, json_body={"raw": raw})
+        message_id, thread_id = result.get("id"), result.get("threadId")
+        if (not isinstance(message_id, str) or not message_id or len(message_id) > 200
+                or not isinstance(thread_id, str) or not thread_id or len(thread_id) > 200):
+            raise ValueError("Google returned an invalid send receipt")
+        return {"message_id": message_id, "thread_id": thread_id}
 
     def disconnect(self):
         with self.lock:
