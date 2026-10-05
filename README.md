@@ -212,6 +212,14 @@ buy box and cash/downside review limits. It explains missing evidence, conflicti
 facts, changed underwriting context, current buyer-criteria fit and next reviews.
 It does not source leads or authorize offers, messages or spending. See
 [opportunity queue scope and limitations](docs/OPPORTUNITY_QUEUE.md).
+## Revenue Command Center
+
+Open **/command** for a read-only “what moves money forward now?” queue composed
+from current opportunity, commitment, funding, sourcing, and relationship state.
+It prioritizes owner-review-ready deals, due relationship work, deal blockers,
+and buyer-matched research candidates without creating a new profit probability
+or execution authority. See [command center scope](docs/COMMAND_CENTER.md).
+
 ## Commitment Graph and Deal Readiness
 
 ClubSP now has a buyer-first Commitment Graph for standing buyer mandates,

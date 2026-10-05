@@ -15,12 +15,16 @@ from .gmail_inbox import sync_previews
 from .gmail_send import send_approved_draft
 from .funding import FundingBook
 from .relationships import RelationshipBook
+from .command_center import build_command_center
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
     "/relationships": ("relationships.html", "text/html; charset=utf-8"),
     "/relationships.js": ("relationships.js", "text/javascript; charset=utf-8"),
     "/relationships.css": ("relationships.css", "text/css; charset=utf-8"),
+    "/command": ("command.html", "text/html; charset=utf-8"),
+    "/command.js": ("command.js", "text/javascript; charset=utf-8"),
+    "/command.css": ("command.css", "text/css; charset=utf-8"),
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/workspace.js": ("workspace.js", "text/javascript; charset=utf-8"),
@@ -76,6 +80,15 @@ def handler_for(application, gmail):
         def gmail_origin(self):
             return "http://" + self.headers["Host"]
 
+        def relationship_state(self):
+            state = relationships.state()
+            send_enabled = gmail.status(self.gmail_origin())["sending_enabled"]
+            state["sending_enabled"] = send_enabled
+            for relationship in state["relationships"]:
+                for draft in relationship["saved_drafts"]:
+                    draft["sending_enabled"] = bool(draft["sending_enabled"] and send_enabled)
+            return state
+
         def redirect(self, target, cookie):
             self.send_response(303)
             self.send_header("Location", target)
@@ -128,15 +141,15 @@ def handler_for(application, gmail):
                     self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/relationships":
                 try:
-                    relationship_state = relationships.state()
-                    gmail_state = gmail.status(self.gmail_origin())
-                    relationship_state["sending_enabled"] = gmail_state["sending_enabled"]
-                    for relationship in relationship_state["relationships"]:
-                        for draft in relationship["saved_drafts"]:
-                            draft["sending_enabled"] = bool(
-                                draft["sending_enabled"] and gmail_state["sending_enabled"]
-                            )
-                    self.send_json(200, relationship_state)
+                    self.send_json(200, self.relationship_state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/command-center":
+                try:
+                    workspace = application.state()
+                    self.send_json(200, build_command_center(
+                        workspace, funding.state(workspace), self.relationship_state()
+                    ))
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/funding":

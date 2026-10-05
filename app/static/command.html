@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ClubSP — Revenue Command Center</title>
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/command.css">
+  <script src="/command.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">ClubSP</a><nav class="command-nav"><a class="button" href="/">Property workspace</a><a class="button" href="/relationships">Relationships</a><a class="button" href="/funding">Funding</a></nav></header>
+  <main>
+    <section class="intro"><div><p class="eyebrow">OWNER COMMAND CENTER</p><h1>What can move money forward now?</h1><p class="muted">One read-only queue composed from current deal, buyer, funding, sourcing, and relationship evidence.</p></div></section>
+    <p class="note">This page does not predict profit or closing probability and cannot send, offer, spend, reserve, sign, or advance a deal. Open the source workspace and complete its required review.</p>
+    <div id="command-message" class="message" role="status" aria-live="polite" hidden></div>
+    <section id="command-summary" class="metrics" aria-label="Revenue focus totals"></section>
+    <section class="panel">
+      <div class="panel-heading"><div><p class="eyebrow">PRIORITIZED FROM CURRENT RECORDS</p><h2>Focus next</h2></div><button id="command-refresh" class="button" type="button">Refresh</button></div>
+      <p id="command-scope" class="muted small"></p>
+      <div id="command-list"><p class="muted">Loading current focus…</p></div>
+    </section>
+  </main>
+</body>
+</html>
