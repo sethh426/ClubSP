@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from app.gmail_send import SEND_URL, send_approved_draft
+from app.operations import business_today
 from tests.test_gmail import make_connection, finish
 from tests.test_relationships import current, interaction
 from tests.test_relationship_drafts import ready, review_data
@@ -43,7 +44,7 @@ def test_approved_draft_sends_once_and_persists_exact_receipt(tmp_path):
             return {"id": "msg_123", "threadId": "thread_456"}
         return {"emailAddress": "owner@example.test"}
     gmail.request = request
-    data = send_data(draft)
+    data = send_data(draft, follow_up_on=business_today().isoformat(), next_action="Confirm current buying criteria")
     result = send_approved_draft(gmail, book, row["id"], data)
     assert result["status"] == "sent"
     assert result["latest_event"]["provider_message_id"] == "msg_123"
@@ -65,6 +66,9 @@ def test_approved_draft_sends_once_and_persists_exact_receipt(tmp_path):
     assert send_approved_draft(gmail, book, row["id"], data)["status"] == "sent"
     assert len(calls) == 1
     refreshed = current(book)
+    assert refreshed["interactions"][0]["direction"] == "outgoing"
+    assert refreshed["interactions"][0]["evidence_reference"] == "gmail_message:msg_123"
+    assert refreshed["due"] and refreshed["next_action"] == "Confirm current buying criteria"
     saved = refreshed["saved_drafts"][0]
     assert saved["send"]["status"] == "sent" and not saved["sending_enabled"]
     with pytest.raises(ValueError, match="already has a send attempt"):
