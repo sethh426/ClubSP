@@ -15,13 +15,13 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
-SCOPES = (READ_SCOPE, SEND_SCOPE)
-SCOPE = " ".join(SCOPES)
-
-
-def has_required_scopes(value):
-    return isinstance(value, str) and set(SCOPES).issubset(set(value.split()))
+# Backward-compatible name used by the read-only authorization tests and inbox code.
+SCOPE = READ_SCOPE
 CALLBACK = "/auth/gmail/callback"
+
+
+def scope_set(value):
+    return set(value.split()) if isinstance(value, str) else set()
 
 
 def load_local_environment(path):
@@ -89,43 +89,57 @@ class GmailConnection:
     def callback_uri(self, origin):
         return self.external_callback or origin + CALLBACK
 
+    def _saved(self):
+        saved = json.loads(self.path.read_text())
+        if (not isinstance(saved, dict) or not isinstance(saved.get("email"), str)
+                or saved["email"].lower() != self.expected_email
+                or saved.get("client_fingerprint") != self.fingerprint()
+                or READ_SCOPE not in scope_set(saved.get("scope"))
+                or not isinstance(saved.get("expires_at"), (int, float))):
+            raise ValueError()
+        return saved
+
     def status(self, origin):
         result = {"configured": bool(self.client_id and self.client_secret and self.expected_email),
                   "connected": False, "sending_enabled": False, "sync_enabled": True,
                   "automatic_sync": False, "sync_mode": "manual_previews",
-                  "redirect_uri": self.callback_uri(origin), "scope": "Read and approved-send Gmail",
-                  "refresh_enabled": True,
+                  "redirect_uri": self.callback_uri(origin), "scope": "Read-only Gmail",
+                  "refresh_enabled": True, "send_scope_available": True,
                   "expected_email": self.expected_email}
         try:
-            saved = json.loads(self.path.read_text())
-            if isinstance(saved, dict) and isinstance(saved.get("email"), str) and saved["email"].lower() == self.expected_email and saved.get("client_fingerprint") == self.fingerprint():
-                if saved.get("scope") == SCOPE:
-                    result.update(connected=True, sending_enabled=True, email=saved["email"],
-                                  access_token_expired=self.clock() >= saved["expires_at"])
-        except (OSError, ValueError, KeyError, TypeError):
+            saved = self._saved()
+            granted = scope_set(saved.get("scope"))
+            result.update(connected=True, sending_enabled=SEND_SCOPE in granted, email=saved["email"],
+                          access_token_expired=self.clock() >= saved["expires_at"])
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
             pass
         return result
 
     def fingerprint(self):
         return hashlib.sha256(self.client_id.encode()).hexdigest()
 
-    def begin(self, origin):
-        if urlsplit(origin).hostname not in {"127.0.0.1", "localhost"} or urlsplit(origin).scheme != "http":
-            raise ValueError("This release supports a local connection only")
+    def begin(self, origin, include_send=False):
+        parts = urlsplit(origin)
+        if parts.hostname not in {"127.0.0.1", "localhost"} or parts.scheme != "http":
+            raise ValueError("This release supports the trusted local application origin only")
         if not self.status(origin)["configured"]:
             raise ValueError("Configure the Google client and expected mailbox before connecting")
         state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+        requested = (READ_SCOPE, SEND_SCOPE) if include_send else (READ_SCOPE,)
         with self.lock:
-            self.pending = {k: v for k, v in self.pending.items() if v[0] > self.clock()}
+            self.pending = {key: value for key, value in self.pending.items() if value[0] > self.clock()}
             if len(self.pending) >= 32:
                 raise ValueError("Too many connection attempts; wait ten minutes")
-            self.pending[state] = (self.clock() + 600, verifier, self.callback_uri(origin), self.generation)
+            self.pending[state] = (
+                self.clock() + 600, verifier, self.callback_uri(origin), self.generation, requested
+            )
         return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode({
             "client_id": self.client_id, "redirect_uri": self.callback_uri(origin),
-            "response_type": "code", "scope": SCOPE, "state": state,
+            "response_type": "code", "scope": " ".join(requested), "state": state,
             "code_challenge": challenge, "code_challenge_method": "S256",
-            "access_type": "offline", "prompt": "consent", "login_hint": self.expected_email,
+            "access_type": "offline", "prompt": "consent",
+            "include_granted_scopes": "true", "login_hint": self.expected_email,
         }), state
 
     def complete(self, params, cookie_state, origin):
@@ -146,11 +160,20 @@ class GmailConnection:
             "code": code, "code_verifier": pending[1], "redirect_uri": pending[2],
             "grant_type": "authorization_code",
         })
-        if not has_required_scopes(tokens.get("scope")):
-            raise ValueError("Google did not grant the required read and send permissions")
+        granted = scope_set(tokens.get("scope"))
+        if not set(pending[4]).issubset(granted):
+            raise ValueError("Google did not grant the requested Gmail permission")
         access = tokens.get("access_token")
         refresh = tokens.get("refresh_token")
-        if not isinstance(access, str) or not access or not isinstance(refresh, str) or not refresh:
+        if not isinstance(access, str) or not access:
+            raise ValueError("Google did not return usable Gmail access")
+        if not isinstance(refresh, str) or not refresh:
+            try:
+                prior = self._saved()
+                refresh = prior.get("refresh_token")
+            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+                refresh = None
+        if not isinstance(refresh, str) or not refresh:
             raise ValueError("Google did not return offline access. Connect again and approve consent.")
         try:
             lifetime = int(tokens["expires_in"])
@@ -162,7 +185,8 @@ class GmailConnection:
         if str(profile.get("emailAddress", "")).lower() != self.expected_email:
             raise ValueError("The selected mailbox does not match the configured ClubSP mailbox")
         saved = {"email": self.expected_email, "access_token": access, "refresh_token": refresh,
-                 "expires_at": self.clock() + lifetime, "client_fingerprint": self.fingerprint(), "scope": SCOPE}
+                 "expires_at": self.clock() + lifetime, "client_fingerprint": self.fingerprint(),
+                 "scope": " ".join(sorted(granted))}
         self._save(saved, pending[3])
         return self.expected_email
 
@@ -184,7 +208,7 @@ class GmailConnection:
             if os.path.exists(temp):
                 os.unlink(temp)
 
-    def ensure_access_token(self, force=False):
+    def ensure_access_token(self, force=False, required_scope=READ_SCOPE):
         """Refresh on demand; never return credentials through a public route."""
         with self.refresh_lock:
             with self.lock:
@@ -193,13 +217,14 @@ class GmailConnection:
                     saved = json.loads(original)
                     if (not isinstance(saved, dict) or saved.get("email") != self.expected_email
                             or saved.get("client_fingerprint") != self.fingerprint()
-                            or saved.get("scope") != SCOPE
-                            or not all(isinstance(saved.get(k), str) and saved[k]
-                                       for k in ("access_token", "refresh_token"))
+                            or required_scope not in scope_set(saved.get("scope"))
+                            or not all(isinstance(saved.get(key), str) and saved[key]
+                                       for key in ("access_token", "refresh_token"))
                             or not isinstance(saved.get("expires_at"), (int, float))):
                         raise ValueError()
-                except (OSError, ValueError, TypeError):
-                    raise ValueError("Connect Gmail before refreshing access") from None
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    action = "Enable approved Gmail sending" if required_scope == SEND_SCOPE else "Connect Gmail"
+                    raise ValueError(action + " before using this feature") from None
                 generation = self.generation
             if not force and saved["expires_at"] > self.clock() + 60:
                 return saved["access_token"]
@@ -212,7 +237,9 @@ class GmailConnection:
                 lifetime = int(tokens["expires_in"])
                 if not isinstance(access, str) or not access or not 0 < lifetime <= 86400:
                     raise ValueError()
-                if "scope" in tokens and not has_required_scopes(tokens["scope"]):
+                if "scope" in tokens and (
+                        not isinstance(tokens["scope"], str)
+                        or required_scope not in scope_set(tokens["scope"])):
                     raise ValueError()
                 refresh = tokens.get("refresh_token", saved["refresh_token"])
                 if not isinstance(refresh, str) or not refresh:
@@ -223,6 +250,8 @@ class GmailConnection:
             if str(profile.get("emailAddress", "")).lower() != self.expected_email:
                 raise ValueError("The selected mailbox does not match the configured ClubSP mailbox")
             saved.update(access_token=access, refresh_token=refresh, expires_at=self.clock() + lifetime)
+            if isinstance(tokens.get("scope"), str):
+                saved["scope"] = tokens["scope"]
             self._save(saved, generation, expected=original)
             return access
 
