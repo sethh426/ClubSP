@@ -148,6 +148,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const candidates=message.relationship_candidates || [];
         if (candidates.length) {
           const label=element("label","Link to matching Relationship Desk record"), select=element("select");
+          select.setAttribute("aria-label","Link to matching Relationship Desk record");
           const empty=element("option","Choose a relationship");empty.value="";select.append(empty);
           candidates.forEach(candidate=>{const option=element("option",candidate.name+" · "+candidate.status);option.value=candidate.id;select.append(option);});
           label.append(select);relBox.append(label);
