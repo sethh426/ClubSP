@@ -28,7 +28,7 @@ This is a single-user private app. The server binds to the loopback interface,
 validates Host/Origin headers, and serves only fixed assets. Set
 `CLUBSP_OWNER_SECRET` to enable the built-in owner login/session gate before any
 remote private use. Keep the reverse proxy VPN-only and HTTPS; do not expose the
-Python listener publicly. See [private owner authentication](docs/OWNER_AUTH.md).
+Python listener publicly. See [private owner authentication](docs/OWNER_AUTH.md) and [private service deployment](docs/PRIVATE_SERVICE.md).
 
 ## Use the workspace
 

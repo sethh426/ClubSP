@@ -4,6 +4,7 @@ import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie, CookieError
 import json
+import os
 from pathlib import Path
 import sqlite3
 from urllib.parse import urlsplit, parse_qs
@@ -17,6 +18,7 @@ from .funding import FundingBook
 from .relationships import RelationshipBook
 from .command_center import build_command_center
 from .auth import OwnerAuth, SESSION_COOKIE
+from .preflight import deployment_readiness
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
@@ -99,7 +101,7 @@ def handler_for(application, gmail, auth=None):
             return auth.valid(self.session_token())
 
         def require_auth(self, path):
-            if not auth.enabled or path in {"/login", "/login.js", "/style.css", "/api/health", CALLBACK}:
+            if not auth.enabled or path in {"/login", "/login.js", "/style.css", "/api/health", "/api/ready", CALLBACK}:
                 return True
             if self.authenticated():
                 return True
@@ -165,6 +167,9 @@ def handler_for(application, gmail, auth=None):
                 self.send_content(200, (STATIC / name).read_bytes(), content_type)
             elif path == "/api/health":
                 self.send_json(200, {"status": "ok", "mode": "local"})
+            elif path == "/api/ready":
+                readiness = deployment_readiness(application.database.path, gmail=gmail, auth=auth)
+                self.send_json(200 if readiness["ready"] else 503, readiness)
             elif path == "/api/state":
                 try:
                     self.send_json(200, application.state())
@@ -479,8 +484,11 @@ def handler_for(application, gmail, auth=None):
 
 def create_server(database_path, port=8000, application=None, gmail=None, auth=None):
     connection = gmail or GmailConnection(Path(database_path).parent / "private")
+    # Programmatic/local callers remain unauthenticated unless they explicitly pass
+    # an OwnerAuth instance. The production CLI constructs OwnerAuth from env.
+    effective_auth = auth if auth is not None else OwnerAuth(secret="")
     return ThreadingHTTPServer(("127.0.0.1", port), handler_for(
-        application or Application(database_path), connection, auth=auth or OwnerAuth()
+        application or Application(database_path), connection, auth=effective_auth
     ))
 
 
@@ -490,7 +498,13 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     load_local_environment(Path(__file__).resolve().parent.parent / ".env")
-    server = create_server(args.db, args.port)
+    application = Application(args.db)
+    gmail = GmailConnection(Path(args.db).parent / "private")
+    auth = OwnerAuth()
+    readiness = deployment_readiness(args.db, gmail=gmail, auth=auth)
+    if os.environ.get("CLUBSP_ENV", "development").strip().lower() == "production" and not readiness["ready"]:
+        raise SystemExit("ClubSP production preflight failed: " + dumps(readiness))
+    server = create_server(args.db, args.port, application=application, gmail=gmail, auth=auth)
     print(f"ClubSP is running at http://127.0.0.1:{server.server_address[1]}", flush=True)
     try:
         server.serve_forever()
