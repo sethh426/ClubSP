@@ -24,3 +24,8 @@ input,select{width:100%;border:1px solid #374159;border-radius:8px;background:#0
 
 #knowledge-research>summary{cursor:pointer;font-weight:600}.source-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.source-choice{margin:0;border:1px solid var(--border);border-radius:8px;padding:12px;min-width:0}.source-choice input{width:auto;margin-right:8px}.source-choice span{display:block;color:var(--muted);font-size:11px;margin-top:5px}.knowledge-run{border-top:1px solid var(--border);padding:1rem 0}.knowledge-run>h3{font-size:15px}.knowledge-source{padding:1rem;background:#101622;border-radius:10px;margin:1rem 0;min-width:0}.knowledge-source h4{margin:0 0 .5rem}.knowledge-source p{overflow-wrap:anywhere}.knowledge-actions{display:flex;flex-wrap:wrap;gap:8px;margin:1rem 0}.knowledge-actions .button{width:auto;margin:0}.knowledge-item p{white-space:pre-wrap;overflow-wrap:anywhere}.knowledge-item{border-top:1px solid var(--border);padding:1rem 0}.knowledge-gaps{padding-left:1.25rem;color:var(--muted);font-size:12px}.knowledge-review-form .check-label{line-height:1.5}
 @media(max-width:700px){.source-choices{grid-template-columns:1fr}.knowledge-actions{display:grid;grid-template-columns:1fr}.knowledge-actions .button{width:100%}}
+
+.gmail-preview { margin-top: 1rem; overflow-wrap: anywhere; }
+#gmail-callback { overflow-wrap: anywhere; }
+.gmail-preview select { max-width: 100%; }
+#gmail-sync-form { margin-top: 1rem; }
