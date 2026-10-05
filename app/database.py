@@ -11,7 +11,7 @@ from uuid import UUID
 from core.memory import (
     Fact, LearningRecord, MemoryStore, Observation, Prediction, SourceRecord, WorkflowEvent,
 )
-from .schema import ensure_component
+from .schema import assert_component_compatible, ensure_component
 
 COLLECTIONS = {
     "sources": SourceRecord,
@@ -60,6 +60,7 @@ class Database:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.path) as connection:
+            assert_component_compatible(connection, "core")
             connection.executescript("""
                 CREATE TABLE IF NOT EXISTS properties (
                     id TEXT PRIMARY KEY,
