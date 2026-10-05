@@ -15,6 +15,7 @@ from .gmail_inbox import sync_previews
 from .gmail_send import send_approved_draft
 from .funding import FundingBook
 from .relationships import RelationshipBook
+from .command_center import build_command_center
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
@@ -29,6 +30,7 @@ ASSETS = {
     "/knowledge.js": ("knowledge.js", "text/javascript; charset=utf-8"),
     "/discovery.js": ("discovery.js", "text/javascript; charset=utf-8"),
     "/commitment.js": ("commitment.js", "text/javascript; charset=utf-8"),
+    "/command-center.js": ("command-center.js", "text/javascript; charset=utf-8"),
     "/gmail.js": ("gmail.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/funding": ("funding.html", "text/html; charset=utf-8"),
@@ -129,6 +131,11 @@ def handler_for(application, gmail):
             elif path == "/api/relationships":
                 try:
                     self.send_json(200, relationships.state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/command-center":
+                try:
+                    self.send_json(200, build_command_center(application, relationships))
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/funding":
