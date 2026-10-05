@@ -6,6 +6,8 @@ from email.message import EmailMessage
 from email.policy import SMTP
 import re
 
+from .gmail import SEND_SCOPE
+
 SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
 
@@ -21,7 +23,7 @@ def encoded_message(sender, recipient, subject, body):
 
 def send_approved_draft(gmail, relationships, relationship_id, data):
     """Send exactly one current approved draft; never retry an ambiguous provider result."""
-    token = gmail.ensure_access_token()
+    token = gmail.ensure_access_token(required_scope=SEND_SCOPE)
     reserved = relationships.reserve_send(relationship_id, data, gmail.expected_email)
     send = reserved["send"]
     if not reserved["created"]:
