@@ -26,6 +26,7 @@ from .discovery import DiscoveryMixin
 from .sourcing import SourcingMixin, sale_snapshot
 from .commitment_graph import CommitmentGraphMixin
 from .provider_integrations import ProviderIntegrationMixin
+from .transactions import TransactionMixin
 
 
 DEAL_STAGES = (
@@ -94,11 +95,12 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, GmailInboxMixin):
+class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, GmailInboxMixin, TransactionMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
         self._initialize_gmail_inbox()
+        self._initialize_transactions()
         with self.database.session(write=True) as (connection, _):
             self._recover_knowledge_runs(connection)
             for deal in connection.execute("SELECT id FROM deals").fetchall():
@@ -127,6 +129,7 @@ class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchM
                 connection, result["deals"], result["discovery"]
             )
             result["provider_integrations"] = self._provider_state(connection)
+            result["transactions"] = self._transaction_state(connection, result["deals"])
             result["today"] = business_today().isoformat()
             result["research"] = self._research_snapshots(connection)
             result["providers"] = [PROVIDER]
