@@ -78,6 +78,27 @@ function relDraftForm(record) {
   relSubmit(form,button,`/api/relationships/${record.id}/drafts`,data=>({...data,profile_id:record.profile.id,event_id:record.event_id || "",draft_id:latest?.id || ""}));
   return form;
 }
+function relSendForm(record, draft) {
+  const form=relNode("form",undefined,"relationship-form");
+  form.append(relNode("p","This sends the exact approved subject/body to the reviewed recipient through the connected Gmail account. A send attempt cannot be silently retried.","relationship-blocked small wide"));
+  relField(form,"follow_up_on","Follow-up date after sending","","date");
+  relField(form,"next_action","Next action after sending","");
+  const confirm=relNode("label",undefined,"wide"), box=relNode("input");box.type="checkbox";box.name="owner_confirmed_send";box.required=true;
+  confirm.append(box,document.createTextNode(" I reviewed the recipient and exact message and authorize this send now."));form.append(confirm);
+  const button=relNode("button","Send approved email","button primary");button.type="submit";form.append(button);
+  const key=relKey();
+  form.addEventListener("submit",async event=>{
+    event.preventDefault();button.disabled=true;
+    try{
+      const data=Object.fromEntries(new FormData(form));
+      data.request_key=key;data.draft_id=draft.id;data.review_id=draft.reviews[0].id;data.owner_confirmed_send=box.checked;
+      const result=await relApi(`/api/relationships/${record.id}/send`,data);
+      relMessage(result.status==="sent"?"Email sent. Gmail receipt recorded.":"Send attempt recorded: "+result.status+".");
+      await relLoad();
+    }catch(error){relMessage(error.message,true);button.disabled=false;}
+  });
+  return form;
+}
 function relDraftHistory(record, parent) {
   record.saved_drafts.forEach(draft=>{
     const item=relNode("section",undefined,"history-entry");
@@ -91,6 +112,14 @@ function relDraftHistory(record, parent) {
     relSubmit(form,button,`/api/relationships/${record.id}/draft-reviews`,data=>({...data,draft_id:draft.id,review_id:draft.reviews[0]?.id || ""}));
     item.append(form);
     draft.reviews.forEach(review=>item.append(relNode("p",`${review.decision} · ${review.reviewer} · ${review.created_at}\n${review.note}`,"small")));
+    if(draft.send){
+      const event=draft.send.latest_event;
+      item.append(relNode("p",`Send status: ${draft.send.status} · ${event?.created_at || draft.send.created_at}`,"small"));
+      if(event?.provider_message_id)item.append(relNode("p",`Gmail message: ${event.provider_message_id} · thread: ${event.provider_thread_id}`,"muted small"));
+      if(event?.note)item.append(relNode("p",event.note,draft.send.status==="unknown"?"relationship-blocked small":"muted small"));
+    } else if(draft.sending_enabled) {
+      item.append(relSendForm(record,draft));
+    }
     parent.append(item);
   });
 }
