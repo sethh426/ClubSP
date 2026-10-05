@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from core.memory.models import utc_now
 from .operations import business_today
 from .validation import list_field, text_field
-from .schema import ensure_component
+from .schema import assert_component_compatible, ensure_component
 
 
 def identifier(data, key, required=True):
@@ -47,6 +47,7 @@ class RelationshipBook:
         self.application = application
         self.database = application.database
         with self.database.session(write=True) as (connection, _):
+            assert_component_compatible(connection, "relationships")
             statements = [
                 "CREATE TABLE IF NOT EXISTS relationships (id TEXT PRIMARY KEY, created_at TEXT NOT NULL)",
                 "CREATE TABLE IF NOT EXISTS relationship_profiles (id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL REFERENCES relationships(id), previous_id TEXT UNIQUE REFERENCES relationship_profiles(id), request_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, created_at TEXT NOT NULL)",
