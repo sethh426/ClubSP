@@ -73,12 +73,24 @@ def handler_for(application, gmail):
 
         def valid_host(self):
             port = self.server.server_address[1]
-            return self.headers.get("Host") in {
-                f"127.0.0.1:{port}", f"localhost:{port}",
-            }
+            allowed = {f"127.0.0.1:{port}", f"localhost:{port}"}
+            if gmail.browser_origin:
+                allowed.add(urlsplit(gmail.browser_origin).netloc)
+            return self.headers.get("Host") in allowed
+
+        def browser_origin(self):
+            host = self.headers.get("Host", "")
+            if gmail.browser_origin and host == urlsplit(gmail.browser_origin).netloc:
+                return gmail.browser_origin
+            return "http://" + host
 
         def gmail_origin(self):
-            return "http://" + self.headers["Host"]
+            return self.browser_origin()
+
+        def gmail_cookie(self, value, max_age):
+            secure = "; Secure" if self.browser_origin().startswith("https://") else ""
+            return ("clubsp_gmail=" + value
+                    + "; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=" + str(max_age) + secure)
 
         def relationship_state(self):
             state = relationships.state()
@@ -113,7 +125,7 @@ def handler_for(application, gmail):
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == CALLBACK:
-                clear_cookie = "clubsp_gmail=; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=0"
+                clear_cookie = self.gmail_cookie("", 0)
                 try:
                     if len(self.path) > 8192:
                         raise ValueError("Google callback is too large")
@@ -133,7 +145,7 @@ def handler_for(application, gmail):
                 name, content_type = ASSETS[path]
                 self.send_content(200, (STATIC / name).read_bytes(), content_type)
             elif path == "/api/health":
-                self.send_json(200, {"status": "ok", "mode": "local"})
+                self.send_json(200, {"status": "ok", "mode": "private_https" if gmail.browser_origin else "local"})
             elif path == "/api/state":
                 try:
                     self.send_json(200, application.state())
@@ -165,7 +177,7 @@ def handler_for(application, gmail):
                 self.send_json(403, {"error": "Use the local application URL"})
                 return
             origin = self.headers.get("Origin")
-            if origin and origin != "http://" + self.headers["Host"]:
+            if origin and origin != self.browser_origin():
                 self.send_json(403, {"error": "Cross-origin requests are not allowed"})
                 return
             if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
@@ -205,7 +217,7 @@ def handler_for(application, gmail):
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(body)))
                     self.send_header("Cache-Control", "no-store")
-                    self.send_header("Set-Cookie", "clubsp_gmail=" + state + "; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=600")
+                    self.send_header("Set-Cookie", self.gmail_cookie(state, 600))
                     self.end_headers()
                     self.wfile.write(body)
                     return
@@ -221,7 +233,7 @@ def handler_for(application, gmail):
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(body)))
                     self.send_header("Cache-Control", "no-store")
-                    self.send_header("Set-Cookie", "clubsp_gmail=" + state + "; Path=/auth/gmail; HttpOnly; SameSite=Lax; Max-Age=600")
+                    self.send_header("Set-Cookie", self.gmail_cookie(state, 600))
                     self.end_headers()
                     self.wfile.write(body)
                     return
