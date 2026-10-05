@@ -484,8 +484,11 @@ def handler_for(application, gmail, auth=None):
 
 def create_server(database_path, port=8000, application=None, gmail=None, auth=None):
     connection = gmail or GmailConnection(Path(database_path).parent / "private")
+    # Programmatic/local callers remain unauthenticated unless they explicitly pass
+    # an OwnerAuth instance. The production CLI constructs OwnerAuth from env.
+    effective_auth = auth if auth is not None else OwnerAuth(secret="")
     return ThreadingHTTPServer(("127.0.0.1", port), handler_for(
-        application or Application(database_path), connection, auth=auth or OwnerAuth()
+        application or Application(database_path), connection, auth=effective_auth
     ))
 
 
