@@ -55,6 +55,45 @@ test("manual previews are text, paged, and linked only after review", async ({ p
   expect(await page.locator("#gmail-callback").evaluate(node => node.getBoundingClientRect().right <= innerWidth)).toBe(true);
 });
 
+
+test("reviewed Gmail reply can be linked and imported into Relationship Desk", async ({ page }) => {
+  const status = {configured: true, connected: true, sending_enabled: false, email: "owner@example.test", redirect_uri: "https://clubsp.online/auth/gmail/callback"};
+  const message = {id:"preview-rel",gmail_id:"msgrel",mailbox:status.email,sender:"Synthetic Investor <investor@example.test>",
+    sender_email:"investor@example.test",subject:"Current criteria",snippet:"Yes, send me current opportunities.",received_at:"2026-10-02T14:00:00+00:00",
+    relationship_id:null,relationship_name:null,relationship_interaction_id:null,relationship_imported_at:null,
+    relationship_candidates:[{id:"relationship-1",name:"Synthetic Investor",status:"active"}]};
+  await page.route("**/api/gmail/status", route => route.fulfill({json:status}));
+  await page.route("**/api/gmail/inbox", route => route.fulfill({json:{messages:[message],total:1}}));
+  await page.route("**/api/gmail/previews/*/relationship", route => {
+    const data=route.request().postDataJSON();
+    if(data.action==="link"){
+      expect(data.relationship_id).toBe("relationship-1");
+      Object.assign(message,{relationship_id:"relationship-1",relationship_name:"Synthetic Investor",relationship_linked_at:"2026-10-05T12:00:00Z"});
+      return route.fulfill({json:{action:"link",relationship_id:"relationship-1"}});
+    }
+    expect(data.action).toBe("import");
+    expect(data.outcome).toBe("interested");
+    expect(data.review_note).toContain("reviewed");
+    expect(data.request_key).toBeTruthy();
+    Object.assign(message,{relationship_interaction_id:"interaction-1",relationship_imported_at:"2026-10-05T12:01:00Z"});
+    return route.fulfill({json:{action:"import",interaction:{id:"interaction-1"}}});
+  });
+  await page.goto("/");
+  await page.getByText("Gmail · Connect your mailbox",{exact:true}).click();
+  const card=page.locator("#gmail-inbox .gmail-preview");
+  await expect(card.getByLabel("Link to matching Relationship Desk record",{exact:true})).toBeVisible();
+  await card.getByLabel("Link to matching Relationship Desk record",{exact:true}).selectOption("relationship-1");
+  await card.getByRole("button",{name:"Link relationship",exact:true}).click();
+  await expect(card).toContainText("Relationship Desk: Synthetic Investor");
+  await card.locator('select[name="outcome"]').selectOption("interested");
+  await card.locator('textarea[name="review_note"]').fill("Original Gmail reviewed; buyer remains interested.");
+  await card.locator('input[name="follow_up_on"]').fill("2026-10-05");
+  await card.locator('input[name="next_action"]').fill("Send qualified opportunities");
+  await card.getByRole("button",{name:"Import reviewed reply",exact:true}).click();
+  await expect(card).toContainText("Imported into relationship history");
+  await expect(page.locator("#gmail-result")).toContainText("imported into Relationship Desk");
+});
+
 test("refresh preserves read-only status until send permission is granted", async ({ page }) => {
   const status = {configured: true, connected: true, sending_enabled: false, email: "owner@example.test",
     access_token_expired: true, redirect_uri: "https://clubsp.online/auth/gmail/callback"};
