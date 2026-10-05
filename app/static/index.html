@@ -35,9 +35,10 @@
     <details class="panel"><summary>Gmail · Connect your mailbox</summary>
       <p id="gmail-status" role="status">Checking connection…</p>
       <p id="gmail-result" role="status"></p>
-      <p class="muted small">Read-only permission; sending is disabled. Message previews are fetched only when you press Sync previews. Save this exact authorized redirect URI in your Google client:</p>
+      <p class="muted small">Read-only permission is the default. Approved sending is a separate Google consent step and still requires an explicit owner action for each reviewed Relationship Desk draft. Message previews are fetched only when you press Sync previews. Save this exact authorized redirect URI in your Google client:</p>
       <p><code id="gmail-callback"></code></p>
       <button id="gmail-connect" class="button" type="button" disabled>Connect Gmail</button>
+      <button id="gmail-enable-send" class="button" type="button" hidden>Enable approved sending</button>
       <button id="gmail-refresh" class="button" type="button" hidden>Refresh Gmail access</button>
       <button id="gmail-disconnect" class="button" type="button" hidden>Remove local connection</button>
       <form id="gmail-sync-form" hidden>
