@@ -9,9 +9,9 @@ import sqlite3
 from uuid import UUID
 
 from core.memory import (
-from .schema import ensure_component
     Fact, LearningRecord, MemoryStore, Observation, Prediction, SourceRecord, WorkflowEvent,
 )
+from .schema import ensure_component
 
 COLLECTIONS = {
     "sources": SourceRecord,
