@@ -22,7 +22,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const data = await response.json();
     callback.textContent = data.redirect_uri;
     status.textContent = data.connected
-      ? "Authorized mailbox: " + data.email + (data.access_token_expired ? " · Access token expired; refresh access or reconnect." : " · Read-only access.")
+      ? "Authorized mailbox: " + data.email + (data.access_token_expired ? " · Access token expired; refresh access or reconnect." : " · Read access plus approved-draft sending.")
       : data.configured ? "Ready for Google authorization: " + data.expected_email : "Google credentials or expected mailbox are missing from private configuration.";
     connect.disabled = !data.configured;
     disconnect.hidden = !data.connected;
