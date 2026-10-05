@@ -1,6 +1,6 @@
 # ClubSP
 
-Gmail read-only authorization, access-token refresh, and manual message previews are available through the **Gmail · Connect your mailbox** panel. See [Gmail setup](docs/GMAIL.md) for the exact callback, Google test-user configuration, private token storage, and limitations. Email sending remains disabled; inbox previews are fetched only by explicit owner action. VPN-only HTTPS callbacks can be configured explicitly without exposing the app publicly.
+Gmail authorization, access-token refresh, manual message previews, and explicitly approved Relationship Desk sending are available through the **Gmail · Connect your mailbox** panel. See [Gmail setup](docs/GMAIL.md) for the exact callback, Google test-user configuration, private token storage, and limitations. Automatic sending remains disabled; inbox previews and each approved send require explicit owner action. VPN-only HTTPS callbacks can be configured explicitly without exposing the app publicly.
 
 A working local property workspace for deal operations, official parcel evidence,
 underwriting, owner cash and profit, seller conversations and sales practice.
