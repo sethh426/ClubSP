@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from core.memory.models import utc_now
 from .operations import business_today
 from .validation import list_field, text_field
+from .schema import ensure_component
 
 
 def identifier(data, key, required=True):
@@ -63,6 +64,7 @@ class RelationshipBook:
             ]
             for statement in statements:
                 connection.execute(statement)
+            ensure_component(connection, "relationships")
 
     @staticmethod
     def decode(row):
