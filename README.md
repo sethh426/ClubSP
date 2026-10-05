@@ -192,9 +192,17 @@ and mobile sizes, including reload persistence, rendered evidence, and outcomes.
 
 ## Back up your workspace
 
-Stop the app and copy `data/clubsp.sqlite3` to a safe location. To restore it,
-stop the app and replace the database file with the backup. Databases are ignored
-by Git so property data stays out of source control.
+Use the verified SQLite backup helper instead of copying the live database while
+it may be writing:
+
+```sh
+python -m app.maintenance backup --db data/clubsp.sqlite3 --out backups/clubsp.sqlite3
+python -m app.maintenance verify backups/clubsp.sqlite3
+```
+
+Restores require ClubSP to be stopped and an explicit `--confirm-offline` flag.
+See [backup and recovery](docs/BACKUP_RECOVERY.md) for the restore procedure,
+retention guidance, and recovery checks. Database files remain ignored by Git.
 
 ## Structure
 
