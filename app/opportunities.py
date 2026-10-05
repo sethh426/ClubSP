@@ -154,7 +154,9 @@ class OpportunitiesMixin:
                 gaps.append("Complete pre-contract evidence reviews: " + "; ".join(reviews))
             decision = "outside_buy_box" if outside else "blocked" if blockers else "research" if gaps else "owner_review"
             reasons = outside + blockers + gaps
-            items.append({"deal_id": deal["id"], "property_id": prop["id"], "address": prop["address"],
+            from .economics import economic_screen
+            assessment = economic_screen(connection, deal, policy, deals)
+            items.append({"economic_screen": assessment, "deal_id": deal["id"], "property_id": prop["id"], "address": prop["address"],
                           "market": location, "strategy": deal["strategy"], "stage": deal["stage"],
                           "decision": decision, "reasons": reasons,
                           "next_action": reasons[0] if reasons else "Owner review of terms and evidence; no execution authorized",

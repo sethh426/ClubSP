@@ -256,6 +256,8 @@ def handler_for(application, gmail):
                         result = application.underwrite(parts[2], data)
                     elif parts[3] == "buyer-matches" and data == {}:
                         result = application.match_buyers(parts[2])
+                    elif parts[3] == "economic-review":
+                        result = application.review_economics(parts[2], data)
                     elif parts[3] == "financial-plan":
                         result = application.save_financial_plan(parts[2], data)
                     elif parts[3] == "funding":

@@ -18,6 +18,7 @@ from .providers import PROVIDER
 from .communications import CommunicationsMixin
 from .training import TrainingMixin
 from .knowledge import KnowledgeMixin
+from .economics import EconomicReviewsMixin
 from .opportunities import OpportunitiesMixin, property_evidence, canonical
 from .discovery import DiscoveryMixin
 from .sourcing import SourcingMixin, sale_snapshot
@@ -89,7 +90,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin):
+class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
