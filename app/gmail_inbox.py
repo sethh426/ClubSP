@@ -193,6 +193,7 @@ class GmailInboxMixin:
             if row is None:
                 raise LookupError("Gmail preview not found")
             if action == "remove":
+                connection.execute("DELETE FROM gmail_preview_relationship_links WHERE preview_id=?", (preview_id,))
                 connection.execute("DELETE FROM gmail_previews WHERE id=?", (preview_id,))
             elif action == "unlink":
                 connection.execute("UPDATE gmail_previews SET contact_id=NULL,linked_at=NULL WHERE id=?", (preview_id,))
