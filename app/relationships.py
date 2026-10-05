@@ -420,7 +420,7 @@ class RelationshipBook:
                     "draft": draft, "saved_drafts": saved_drafts})
             records.sort(key=lambda r: (r["blocked"] or r["paused"], not r["due"], not bool(r["follow_up_on"]), r["follow_up_on"], r["profile"]["name"].casefold(), r["id"]))
             buyers = [dict(row) for row in connection.execute("SELECT id,name,status FROM buyers ORDER BY name,id")]
-        return {"today": today, "sending_enabled": True, "relationships": records, "buyers": buyers,
+        return {"today": today, "sending_enabled": False, "relationships": records, "buyers": buyers,
                 "summary": {"total": len(records), "due": sum(r["due"] for r in records),
                     "overdue": sum(r["overdue"] for r in records), "blocked": sum(r["blocked"] for r in records)},
                 "daily_focus": [r["id"] for r in records if r["due"]][:10]}
