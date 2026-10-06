@@ -140,7 +140,16 @@ def handler_for(application, gmail, auth=None):
             if path == "/api/discovery":
                 self.send_json(200, application.discovery_state())
             elif path == "/api/sentras/meta":
-                self.send_json(200, application.meta_sentra_state())
+                try:
+                    query = parse_qs(urlsplit(self.path).query, max_num_fields=4)
+                    self.send_json(200, application.meta_sentra_state(
+                        limit=int(query.get("limit", ["100"])[0]),
+                        offset=int(query.get("offset", ["0"])[0]),
+                    ))
+                except (ValueError, TypeError) as error:
+                    self.send_json(400, {"error": str(error)})
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/gmail/status":
                 self.send_json(200, gmail.status(self.gmail_origin()))
             elif path == "/api/gmail/inbox":
@@ -280,6 +289,18 @@ def handler_for(application, gmail, auth=None):
                         self.send_json(403, {"error": "A matching Origin is required"})
                         return
                     result = application.meta_activate(data)
+                elif path in {"/api/sentras/meta/health", "/api/sentras/meta/execute", "/api/sentras/meta/history", "/api/sentras/meta/requarantine"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    if path.endswith("/health"):
+                        result = application.meta_health_check(data)
+                    elif path.endswith("/execute"):
+                        result = application.meta_execute(data)
+                    elif path.endswith("/history"):
+                        result = application.meta_candidate_history(data)
+                    else:
+                        result = application.meta_requarantine(data.get("fingerprint"), data.get("reason"))
                 elif path == "/api/discovery/snapshot":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
@@ -564,11 +585,15 @@ def main():
     server = create_server(args.db, args.port, application=application, gmail=gmail, auth=auth)
     meta_scheduler = None
     meta_config = scheduler_config()
-    if meta_config["enabled"]:
+    if meta_config["enabled"] or meta_config["health_enabled"]:
         meta_scheduler = MetaSentraScheduler(
             application,
             interval_seconds=meta_config["interval_seconds"],
             max_queries=meta_config["max_queries"],
+            discovery_enabled=meta_config["enabled"],
+            health_enabled=meta_config["health_enabled"],
+            health_interval_seconds=meta_config["health_interval_seconds"],
+            max_health_sources=meta_config["max_health_sources"],
         )
         meta_scheduler.start()
     print(f"ClubSP is running at http://127.0.0.1:{server.server_address[1]}", flush=True)

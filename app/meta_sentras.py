@@ -13,6 +13,8 @@ import json
 import re
 import time
 
+from .meta_source_transport import validate_public_url
+
 
 DISCOVERY_PROVIDERS = {
     "apify_store": {
@@ -27,8 +29,8 @@ DISCOVERY_PROVIDERS = {
     },
     "data_gov": {
         "kind": "government_catalog",
-        "endpoint": "https://api.datagov-catalog-dev.app.cloud.gov/search",
-        "auth_required": False,
+        "endpoint": "https://api.gsa.gov/technology/datagov/v4/search",
+        "auth_required": True,
     },
     "ckan": {
         "kind": "open_data_catalog",
@@ -78,10 +80,10 @@ class QuarantineAssessment:
 
 def _safe_https_url(value: str) -> bool:
     try:
-        parsed = urlparse(value)
+        validate_public_url(value)
     except ValueError:
         return False
-    return parsed.scheme in ALLOWED_SCHEMES and bool(parsed.netloc)
+    return True
 
 
 def infer_capabilities(text: str) -> tuple[str, ...]:
@@ -220,13 +222,14 @@ def normalize_arcgis_item(item: Mapping[str, Any]) -> SourceCandidate:
 def normalize_ckan_dataset(dataset: Mapping[str, Any], *, provider: str = "ckan") -> SourceCandidate:
     dataset_id = str(dataset.get("id") or dataset.get("name") or "").strip()
     name = str(dataset.get("title") or dataset.get("name") or dataset_id).strip()
-    source_url = str(dataset.get("url") or "").strip()
+    # Resource endpoints are evidence candidates; catalog landing pages are not data.
+    resources = dataset.get("resources") if isinstance(dataset.get("resources"), list) else []
+    resources = sorted(resources, key=lambda r: 0 if isinstance(r, Mapping)
+                       and str(r.get("format", "")).lower() in {"json", "csv", "geojson", "api"} else 1)
+    source_url = next((str(r["url"]) for r in resources if isinstance(r, Mapping)
+                       and _safe_https_url(str(r.get("url") or ""))), "")
     if not source_url:
-        resources = dataset.get("resources") if isinstance(dataset.get("resources"), list) else []
-        for resource in resources:
-            if isinstance(resource, Mapping) and _safe_https_url(str(resource.get("url") or "")):
-                source_url = str(resource["url"])
-                break
+        source_url = str(dataset.get("url") or "").strip()
     if not dataset_id or not name or not source_url:
         raise ValueError("CKAN candidate is missing id, name, or usable URL")
     description = str(dataset.get("notes") or "").strip()
@@ -239,7 +242,42 @@ def normalize_ckan_dataset(dataset: Mapping[str, Any], *, provider: str = "ckan"
         description=description,
         jurisdiction_hint=str(org.get("title") or "").strip(),
         capabilities_hint=infer_capabilities(f"{name} {description}"),
-        metadata={"organization": org.get("title"), "license": dataset.get("license_title")},
+        metadata={"organization": org.get("title"), "license": dataset.get("license_title"),
+                  "landing_page": dataset.get("url")},
+    )
+
+
+def normalize_datagov_dataset(dataset: Mapping[str, Any]) -> SourceCandidate:
+    """Normalize the current Data.gov v4/DCAT resource format."""
+    dcat = dataset.get("dcat") if isinstance(dataset.get("dcat"), Mapping) else dataset
+    dataset_id = str(dataset.get("identifier") or dcat.get("identifier") or "").strip()
+    name = str(dataset.get("title") or dcat.get("title") or "").strip()
+    distributions = dcat.get("distribution") if isinstance(dcat.get("distribution"), list) else []
+    resources = []
+    for distribution in distributions:
+        if not isinstance(distribution, Mapping):
+            continue
+        for key in ("accessURL", "downloadURL"):
+            url = str(distribution.get(key) or "").strip()
+            if _safe_https_url(url):
+                resources.append((str(distribution.get("mediaType") or distribution.get("format") or "").lower(), url))
+    resources.sort(key=lambda r: 0 if any(t in r[0] for t in ("json", "csv")) else 1)
+    landing_page = str(dcat.get("landingPage") or dataset.get("landingPage") or "").strip()
+    source_url = resources[0][1] if resources else landing_page
+    if not dataset_id or not name or not _safe_https_url(source_url):
+        raise ValueError("Data.gov candidate is missing identity or a public resource URL")
+    org = dataset.get("organization") if isinstance(dataset.get("organization"), Mapping) else {}
+    publisher = dcat.get("publisher") if isinstance(dcat.get("publisher"), Mapping) else {}
+    description = str(dataset.get("description") or dcat.get("description") or "").strip()
+    return SourceCandidate(
+        discovery_provider="data_gov", external_id=dataset_id, name=name,
+        source_url=source_url, description=description,
+        jurisdiction_hint=str(dcat.get("spatial") or org.get("name") or ""),
+        capabilities_hint=infer_capabilities(f"{name} {description}"),
+        metadata={"organization": org.get("name") or publisher.get("name"),
+                  "access_level": dcat.get("accessLevel"), "license": dcat.get("license"),
+                  "rights": dcat.get("rights"), "modified": dcat.get("modified"),
+                  "landing_page": landing_page, "resource_available": bool(resources)},
     )
 
 
@@ -265,7 +303,9 @@ def quarantine_record(candidate: SourceCandidate) -> dict[str, Any]:
         "source_url": candidate.source_url,
         "description": candidate.description[:4000],
         "jurisdiction_hint": candidate.jurisdiction_hint,
-        "capabilities_hint": list(candidate.capabilities_hint),
+        "capabilities_hint": list(candidate.capabilities_hint or infer_capabilities(
+            f"{candidate.name} {candidate.description}"
+        )),
         "metadata": dict(candidate.metadata),
         "assessment": {
             "score": assessment.score,

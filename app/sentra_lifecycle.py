@@ -35,7 +35,8 @@ AUTOMATED_TRANSITIONS: dict[str, set[str]] = {
 
 APPROVAL_TRANSITIONS: dict[str, set[str]] = {
     "proposed": {"approved", "rejected"},
-    "requarantined": {"approved", "rejected"},
+    # A broken source needs a fresh probe/proposal before another approval.
+    "requarantined": {"rejected"},
 }
 
 
