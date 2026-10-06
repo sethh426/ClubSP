@@ -30,6 +30,29 @@ def interaction(record, **changes):
         "follow_up_on": "", "next_action": "Review the reply", **changes}
 
 
+
+def qualification(record, **changes):
+    return {
+        "request_key": str(uuid4()),
+        "profile_id": record["profile"]["id"],
+        "event_id": record["event_id"] or "",
+        "markets": ["Fort Wayne, IN"],
+        "strategies": ["assignment"],
+        "property_types": ["single_family"],
+        "max_total_price": 180000,
+        "max_repairs": 45000,
+        "funding_status": "unverified",
+        "funding_reference": "",
+        "review_note": "Investor confirmed current Allen County criteria in the recorded reply.",
+        "refresh_days": 30,
+        "priority": 60,
+        "max_active_reservations": 2,
+        "target_units_per_month": 3,
+        "mandate_name": "Current Allen County criteria",
+        "owner_confirmed_criteria": True,
+        **changes,
+    }
+
 def setup(tmp_path):
     app = Application(tmp_path / "relationships.db")
     return app, RelationshipBook(app)
@@ -222,3 +245,110 @@ def test_relationship_http_workflow_and_origin_guard(tmp_path):
         assert error.value.code == 403
     finally:
         server.shutdown(); server.server_close(); worker.join()
+
+
+def test_confirmed_incoming_reply_promotes_atomically_to_buyer_and_mandate(tmp_path):
+    app, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    book.interact(row["id"], interaction(row, outcome="interested", note="We buy Fort Wayne single family assignments up to 180k with up to 45k repairs."))
+    row = current(book)
+    data = qualification(row)
+    saved = book.qualify_buyer(row["id"], data)
+    retry = book.qualify_buyer(row["id"], data)
+    assert retry["id"] == saved["id"]
+    assert retry["buyer_id"] == saved["buyer_id"]
+    assert retry["mandate_id"] == saved["mandate_id"]
+
+    state = current(book)
+    assert state["buyer"]["id"] == saved["buyer_id"]
+    assert state["profile"]["status"] == "active"
+    assert state["profile"]["buyer_id"] == saved["buyer_id"]
+    assert state["qualification"]["mandate_id"] == saved["mandate_id"]
+    assert state["qualification"]["mandate"]["status"] == "active"
+    assert state["qualification"]["mandate"]["max_total_price"] == 180000
+    assert state["qualification"]["mandate"]["max_repairs"] == 45000
+    assert state["next_action"] == "Reconfirm buyer criteria before the current mandate expires"
+    assert book.state()["summary"]["qualified_buyers"] == 1
+
+    with app.database.session() as (connection, _):
+        assert connection.execute("SELECT COUNT(*) FROM buyers").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM buyer_mandates").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM relationship_buyer_qualifications").fetchone()[0] == 1
+        filters = json.loads(connection.execute(
+            "SELECT filters_json FROM buyer_mandate_filters WHERE mandate_id=?", (saved["mandate_id"],)
+        ).fetchone()[0])
+        assert filters == {}
+
+
+def test_buyer_qualification_concurrent_retry_creates_one_buyer(tmp_path):
+    app, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    book.interact(row["id"], interaction(row, outcome="interested"))
+    row = current(book)
+    data = qualification(row)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(lambda _: RelationshipBook(Application(app.database.path)).qualify_buyer(row["id"], data), range(3)))
+    assert len({item["id"] for item in results}) == 1
+    with app.database.session() as (connection, _):
+        assert connection.execute("SELECT COUNT(*) FROM buyers").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM buyer_mandates").fetchone()[0] == 1
+
+
+def test_buyer_qualification_requires_latest_incoming_evidence_and_is_atomic(tmp_path):
+    app, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    first = book.interact(row["id"], interaction(row, direction="outgoing", note="Asked for criteria"))
+    row = current(book)
+    with pytest.raises(ValueError, match="latest incoming"):
+        book.qualify_buyer(row["id"], qualification(row))
+    with app.database.session() as (connection, _):
+        assert connection.execute("SELECT COUNT(*) FROM buyers").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM buyer_mandates").fetchone()[0] == 0
+
+    book.interact(row["id"], interaction(row, request_key=str(uuid4()), direction="incoming", outcome="interested"))
+    confirmed = current(book)
+    stale = qualification(confirmed)
+    book.interact(confirmed["id"], interaction(confirmed, request_key=str(uuid4()), direction="note", outcome="general"))
+    with pytest.raises(ValueError, match="changed"):
+        book.qualify_buyer(confirmed["id"], stale)
+    with app.database.session() as (connection, _):
+        assert connection.execute("SELECT COUNT(*) FROM buyers").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("changes", [
+    {"owner_confirmed_criteria": False},
+    {"max_total_price": 0},
+    {"strategies": []},
+    {"funding_status": "verified", "funding_reference": ""},
+    {"refresh_days": 0},
+    {"refresh_days": 91},
+    {"max_active_reservations": 0},
+    {"target_units_per_month": 0},
+])
+def test_invalid_buyer_qualification_never_creates_partial_records(tmp_path, changes):
+    app, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    book.interact(row["id"], interaction(row, outcome="interested"))
+    row = current(book)
+    with pytest.raises(ValueError):
+        book.qualify_buyer(row["id"], qualification(row, **changes))
+    with app.database.session() as (connection, _):
+        assert connection.execute("SELECT COUNT(*) FROM buyers").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM buyer_mandates").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM relationship_buyer_qualifications").fetchone()[0] == 0
+
+
+def test_buyer_qualification_request_key_cannot_change_payload(tmp_path):
+    _, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    book.interact(row["id"], interaction(row, outcome="interested"))
+    row = current(book)
+    data = qualification(row)
+    book.qualify_buyer(row["id"], data)
+    with pytest.raises(ValueError, match="different buyer qualification"):
+        book.qualify_buyer(row["id"], {**data, "max_total_price": 190000})
