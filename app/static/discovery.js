@@ -5,6 +5,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const result = document.getElementById("discovery-result");
   function node(tag, text) { const item = document.createElement(tag); item.textContent = text; return item; }
   function intakeForm(source, candidate, index) {
+    if (candidate.intake_supported === false) {
+      const box = node("details", ""); box.append(node("summary", "Research only · parcel confirmation required"));
+      box.append(node("p", "This official notice does not establish a parcel identity or purchase price. Confirm the parcel in Allen County records and verify the sale is still active before moving it into candidate intake."));
+      for (const blocker of candidate.intake_blockers || []) box.append(node("p", blocker));
+      return box;
+    }
     const box = node("details", ""); box.append(node("summary", "Stage for identity review"));
     const blockers = candidate.intake_blockers || [];
     if (blockers.length) {
@@ -79,9 +85,22 @@ document.addEventListener("DOMContentLoaded", () => {
         fallback.append(snapshot); card.append(fallback);
       }
       for (const [index, candidate] of source.candidates.entries()) {
-        card.append(node("h4", candidate.address), node("p", "Advertised minimum bid: $" + candidate.minimum_bid.toLocaleString("en-US")), node("p", candidate.availability), node("p", candidate.identity_note));
-        card.append(node("p", "Bid window: " + candidate.bid_start + " to " + candidate.bid_end));
-        card.append(node("p", "Parcels: " + candidate.parcel_ids.join(", ")));
+        card.append(node("h4", candidate.address), node("p", candidate.availability), node("p", candidate.identity_note));
+        if (candidate.minimum_bid !== null && candidate.minimum_bid !== undefined) {
+          card.append(node("p", "Advertised minimum bid: $" + Number(candidate.minimum_bid).toLocaleString("en-US")));
+        }
+        if (candidate.judgment_amount !== null && candidate.judgment_amount !== undefined) {
+          card.append(node("p", "Judgment amount (not a purchase price): $" + Number(candidate.judgment_amount).toLocaleString("en-US")));
+        }
+        if (candidate.bid_start && candidate.bid_end) card.append(node("p", "Bid window: " + candidate.bid_start + " to " + candidate.bid_end));
+        if (candidate.sale_date) card.append(node("p", "Scheduled sheriff sale date: " + candidate.sale_date));
+        if (candidate.cause_number) card.append(node("p", "Foreclosure cause: " + candidate.cause_number));
+        if (candidate.source_document_url) {
+          const documentLink = node("a", "Review official monthly sheriff-sale document");
+          documentLink.href = candidate.source_document_url; documentLink.target = "_blank"; documentLink.rel = "noopener noreferrer";
+          card.append(documentLink);
+        }
+        if (candidate.parcel_ids?.length) card.append(node("p", "Parcels: " + candidate.parcel_ids.join(", ")));
         for (const gap of candidate.review_gaps) card.append(node("p", gap));
         card.append(node("h4", "Preliminary buyer criteria"));
         if (!candidate.buyer_criteria?.length) {
