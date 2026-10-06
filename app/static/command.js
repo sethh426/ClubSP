@@ -21,6 +21,7 @@ function renderSummary(summary) {
     ["Due relationships", summary.due_relationships],
     ["Buyer criteria to confirm", summary.buyer_criteria_confirmations || 0],
     ["Buyer criteria to reconfirm", summary.buyer_criteria_reconfirmations || 0],
+    ["Outreach setup blockers", summary.outreach_setup_blockers || 0],
     ["Buyer-matched candidates", summary.buyer_matched_candidates],
   ].forEach(([label,value]) => {
     const card=commandNode("article"); card.append(commandNode("span",label),commandNode("strong",String(value))); box.append(card);
@@ -53,9 +54,24 @@ function renderItem(item) {
 async function refreshCommand() {
   const result=document.getElementById("command-message");
   try {
-    const response=await fetch("/api/command-center");
+    const [response,gmailResponse]=await Promise.all([
+      fetch("/api/command-center"),
+      fetch("/api/gmail/status"),
+    ]);
     const data=await response.json();
     if(!response.ok) throw new Error(data.error || "Command center unavailable");
+    const gmail=gmailResponse.ok ? await gmailResponse.json() : null;
+    if(gmail?.configured && !gmail.connected){
+      data.items.unshift({
+        id:"setup:gmail",kind:"outreach_setup",source:"Gmail connection",
+        title:"Reconnect Gmail · "+(gmail.expected_email || "configured mailbox"),
+        status:"blocked",priority_band:0,source_rank:-1,
+        next_action:"Connect Gmail read-only so ClubSP can review replies. Approved sending remains a separate permission and explicit action.",
+        href:"/#gmail-workspace",blockers:["Gmail is configured but not connected."],
+      });
+      data.summary.outreach_setup_blockers=(data.summary.outreach_setup_blockers||0)+1;
+      data.summary.focus_items=(data.summary.focus_items||0)+1;
+    }
     document.getElementById("command-scope").textContent=data.scope;
     renderSummary(data.summary);
     const list=document.getElementById("command-list"); list.replaceChildren();
