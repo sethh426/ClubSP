@@ -190,7 +190,7 @@ class MetaSentraMixin:
                 )
                 stored += 1
             connection.execute(
-                "INSERT INTO meta_discovery_runs VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO meta_discovery_runs VALUES(?,?,?,?,?,?,?,?)",
                 (run_id, provider, query, len(candidates), response_hash, "success", "", now),
             )
         return {"run_id": run_id, "discovered": len(candidates), "new_quarantined": stored}
