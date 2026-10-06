@@ -80,6 +80,20 @@ class MetaSentraMixin:
                     created_at TEXT NOT NULL
                 )
             """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS activated_sentras (
+                    id TEXT PRIMARY KEY,
+                    candidate_fingerprint TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    family TEXT NOT NULL,
+                    acquisition_mode TEXT NOT NULL,
+                    capabilities_json TEXT NOT NULL,
+                    jurisdiction TEXT NOT NULL,
+                    source_url TEXT NOT NULL,
+                    rights_note TEXT NOT NULL,
+                    activated_at TEXT NOT NULL
+                )
+            """)
             connection.execute("CREATE INDEX IF NOT EXISTS idx_meta_state ON meta_source_candidates(state,updated_at)")
             ensure_component(connection, "meta_sentras")
 
@@ -109,6 +123,15 @@ class MetaSentraMixin:
                     "active": sum(c["state"] == "active" for c in candidates),
                     "rejected": sum(c["state"] == "rejected" for c in candidates),
                 },
+                "active_registry": [
+                    {
+                        **dict(row),
+                        "capabilities": json.loads(row["capabilities_json"]),
+                    }
+                    for row in connection.execute(
+                        "SELECT * FROM activated_sentras ORDER BY activated_at DESC,id"
+                    )
+                ],
                 "automatic_activation": False,
             }
 
@@ -394,3 +417,93 @@ class MetaSentraMixin:
                  json.dumps(list(transition.evidence_refs)), now),
             )
         return {"fingerprint": fingerprint, "state": to_state}
+
+
+    def meta_activate(self, data):
+        fingerprint = str(data.get("fingerprint") or "").strip()
+        sentra_id = str(data.get("sentra_id") or "").strip()
+        family = str(data.get("family") or "").strip()
+        acquisition_mode = str(data.get("acquisition_mode") or "").strip()
+        jurisdiction = str(data.get("jurisdiction") or "").strip()
+        rights_note = str(data.get("rights_note") or "").strip()
+        if not fingerprint or not sentra_id or not family or not acquisition_mode or not jurisdiction or not rights_note:
+            raise ValueError("fingerprint, sentra_id, family, acquisition_mode, jurisdiction and rights_note are required")
+        if not sentra_id.replace("_", "").isalnum() or len(sentra_id) > 100:
+            raise ValueError("sentra_id must contain only letters, numbers and underscores")
+        allowed_modes = {
+            "direct_http", "official_api", "arcgis", "apify_actor",
+            "crawlee_http", "playwright", "file_parser", "webhook", "manual_import",
+        }
+        if acquisition_mode not in allowed_modes:
+            raise ValueError("unsupported acquisition_mode")
+        with self.database.session(write=True) as (connection, _):
+            row = connection.execute(
+                "SELECT * FROM meta_source_candidates WHERE fingerprint=?", (fingerprint,)
+            ).fetchone()
+            if not row:
+                raise LookupError("source candidate not found")
+            if row["state"] != "approved":
+                raise ValueError("source must be explicitly approved before activation")
+            capabilities = json.loads(row["capabilities_json"])
+            now = _now()
+            connection.execute(
+                """INSERT INTO activated_sentras(
+                    id,candidate_fingerprint,name,family,acquisition_mode,capabilities_json,
+                    jurisdiction,source_url,rights_note,activated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    sentra_id, fingerprint, row["name"], family, acquisition_mode,
+                    json.dumps(capabilities, sort_keys=True), jurisdiction,
+                    row["source_url"], rights_note, now,
+                ),
+            )
+            transition = make_transition(
+                fingerprint, "approved", "active", automated=True,
+                reason=f"Approved source activated as {sentra_id}",
+                evidence_refs=(f"schema:{row['schema_fingerprint']}",),
+            )
+            connection.execute(
+                "UPDATE meta_source_candidates SET state='active',updated_at=? WHERE fingerprint=?",
+                (now, fingerprint),
+            )
+            connection.execute(
+                "INSERT INTO meta_source_events VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    str(uuid4()), fingerprint, "approved", "active", 1,
+                    transition.reason, json.dumps(list(transition.evidence_refs)), now,
+                ),
+            )
+        return {"fingerprint": fingerprint, "state": "active", "sentra_id": sentra_id}
+
+    def meta_requarantine(self, fingerprint, reason):
+        fingerprint = str(fingerprint or "").strip()
+        reason = str(reason or "").strip()
+        if not reason:
+            raise ValueError("reason is required")
+        with self.database.session(write=True) as (connection, _):
+            row = connection.execute(
+                "SELECT state FROM meta_source_candidates WHERE fingerprint=?", (fingerprint,)
+            ).fetchone()
+            if not row:
+                raise LookupError("source candidate not found")
+            if row["state"] != "active":
+                raise ValueError("only active sources can be re-quarantined")
+            transition = make_transition(
+                fingerprint, "active", "requarantined", automated=True, reason=reason
+            )
+            now = _now()
+            connection.execute(
+                "UPDATE meta_source_candidates SET state='requarantined',updated_at=? WHERE fingerprint=?",
+                (now, fingerprint),
+            )
+            connection.execute(
+                "DELETE FROM activated_sentras WHERE candidate_fingerprint=?", (fingerprint,)
+            )
+            connection.execute(
+                "INSERT INTO meta_source_events VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    str(uuid4()), fingerprint, "active", "requarantined", 1,
+                    transition.reason, "[]", now,
+                ),
+            )
+        return {"fingerprint": fingerprint, "state": "requarantined"}
