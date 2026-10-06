@@ -1,12 +1,12 @@
 """Property-independent relationships and owner-entered follow-ups; no transport."""
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 import json
 import re
 from uuid import UUID, uuid4
 
 from core.memory.models import utc_now
 from .operations import business_today
-from .validation import list_field, text_field
+from .validation import list_field, number_field, text_field
 from .schema import assert_component_compatible, ensure_component
 
 
@@ -42,12 +42,33 @@ def email_blocked(connection, email):
     return bool(exists and connection.execute("SELECT 1 FROM relationship_stops WHERE email=?", (email,)).fetchone())
 
 
+def _migrate_relationships_v1_to_v2(connection):
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS relationship_buyer_qualifications (
+            id TEXT PRIMARY KEY,
+            request_key TEXT NOT NULL UNIQUE,
+            relationship_id TEXT NOT NULL REFERENCES relationships(id),
+            source_profile_id TEXT NOT NULL REFERENCES relationship_profiles(id),
+            source_event_id TEXT NOT NULL REFERENCES relationship_interactions(id),
+            buyer_id TEXT NOT NULL REFERENCES buyers(id),
+            mandate_id TEXT NOT NULL REFERENCES buyer_mandates(id),
+            linked_profile_id TEXT NOT NULL REFERENCES relationship_profiles(id),
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS relationship_buyer_qualification_lookup "
+        "ON relationship_buyer_qualifications(relationship_id,created_at)"
+    )
+
+
 class RelationshipBook:
     def __init__(self, application):
         self.application = application
         self.database = application.database
         with self.database.session(write=True) as (connection, _):
-            assert_component_compatible(connection, "relationships")
+            relationship_schema = assert_component_compatible(connection, "relationships")
             statements = [
                 "CREATE TABLE IF NOT EXISTS relationships (id TEXT PRIMARY KEY, created_at TEXT NOT NULL)",
                 "CREATE TABLE IF NOT EXISTS relationship_profiles (id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL REFERENCES relationships(id), previous_id TEXT UNIQUE REFERENCES relationship_profiles(id), request_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, created_at TEXT NOT NULL)",
@@ -65,7 +86,14 @@ class RelationshipBook:
             ]
             for statement in statements:
                 connection.execute(statement)
-            ensure_component(connection, "relationships")
+            if relationship_schema == 0:
+                ensure_component(connection, "relationships", target=1)
+                relationship_schema = 1
+            if relationship_schema < 2:
+                ensure_component(
+                    connection, "relationships",
+                    migrations={1: _migrate_relationships_v1_to_v2},
+                )
 
     @staticmethod
     def decode(row):
@@ -256,6 +284,183 @@ class RelationshipBook:
         item["latest_event"] = dict(event) if event else None
         item["status"] = event["status"] if event else "reserved"
         return item
+
+    def qualify_buyer(self, rid, data):
+        key = identifier(data, "request_key")
+        profile_id = identifier(data, "profile_id")
+        event_id = identifier(data, "event_id")
+        if data.get("owner_confirmed_criteria") is not True:
+            raise ValueError("Explicit owner confirmation of the recorded buyer criteria is required")
+
+        markets = list_field(data, "markets", max_items=50)
+        strategies = list_field(data, "strategies", allowed={"assignment", "resale"}, max_items=2)
+        property_types = sorted({
+            value.lower().replace(" ", "_")
+            for value in list_field(data, "property_types", max_items=30, required=False)
+        })
+        max_total_price = number_field(data, "max_total_price", nonnegative=True)
+        max_repairs = number_field(data, "max_repairs", nonnegative=True)
+        if max_total_price <= 0:
+            raise ValueError("max_total_price must be greater than zero")
+
+        funding_status = text_field(data, "funding_status", 30)
+        if funding_status not in {"unverified", "owner_reviewed", "verified"}:
+            raise ValueError("Unsupported funding status")
+        funding_reference = text_field(
+            data, "funding_reference", 500,
+            required=funding_status in {"owner_reviewed", "verified"},
+        )
+        review_note = text_field(data, "review_note", 2000)
+
+        refresh_value = number_field(data, "refresh_days", default=30, nonnegative=True)
+        priority_value = number_field(data, "priority", default=50, nonnegative=True)
+        max_active_value = number_field(data, "max_active_reservations", default=1, nonnegative=True)
+        target_units_value = number_field(data, "target_units_per_month", default=1, nonnegative=True)
+        for label, value in {
+            "refresh_days": refresh_value, "priority": priority_value,
+            "max_active_reservations": max_active_value,
+            "target_units_per_month": target_units_value,
+        }.items():
+            if not value.is_integer():
+                raise ValueError(f"{label} must be a whole number")
+        refresh_days, priority = int(refresh_value), int(priority_value)
+        max_active_reservations, target_units_per_month = int(max_active_value), int(target_units_value)
+        if not 1 <= refresh_days <= 90:
+            raise ValueError("refresh_days must be between 1 and 90")
+        if not 0 <= priority <= 100:
+            raise ValueError("priority must be between 0 and 100")
+        if not 1 <= max_active_reservations <= 100:
+            raise ValueError("max_active_reservations must be between 1 and 100")
+        if not 1 <= target_units_per_month <= 1000:
+            raise ValueError("target_units_per_month must be between 1 and 1000")
+
+        mandate_name = text_field(data, "mandate_name", 160, required=False)
+        user_payload = {
+            "markets": markets, "strategies": strategies, "property_types": property_types,
+            "max_total_price": max_total_price, "max_repairs": max_repairs,
+            "funding_status": funding_status, "funding_reference": funding_reference,
+            "review_note": review_note, "refresh_days": refresh_days, "priority": priority,
+            "max_active_reservations": max_active_reservations,
+            "target_units_per_month": target_units_per_month,
+            "mandate_name": mandate_name,
+            "owner_confirmed_criteria": True,
+        }
+        encoded = json.dumps(user_payload, sort_keys=True, allow_nan=False)
+
+        with self.database.session(write=True) as (connection, _):
+            existing = connection.execute(
+                "SELECT * FROM relationship_buyer_qualifications WHERE request_key=?", (key,)
+            ).fetchone()
+            if existing:
+                if (existing["relationship_id"], existing["source_profile_id"],
+                        existing["source_event_id"], existing["payload"]) != (
+                        rid, profile_id, event_id, encoded):
+                    raise ValueError("request_key already records different buyer qualification data")
+                return {
+                    "id": existing["id"], "relationship_id": rid,
+                    "buyer_id": existing["buyer_id"], "mandate_id": existing["mandate_id"],
+                    "linked_profile_id": existing["linked_profile_id"], **user_payload,
+                }
+
+            profile_row = self.latest(connection, "relationship_profiles", rid)
+            event_row = self.latest(connection, "relationship_interactions", rid)
+            if not profile_row:
+                raise LookupError("Relationship not found")
+            if profile_row["id"] != profile_id or not event_row or event_row["id"] != event_id:
+                raise ValueError("Relationship or conversation changed; refresh before qualifying buyer demand")
+
+            profile = self.decode(profile_row)
+            event = self.decode(event_row)
+            if profile["kind"] != "investor":
+                raise ValueError("Only investor relationships can be qualified as buyer demand")
+            if profile["status"] in {"paused", "closed"}:
+                raise ValueError("Paused or closed relationships cannot be qualified")
+            if profile.get("buyer_id"):
+                raise ValueError("This relationship is already linked to a buyer")
+            if email_blocked(connection, profile["email"]) or connection.execute(
+                    "SELECT 1 FROM relationship_stops WHERE relationship_id=?", (rid,)).fetchone():
+                raise ValueError("Do-not-contact relationship cannot be promoted to active buyer demand")
+            if event["direction"] != "incoming" or event["outcome"] not in {"general", "interested"}:
+                raise ValueError("Qualifying buyer demand requires the latest incoming criteria conversation")
+            if not event["evidence_reference"]:
+                raise ValueError("Incoming criteria conversation requires evidence")
+
+            now_dt = utc_now()
+            now = now_dt.isoformat()
+            expires_at = (now_dt + timedelta(days=refresh_days)).isoformat()
+            buyer_id, mandate_id, linked_profile_id, qualification_id = (
+                str(uuid4()), str(uuid4()), str(uuid4()), str(uuid4())
+            )
+            buyer_locations = sorted({" ".join(value.strip().lower().split()) for value in markets})
+            buyer_verified_at = now if funding_status == "verified" else ""
+
+            connection.execute(
+                "INSERT INTO buyers(id,name,company,locations_json,strategies_json,property_types_json,"
+                "max_total_price,max_repairs,funding_status,verified_at,verification_reference,status,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    buyer_id, profile["name"], profile["company"], json.dumps(buyer_locations),
+                    json.dumps(strategies), json.dumps(property_types), max_total_price, max_repairs,
+                    funding_status, buyer_verified_at, funding_reference, "active", now,
+                ),
+            )
+            connection.execute(
+                """INSERT INTO buyer_mandates(
+                    id,buyer_id,name,markets_json,strategies_json,property_types_json,
+                    max_total_price,max_repairs,priority,status,evidence_reference,
+                    verified_at,expires_at,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    mandate_id, buyer_id,
+                    mandate_name or ("Current criteria — " + (profile["company"] or profile["name"])),
+                    json.dumps(markets), json.dumps(strategies), json.dumps(property_types),
+                    max_total_price, max_repairs, priority, "active",
+                    "relationship_interaction:" + event_id, now, expires_at, now,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO buyer_mandate_filters(mandate_id,filters_json) VALUES(?,?)",
+                (mandate_id, "{}"),
+            )
+            connection.execute(
+                "INSERT INTO buyer_mandate_capacity(mandate_id,max_active_reservations,target_units_per_month) "
+                "VALUES(?,?,?)",
+                (mandate_id, max_active_reservations, target_units_per_month),
+            )
+
+            profile_payload = {
+                name: profile[name] for name in [
+                    "name", "company", "email", "kind", "needs", "source_reference",
+                    "permission", "permission_reference", "owner", "markets",
+                ]
+            }
+            profile_payload.update({
+                "status": "active", "buyer_id": buyer_id,
+                "follow_up_on": (now_dt + timedelta(days=refresh_days)).date().isoformat(),
+                "next_action": "Reconfirm buyer criteria before the current mandate expires",
+                "event_id_at_review": event_id,
+            })
+            profile_request_key = str(uuid4())
+            connection.execute(
+                "INSERT INTO relationship_profiles VALUES(?,?,?,?,?,?)",
+                (
+                    linked_profile_id, rid, profile_id, profile_request_key,
+                    json.dumps(profile_payload, sort_keys=True), now,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO relationship_buyer_qualifications VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    qualification_id, key, rid, profile_id, event_id, buyer_id, mandate_id,
+                    linked_profile_id, encoded, now,
+                ),
+            )
+
+        return {
+            "id": qualification_id, "relationship_id": rid, "buyer_id": buyer_id,
+            "mandate_id": mandate_id, "linked_profile_id": linked_profile_id,
+            "expires_at": expires_at, **user_payload,
+        }
 
     def reserve_send(self, rid, data, sender_email):
         key = identifier(data, "request_key")
@@ -523,6 +728,19 @@ class RelationshipBook:
                 due = schedule["follow_up_on"]
                 eligible = not blocked and not paused
                 buyer = connection.execute("SELECT id,name,status FROM buyers WHERE id=?", (profile["buyer_id"],)).fetchone() if profile["buyer_id"] else None
+                qualification_row = connection.execute(
+                    "SELECT * FROM relationship_buyer_qualifications WHERE relationship_id=? ORDER BY rowid DESC LIMIT 1",
+                    (rid,),
+                ).fetchone()
+                qualification = self.decode(qualification_row) if qualification_row else None
+                if qualification:
+                    mandate = connection.execute(
+                        "SELECT * FROM buyer_mandates WHERE id=?", (qualification["mandate_id"],)
+                    ).fetchone()
+                    qualification["mandate"] = dict(mandate) if mandate else None
+                    if qualification["mandate"]:
+                        for key in ("markets_json", "strategies_json", "property_types_json"):
+                            qualification["mandate"][key[:-5]] = json.loads(qualification["mandate"].pop(key))
                 draft = None
                 if eligible and profile["email"] and profile["permission"] == "owner_reviewed":
                     area = ", ".join(profile["markets"]) or "your preferred areas"
@@ -549,7 +767,8 @@ class RelationshipBook:
                     saved_drafts.append(saved)
                 records.append({"id": rid, "profile": profile, "profile_history": history,
                     "interactions": interactions, "event_id": last["id"] if last else None,
-                    "buyer": dict(buyer) if buyer else None, "blocked": blocked, "paused": paused,
+                    "buyer": dict(buyer) if buyer else None, "qualification": qualification,
+                    "blocked": blocked, "paused": paused,
                     "follow_up_on": due, "next_action": schedule["next_action"],
                     "due": bool(eligible and due and due <= today), "overdue": bool(eligible and due and due < today),
                     "queue_status": "blocked" if blocked else "paused" if paused else "unscheduled" if not due else "due" if due <= today else "upcoming",
@@ -558,5 +777,6 @@ class RelationshipBook:
             buyers = [dict(row) for row in connection.execute("SELECT id,name,status FROM buyers ORDER BY name,id")]
         return {"today": today, "sending_enabled": False, "relationships": records, "buyers": buyers,
                 "summary": {"total": len(records), "due": sum(r["due"] for r in records),
-                    "overdue": sum(r["overdue"] for r in records), "blocked": sum(r["blocked"] for r in records)},
+                    "overdue": sum(r["overdue"] for r in records), "blocked": sum(r["blocked"] for r in records),
+                    "qualified_buyers": sum(bool(r["qualification"]) for r in records)},
                 "daily_focus": [r["id"] for r in records if r["due"]][:10]}
