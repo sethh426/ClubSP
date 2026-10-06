@@ -7,7 +7,7 @@ import io
 import json
 import re
 from urllib.parse import urlsplit
-from uuid import UUID, uuid4
+from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
 
 from core.memory import Fact, SourceRecord
 from core.memory.models import utc_now
@@ -27,6 +27,74 @@ def dated(value, key):
         raise ValueError(f"{key} cannot be in the future")
     return result
 
+
+
+def apply_discovery_gis_evidence(memory, property_id, batch, row_id):
+    """Persist saved official GIS resolution facts idempotently; never infer economics."""
+    discovery = batch.get("discovery") or {}
+    candidate = discovery.get("candidate") or {}
+    resolution = candidate.get("parcel_resolution") or {}
+    if resolution.get("status") != "resolved":
+        return []
+    checked_raw = resolution.get("checked_at")
+    try:
+        observed_at = datetime.fromisoformat(checked_raw) if isinstance(checked_raw, str) else utc_now()
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=timezone.utc)
+    except ValueError:
+        observed_at = utc_now()
+    raw_reference = f"discovery:{batch.get('id')}:{row_id}:allen-county-gis"
+    source_id = uuid5(NAMESPACE_URL, raw_reference)
+    content_hash = hashlib.sha256(
+        json.dumps(resolution, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
+    if source_id not in memory.sources:
+        memory.add_source(SourceRecord(
+            id=source_id,
+            source_type="official_gis",
+            provider="Allen County GIS",
+            url=resolution.get("parcel_service") or resolution.get("site_address_service"),
+            retrieved_at=observed_at,
+            raw_reference=raw_reference,
+            content_hash=content_hash,
+            reliability_score=0.9,
+        ))
+
+    values = {
+        "official_gis_address": resolution.get("official_address"),
+        "gis_pin": resolution.get("pin"),
+        "gis_parcel_id": resolution.get("gis_id"),
+        "property_class": resolution.get("property_class"),
+        "assessed_total": resolution.get("assessed_total"),
+        "prior_sale_price": resolution.get("prior_sale_price"),
+        "prior_sale_date": resolution.get("prior_sale_date"),
+        "year_built": resolution.get("year_built"),
+        "legal_acreage": resolution.get("legal_acreage"),
+        "municipality": resolution.get("municipality"),
+    }
+    if isinstance(values["prior_sale_date"], (int, float)) and not isinstance(values["prior_sale_date"], bool):
+        try:
+            values["prior_sale_date"] = datetime.fromtimestamp(
+                values["prior_sale_date"] / 1000, tz=timezone.utc
+            ).date().isoformat()
+        except (OverflowError, OSError, ValueError):
+            values["prior_sale_date"] = str(values["prior_sale_date"])
+
+    applied = []
+    pid = UUID(property_id)
+    for attribute, value in values.items():
+        if value is None or value == "":
+            continue
+        value_type = "number" if isinstance(value, (int, float)) and not isinstance(value, bool) else "text"
+        fact_id = uuid5(source_id, attribute)
+        if fact_id not in memory.facts:
+            memory.add_fact(Fact(
+                id=fact_id, subject_type="property", subject_id=pid, attribute=attribute,
+                value=value, value_type=value_type, source_id=source_id,
+                observed_at=observed_at, confidence=0.85,
+            ))
+        applied.append(attribute)
+    return applied
 
 def sale_snapshot(connection, property_id):
     rows = [json.loads(r["body"]) for r in connection.execute(
@@ -334,6 +402,7 @@ class SourcingMixin:
             batch = json.loads(connection.execute("SELECT body FROM sourcing_batches WHERE id=?", (record["batch_id"],)).fetchone()["body"])
             value = body["value"]
             property_id = None
+            gis_evidence_attributes = []
             if action == "accept":
                 self.validate_discovery_acceptance(connection, batch, value)
                 if data.get("identity_confirmed") is not True:
@@ -359,6 +428,10 @@ class SourcingMixin:
                         memory.add_fact(Fact(subject_type="property", subject_id=UUID(property_id), attribute=attribute,
                             value=value[attribute], value_type="number" if is_number else "text",
                             source_id=source.id, observed_at=source.published_at, confidence=0.5))
+                    if batch.get("discovery"):
+                        gis_evidence_attributes = apply_discovery_gis_evidence(
+                            memory, property_id, batch, row_id
+                        )
                 else:
                     property_id = str(property_exists(connection, data.get("property_id")))
                     prop = connection.execute("SELECT * FROM properties WHERE id=?", (property_id,)).fetchone()
@@ -374,9 +447,46 @@ class SourcingMixin:
                         raise ValueError("This parcel/sale is already accepted; withdraw it before reviewing a correction")
                     connection.execute("INSERT INTO sale_evidence(id,property_id,body,status) VALUES(?,?,?,'accepted')",
                                        (sale["id"], property_id, json.dumps(sale)))
-            body["review"] = {**review, "action": action, "property_id": property_id, "created_at": utc_now().isoformat()}
+            body["review"] = {
+                **review, "action": action, "property_id": property_id,
+                "gis_evidence_attributes": gis_evidence_attributes,
+                "created_at": utc_now().isoformat()
+            }
             connection.execute("UPDATE sourcing_rows SET body=?,status=? WHERE id=?", (json.dumps(body), "accepted" if action == "accept" else "excluded", row_id))
         return {"id": row_id, "status": "accepted" if action == "accept" else "excluded", "property_id": property_id}
+
+
+    def refresh_discovery_gis_evidence(self, row_id, data):
+        if data != {}:
+            raise ValueError("GIS evidence refresh takes no editable fields")
+        with self.database.session(write=True) as (connection, memory):
+            record = connection.execute(
+                "SELECT * FROM sourcing_rows WHERE id=?", (row_id,)
+            ).fetchone()
+            if not record:
+                raise LookupError("Import row not found")
+            if record["status"] != "accepted":
+                raise ValueError("Only accepted discovery rows can refresh saved GIS evidence")
+            body = json.loads(record["body"])
+            batch = json.loads(connection.execute(
+                "SELECT body FROM sourcing_batches WHERE id=?", (record["batch_id"],)
+            ).fetchone()["body"])
+            if not batch.get("discovery") or not body.get("review", {}).get("property_id"):
+                raise ValueError("This row is not an accepted discovery property")
+            property_id = body["review"]["property_id"]
+            attributes = apply_discovery_gis_evidence(memory, property_id, batch, row_id)
+            if not attributes:
+                raise ValueError("No resolved saved GIS evidence is available for this row")
+            body["review"]["gis_evidence_attributes"] = attributes
+            body["review"]["gis_evidence_refreshed_at"] = utc_now().isoformat()
+            connection.execute(
+                "UPDATE sourcing_rows SET body=? WHERE id=?", (json.dumps(body), row_id)
+            )
+            return {
+                "id": row_id, "property_id": property_id,
+                "gis_evidence_attributes": attributes,
+                "execution_authorized": False,
+            }
 
     def withdraw_sale(self, sale_id, data):
         review = {k: text_field(data, k, 1000) for k in ("reviewer", "note", "evidence_reference")}

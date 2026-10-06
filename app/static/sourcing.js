@@ -85,6 +85,26 @@ function renderSourcing() {
         card.append(review);
       } else if (row.review) {
         card.append(node("p", row.review.reviewer + " · " + row.review.note + " · " + row.review.evidence_reference, "muted small"));
+        if (batch.discovery && row.review.property_id) {
+          const attrs = row.review.gis_evidence_attributes || [];
+          card.append(node("p", attrs.length
+            ? "Saved GIS evidence: " + attrs.map(readable).join(", ")
+            : "Saved GIS evidence has not yet been copied into the property record.", "muted small"));
+          const refresh = node("button", "Refresh saved GIS evidence", "button secondary"); refresh.type = "button";
+          const refreshStatus = node("p", "", "muted small"); refreshStatus.setAttribute("role", "status");
+          refresh.addEventListener("click", async () => {
+            refresh.disabled = true; refreshStatus.textContent = "Refreshing saved GIS evidence…";
+            try {
+              const saved = await api("/api/sourcing/rows/" + row.id + "/refresh-gis", {});
+              refreshStatus.textContent = "Saved GIS evidence refreshed: "
+                + saved.gis_evidence_attributes.map(readable).join(", ")
+                + ". No deal or economic assumption was created.";
+              await refreshState();
+            } catch (error) { refreshStatus.textContent = error.message; }
+            finally { refresh.disabled = false; }
+          });
+          card.append(refresh, refreshStatus);
+        }
         if (row.review.property_id) {
           const open = node("button", "Open reviewed property", "button secondary"); open.type = "button";
           open.addEventListener("click", () => { selected = row.review.property_id; selectedDeal = null; render(); $("property-title").scrollIntoView({block: "start"}); }); card.append(open);
