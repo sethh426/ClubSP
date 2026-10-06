@@ -26,6 +26,9 @@ STATIC = Path(__file__).with_name("static")
 ASSETS = {
     "/login": ("login.html", "text/html; charset=utf-8"),
     "/login.js": ("login.js", "text/javascript; charset=utf-8"),
+    "/sentras": ("sentras.html", "text/html; charset=utf-8"),
+    "/sentras.js": ("sentras.js", "text/javascript; charset=utf-8"),
+    "/sentras.css": ("sentras.css", "text/css; charset=utf-8"),
     "/relationships": ("relationships.html", "text/html; charset=utf-8"),
     "/relationships.js": ("relationships.js", "text/javascript; charset=utf-8"),
     "/relationships.css": ("relationships.css", "text/css; charset=utf-8"),
@@ -140,6 +143,21 @@ def handler_for(application, gmail, auth=None):
                 return
             if path == "/api/discovery":
                 self.send_json(200, application.discovery_state())
+            elif path == "/api/sentras/evidence":
+                try:
+                    self.send_json(200, application.evidence_state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/sentras/temporal":
+                try:
+                    self.send_json(200, application.temporal_state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/sentras/shadow":
+                try:
+                    self.send_json(200, application.shadow_state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/sentras/meta":
                 try:
                     query = parse_qs(urlsplit(self.path).query, max_num_fields=4)
@@ -272,6 +290,25 @@ def handler_for(application, gmail, auth=None):
                         self.send_json(403, {"error": "A matching Origin is required"})
                         return
                     result = application.run_sentra(data)
+                elif path in {"/api/sentras/shadow/experiment", "/api/sentras/shadow/trial", "/api/sentras/shadow/review"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    action = path.rsplit("/", 1)[-1]
+                    result = {"experiment": application.shadow_experiment, "trial": application.shadow_trial,
+                              "review": application.shadow_review}[action](data)
+                elif path in {"/api/sentras/temporal/policy", "/api/sentras/temporal/cycle"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.temporal_policy(data) if path.endswith("/policy") else application.temporal_cycle(data)
+                elif path in {"/api/sentras/evidence/profile", "/api/sentras/evidence/plan", "/api/sentras/evidence/run"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    action = path.rsplit("/", 1)[-1]
+                    result = {"profile": application.evidence_profile, "plan": application.evidence_plan,
+                              "run": application.evidence_run}[action](data)
                 elif path == "/api/sentras/meta/cycle":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})

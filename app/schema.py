@@ -13,6 +13,9 @@ COMPONENT_VERSIONS = {
     "transactions": 1,
     "meta_sentras": 2,
     "sentra_runtime": 1,
+    "evidence_compiler": 1,
+    "temporal_intelligence": 1,
+    "shadow_intelligence": 1,
 }
 
 

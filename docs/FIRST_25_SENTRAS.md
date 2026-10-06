@@ -130,8 +130,8 @@ sentinels. Meta-Sentra tests exercise discovery through proposal/review and
 failure recording; a failed HTTP probe stays quarantined, and dynamic activation
 cannot replace a fixed collector ID.
 
-The first-25 rollout is integrated with the latest executable Meta-Sentra
-foundation (`35a66a4`). The combined application suite passes **605 tests**.
+The first-25 rollout preserves the deployed Meta-Sentra and first-operation
+modules (`f9de77b`). The combined application suite passes **645 tests**.
 
 On October 6, 2026, direct canaries for 17 public collectors could not reach
 external sources from the restricted build workspace. They produced transport

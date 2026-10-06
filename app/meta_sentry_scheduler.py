@@ -117,6 +117,9 @@ class MetaSentraScheduler:
                 results[name] = {"status": "failed", "error": error}
             finally:
                 self._finish(name, interval, error)
+        temporal = self.application.temporal_cycle()
+        if temporal["checked"] or temporal["blocked"]:
+            results["temporal"] = temporal
         return results
 
     def _run(self):
