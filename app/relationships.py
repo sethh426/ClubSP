@@ -181,12 +181,26 @@ class RelationshipBook:
         if decision not in {"allow_outreach", "block_outreach"}:
             raise ValueError("Choose allow outreach or do not contact")
         with self.database.session(write=True) as (connection, _):
-            current_row = self.context(connection, rid, profile_id, event_id)
-            current = self.decode(current_row)
             existing = connection.execute(
                 "SELECT * FROM relationship_profiles WHERE request_key=?", (key,)
             ).fetchone()
             next_permission = "owner_reviewed" if decision == "allow_outreach" else "blocked"
+            if existing:
+                saved = self.decode(existing)
+                audit = connection.execute(
+                    "SELECT payload FROM relationship_interactions WHERE relationship_id=? AND request_key=?",
+                    (rid, "permission:" + key),
+                ).fetchone()
+                saved_note = json.loads(audit["payload"])["note"] if audit else ""
+                if (existing["relationship_id"] != rid or existing["previous_id"] != profile_id
+                        or saved["permission"] != next_permission
+                        or saved["permission_reference"] != evidence_reference
+                        or saved_note != "Contact permission review: " + review_note):
+                    raise ValueError("request_key already records a different permission review")
+                saved["review_note"] = review_note
+                return saved
+            current_row = self.context(connection, rid, profile_id, event_id)
+            current = self.decode(current_row)
             if current["permission"] == "blocked" and next_permission == "owner_reviewed":
                 raise ValueError("Recorded suppression cannot be cleared in this release")
             if connection.execute(
@@ -216,13 +230,6 @@ class RelationshipBook:
                 payload["next_action"] = ""
 
             encoded = json.dumps(payload, sort_keys=True)
-            if existing:
-                if (existing["relationship_id"] != rid or existing["previous_id"] != profile_id
-                        or existing["payload"] != encoded):
-                    raise ValueError("request_key already records a different permission review")
-                result = self.decode(existing)
-                result["review_note"] = review_note
-                return result
 
             pid = str(uuid4())
             connection.execute(
