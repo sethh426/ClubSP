@@ -325,13 +325,15 @@ def handler_for(application, gmail, auth=None):
                     result = relationships.save(data)
                 elif path.startswith("/api/relationships/"):
                     parts = path.strip("/").split("/")
-                    if len(parts) != 4 or parts[3] not in {"interactions", "drafts", "draft-reviews", "send"}:
+                    if len(parts) != 4 or parts[3] not in {"interactions", "drafts", "draft-reviews", "send", "buyer-qualification"}:
                         raise LookupError("Route not found")
                     if parts[3] == "send":
                         if origin != self.gmail_origin():
                             self.send_json(403, {"error": "Send Gmail from the ClubSP workspace"})
                             return
                         result = send_approved_draft(gmail, relationships, parts[2], data)
+                    elif parts[3] == "buyer-qualification":
+                        result = relationships.qualify_buyer(parts[2], data)
                     else:
                         action = {"interactions": relationships.interact, "drafts": relationships.save_draft, "draft-reviews": relationships.review_draft}[parts[3]]
                         result = action(parts[2], data)
