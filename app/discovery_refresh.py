@@ -8,7 +8,7 @@ from .service import Application
 
 
 SAFE_AUTOMATED_SOURCES = {"sheriff_sales"}
-GOOD_STATUSES = {"scheduled_sales", "no_active_sales"}
+GOOD_STATUSES = {"scheduled_sales", "no_inventory"}
 
 
 def refresh_source(application, source_id="sheriff_sales"):
