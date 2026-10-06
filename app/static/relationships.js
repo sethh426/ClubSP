@@ -65,6 +65,25 @@ function relInteractionForm(record, state) {
   relSubmit(form,button,`/api/relationships/${record.id}/interactions`,data=>({...data,profile_id:record.profile.id,event_id:record.event_id || ""})); return form;
 }
 
+
+function relPermissionReviewForm(record) {
+  const p=record.profile;
+  if (p.permission !== "unknown" || record.blocked) return null;
+  const form=relNode("form",undefined,"relationship-form permission-review-form");
+  form.append(relNode("p","Review the public business-contact evidence before deciding whether outreach is appropriate. A published email is evidence to review, not automatic consent.","muted small wide"));
+  const source=relNode("a","Open recorded public source");source.href=p.source_reference;source.target="_blank";source.rel="noopener noreferrer";form.append(source);
+  relSelect(form,"decision","Permission decision",[["allow_outreach","Allow reviewed business outreach"],["block_outreach","Do not contact"]],"allow_outreach");
+  relField(form,"evidence_reference","Permission evidence reference",p.source_reference || "","text",true,500);
+  relField(form,"review_note","What you reviewed and why this decision is appropriate","","textarea",true,2000);
+  const confirmLabel=relNode("label",undefined,"wide"),confirm=relNode("input");confirm.type="checkbox";confirm.required=true;
+  confirmLabel.append(confirm,document.createTextNode(" I reviewed the contact source, recipient identity, and this permission decision."));form.append(confirmLabel);
+  const button=relNode("button","Record permission review","button primary");button.type="submit";form.append(button);
+  relSubmit(form,button,`/api/relationships/${record.id}/permission-review`,data=>({...data,
+    profile_id:p.id,event_id:record.event_id || "",owner_confirmed_review:confirm.checked
+  }));
+  return form;
+}
+
 function relBuyerQualificationForm(record) {
   const latest = record.interactions[0], p = record.profile;
   if (record.buyer || record.blocked || record.paused || p.kind !== "investor" || !latest
@@ -187,6 +206,8 @@ async function relLoad() {
     card.append(relNode("p",r.blocked ? "Do not contact — recorded suppression or owner block" : r.paused ? "Paused / closed — excluded from follow-ups" : r.due ? `Follow-up ${r.overdue ? "overdue" : "due today"}` : r.queue_status==="upcoming" ? "Upcoming follow-up" : "Next step not scheduled","relationship-status"+(r.blocked?" relationship-blocked":"")));
     card.append(relNode("p",`${r.next_action || "Record a next action"} · ${r.follow_up_on || "No date"} · Owner: ${p.owner}`),relNode("p",p.needs || "Buying needs have not been recorded.","small"),relNode("p",`Contact: ${p.email || "No email recorded"} · Areas: ${p.markets.join(", ") || "Unknown"}`,"small"));
     card.append(relNode("p",r.buyer?`Linked buyer: ${r.buyer.name} (${r.buyer.status}). Review current criteria in the buyer registry.`:"No buyer linked. A relationship does not establish buyer qualification.","muted small"));
+    const permissionForm=relPermissionReviewForm(r);
+    if(permissionForm){const permission=relDetails("Review contact permission",card);permission.append(permissionForm);}
     const interaction=relDetails("Record conversation / next step",card);interaction.append(relInteractionForm(r,state));
     const qualificationForm=relBuyerQualificationForm(r);
     if(qualificationForm){
