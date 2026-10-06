@@ -115,7 +115,7 @@ def fetch_sheriff_sales(index_url, now):
 _SHERIFF_ROW = re.compile(
     r'^\s*\d+\s+(?P<sale>\d{1,2}/\d{1,2}/\d{4})\s+'
     r'(?P<cause>\S+-MF-\S+)\s+'
-    r'(?P<address>.+? FORT WAYNE, IN \d{5})\s+'
+    r'(?P<address>.+? FORT WAYNE[,.] IN \d{5})\s+'
     r'(?:(?P<cancel>\d{1,2}/\d{1,2}/\d{4})\s+)?'
     r'\$\s*(?P<judgment>[\d,]+\.\d{2})\b'
 )
@@ -144,7 +144,7 @@ def parse_sheriff_sales(body, now):
         if sale_date < local_today:
             past += 1
             continue
-        full_address = ' '.join(match.group('address').split())
+        full_address = ' '.join(match.group('address').split()).replace(' FORT WAYNE. IN ', ' FORT WAYNE, IN ')
         before_city, zip_code = full_address.rsplit(' FORT WAYNE, IN ', 1)
         amount = float(match.group('judgment').replace(',', ''))
         if not 0 < amount <= 1000000000:
