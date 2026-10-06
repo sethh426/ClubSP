@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
+import ipaddress
 import json
-from urllib.parse import urlencode
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -31,6 +32,24 @@ def _now():
 def _json_hash(value):
     raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     return sha256(raw).hexdigest()
+
+
+def _validate_public_probe_url(value):
+    parsed = urlsplit(str(value or ""))
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("probe source must be a public HTTPS URL")
+    if parsed.port not in (None, 443):
+        raise ValueError("probe source must use the standard HTTPS port")
+    host = parsed.hostname.rstrip(".").lower()
+    if host == "localhost" or host.endswith(".local"):
+        raise ValueError("local probe targets are not allowed")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return value
+    if not address.is_global:
+        raise ValueError("private, loopback, reserved, and link-local probe targets are not allowed")
+    return value
 
 
 class MetaSentraMixin:
@@ -286,10 +305,12 @@ class MetaSentraMixin:
         if row["state"] not in {"quarantined", "metadata_probed", "requarantined"}:
             raise ValueError("source is not eligible for probing")
 
-        url = row["source_url"]
+        url = _validate_public_probe_url(row["source_url"])
         with httpx.Client(timeout=10.0, follow_redirects=False) as client:
             response = client.get(url, headers={"User-Agent":"ClubSP/0.1 Meta-Sentra Probe","Accept":"*/*"})
-        sample = response.content[:PROBE_BYTES]
+        if len(response.content) > PROBE_BYTES:
+            raise ValueError("probe response exceeded the bounded sample limit")
+        sample = response.content
         content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
         fields = []
         shape = "bytes"
