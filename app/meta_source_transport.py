@@ -265,6 +265,10 @@ def arcgis_sample(url, schema, metadata, fetch=fetch_source):
         raise ValueError("ArcGIS query did not return its bounded record envelope")
     expected = set(schema["fields"])
     geometry = {f for f, types in schema["field_types"].items() if types == ["esriFieldTypeGeometry"]}
+    # Legacy joined map layers also omit computed geometry expressions when
+    # returnGeometry=false. Ordinary acreage/area fields remain required.
+    geometry |= {f for f, types in schema["field_types"].items()
+                 if f.lower() in {"shape.starea()", "shape.stlength()"} and types == ["esriFieldTypeDouble"]}
     for feature in payload["features"]:
         if (not isinstance(feature, dict) or not isinstance(feature.get("attributes"), dict) or
                 not expected - geometry <= set(feature["attributes"]) <= expected):

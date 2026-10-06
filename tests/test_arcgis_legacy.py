@@ -71,6 +71,8 @@ def test_geometry_attribute_may_be_omitted_but_other_fields_cannot():
     schema = layer_schema()
     schema['fields'].append('SHAPE')
     schema['field_types']['SHAPE'] = ['esriFieldTypeGeometry']
+    schema['fields'].append('Shape.STArea()')
+    schema['field_types']['Shape.STArea()'] = ['esriFieldTypeDouble']
     for attrs, valid in [({'OBJECTID':1,'field_0':'x'},True), ({'OBJECTID':1},False)]:
         fetch = fixture_fetch(lambda r: httpx.Response(200,json={'features':[{'attributes':attrs}]}))
         if valid:
