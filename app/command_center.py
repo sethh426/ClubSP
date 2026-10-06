@@ -60,6 +60,8 @@ def build_command_center(workspace, funding_state, relationship_state, limit=12)
         qualification = row.get("qualification")
         if sendable:
             relationship_kind = "approved_outreach"
+        elif profile.get("kind") == "investor" and profile.get("permission") == "unknown":
+            relationship_kind = "contact_permission_review"
         elif qualification:
             relationship_kind = "buyer_criteria_reconfirmation"
         elif profile.get("kind") == "investor" and not profile.get("buyer_id"):
@@ -79,6 +81,8 @@ def build_command_center(workspace, funding_state, relationship_state, limit=12)
             "next_action": (
                 "Review and explicitly send the current approved draft"
                 if sendable else
+                "Review the public business-contact evidence and record contact permission before drafting outreach"
+                if relationship_kind == "contact_permission_review" else
                 "Confirm the investor's current buy box, funding evidence and closing capacity"
                 if relationship_kind == "buyer_criteria_confirmation" else
                 "Reconfirm the buyer's current criteria before the recorded mandate expires"
@@ -91,7 +95,10 @@ def build_command_center(workspace, funding_state, relationship_state, limit=12)
             "qualification_id": qualification.get("id") if qualification else None,
             "mandate_id": qualification.get("mandate_id") if qualification else None,
             "draft_id": sendable.get("id") if sendable else None,
-            "blockers": [],
+            "blockers": (
+                ["Contact permission has not been owner-reviewed yet."]
+                if relationship_kind == "contact_permission_review" else []
+            ),
         })
 
     for rank, candidate in enumerate((workspace.get("commitment_graph") or {}).get("reverse_opportunities", [])):
@@ -114,11 +121,12 @@ def build_command_center(workspace, funding_state, relationship_state, limit=12)
     kind_order = {
         "deal_owner_review": 0,
         "approved_outreach": 1,
-        "buyer_criteria_confirmation": 2,
-        "buyer_criteria_reconfirmation": 3,
-        "relationship_follow_up": 4,
-        "deal_action": 5,
-        "buyer_matched_candidate": 6,
+        "contact_permission_review": 2,
+        "buyer_criteria_confirmation": 3,
+        "buyer_criteria_reconfirmation": 4,
+        "relationship_follow_up": 5,
+        "deal_action": 6,
+        "buyer_matched_candidate": 7,
     }
     focus.sort(key=lambda item: (
         item["priority_band"],
@@ -140,9 +148,11 @@ def build_command_center(workspace, funding_state, relationship_state, limit=12)
             "owner_review_deals": sum(item["kind"] == "deal_owner_review" for item in focus),
             "deal_actions": sum(item["kind"] == "deal_action" for item in focus),
             "due_relationships": sum(item["kind"] in {
-                "approved_outreach", "buyer_criteria_confirmation",
-                "buyer_criteria_reconfirmation", "relationship_follow_up",
+                "approved_outreach", "contact_permission_review",
+                "buyer_criteria_confirmation", "buyer_criteria_reconfirmation",
+                "relationship_follow_up",
             } for item in focus),
+            "contact_permission_reviews": sum(item["kind"] == "contact_permission_review" for item in focus),
             "buyer_criteria_confirmations": sum(item["kind"] == "buyer_criteria_confirmation" for item in focus),
             "buyer_criteria_reconfirmations": sum(item["kind"] == "buyer_criteria_reconfirmation" for item in focus),
             "buyer_matched_candidates": sum(item["kind"] == "buyer_matched_candidate" for item in focus),

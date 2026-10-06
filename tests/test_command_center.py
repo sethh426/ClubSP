@@ -109,7 +109,7 @@ def test_command_center_distinguishes_unqualified_and_qualified_buyer_demand():
             "follow_up_on": "2026-10-05", "next_action": "Generic old text",
             "profile": {
                 "name": "Prospect Investor", "company": "Prospect Co", "buyer_id": None,
-                "kind": "investor",
+                "kind": "investor", "permission": "owner_reviewed",
             },
             "qualification": None, "saved_drafts": [],
         },
@@ -118,7 +118,7 @@ def test_command_center_distinguishes_unqualified_and_qualified_buyer_demand():
             "follow_up_on": "2026-10-05", "next_action": "Generic old text",
             "profile": {
                 "name": "Qualified Buyer", "company": "Buyer Co", "buyer_id": "buyer-9",
-                "kind": "investor",
+                "kind": "investor", "permission": "owner_reviewed",
             },
             "qualification": {
                 "id": "qualification-9", "mandate_id": "mandate-9",
@@ -140,4 +140,40 @@ def test_command_center_distinguishes_unqualified_and_qualified_buyer_demand():
     assert "Reconfirm" in rel_items[1]["next_action"]
     assert result["summary"]["buyer_criteria_confirmations"] == 1
     assert result["summary"]["buyer_criteria_reconfirmations"] == 1
+    assert result["summary"]["due_relationships"] == 2
+
+
+def test_command_center_puts_permission_review_before_buyer_criteria_confirmation():
+    workspace, funding, relationships = fixtures()
+    relationships["daily_focus"] = ["unknown", "reviewed"]
+    relationships["relationships"] = [
+        {
+            "id": "unknown", "blocked": False, "paused": False, "due": True, "overdue": True,
+            "follow_up_on": "2026-10-05", "next_action": "Old generic action",
+            "profile": {
+                "name": "Permission Unknown", "company": "Prospect Co", "buyer_id": None,
+                "kind": "investor", "permission": "unknown",
+            },
+            "qualification": None, "saved_drafts": [],
+        },
+        {
+            "id": "reviewed", "blocked": False, "paused": False, "due": True, "overdue": True,
+            "follow_up_on": "2026-10-05", "next_action": "Old generic action",
+            "profile": {
+                "name": "Permission Reviewed", "company": "Prospect Co", "buyer_id": None,
+                "kind": "investor", "permission": "owner_reviewed",
+            },
+            "qualification": None, "saved_drafts": [],
+        },
+    ]
+    result = build_command_center(workspace, funding, relationships)
+    rel_items = [item for item in result["items"] if item["id"].startswith("relationship:")]
+    assert [item["kind"] for item in rel_items] == [
+        "contact_permission_review", "buyer_criteria_confirmation",
+    ]
+    assert "public business-contact evidence" in rel_items[0]["next_action"]
+    assert rel_items[0]["blockers"] == ["Contact permission has not been owner-reviewed yet."]
+    assert "buy box" in rel_items[1]["next_action"]
+    assert result["summary"]["contact_permission_reviews"] == 1
+    assert result["summary"]["buyer_criteria_confirmations"] == 1
     assert result["summary"]["due_relationships"] == 2
