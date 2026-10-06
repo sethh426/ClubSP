@@ -137,7 +137,7 @@ SENTRAS: dict[str, SentraDefinition] = {
         rights_note="Actor and each underlying public ArcGIS layer require review before production use.",
         credential_env="APIFY_TOKEN",
         estimated_cost_class="metered",
-    ),,
+    ),
     "meta_apify_store_discovery": SentraDefinition(
         id="meta_apify_store_discovery",
         name="Meta-Sentra: Apify Store discovery",
