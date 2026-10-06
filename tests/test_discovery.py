@@ -254,3 +254,44 @@ def test_sheriff_discovery_persists_research_only_candidates_and_unknown_price_b
     assert not app.state()['properties'] and not app.state()['deals']
     again = app.check_discovery({'source_id': 'sheriff_sales'})
     assert again['cached'] is True and again['id'] == saved['id']
+
+
+def test_sheriff_parcel_resolution_http_route_requires_origin(tmp_path):
+    app = Application(tmp_path/'app.db')
+    now = datetime.now(timezone.utc)
+    check_id = str(uuid4())
+    record = {
+        'id': check_id, 'source_id': 'sheriff_sales',
+        'name': 'Allen County Sheriff mortgage foreclosure sales',
+        'url': 'https://www.allencountysheriff.org/2026-sheriff-sales/',
+        'fetched_at': now.isoformat(), 'status': 'scheduled_sales',
+        'candidates': [], 'excerpt': 'fixture', 'content_hash': 'fixture', 'changed': False,
+    }
+    with app.database.session(write=True) as (connection, _):
+        connection.execute(
+            'INSERT INTO discovery_checks VALUES(?,?,?,?)',
+            (check_id, 'sheriff_sales', record['fetched_at'], json.dumps(record)),
+        )
+    server = create_server(tmp_path/'app.db', port=0, application=app)
+    origin = 'http://127.0.0.1:' + str(server.server_address[1])
+    worker = threading.Thread(target=server.serve_forever); worker.start()
+    try:
+        rejected = Request(
+            origin+'/api/discovery/resolve-parcels',
+            data=json.dumps({'check_id': check_id}).encode(),
+            headers={'Content-Type':'application/json'}, method='POST',
+        )
+        with pytest.raises(HTTPError) as error:
+            urlopen(rejected)
+        assert error.value.code == 403
+
+        accepted = Request(
+            origin+'/api/discovery/resolve-parcels',
+            data=json.dumps({'check_id': check_id}).encode(),
+            headers={'Content-Type':'application/json','Origin':origin}, method='POST',
+        )
+        with urlopen(accepted) as response:
+            saved = json.load(response)
+        assert saved['parcel_resolution_count'] == 0
+    finally:
+        server.shutdown(); server.server_close(); worker.join()
