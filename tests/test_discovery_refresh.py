@@ -5,12 +5,19 @@ import pytest
 from app.discovery_refresh import refresh_source
 from app.service import Application
 
+SHERIFF_TEXT = """[[SOURCE_DOCUMENT:https://www.allencountysheriff.org/wp-content/uploads/2026/09/OCTOBER-2026-1.pdf]]
+1 DATE OF SALE CAUSE NUMBER ADDRESS CANCELLATION DATE JUDGEMENT BID ATTORNEY PHONE SOLD TO SOLD FOR SATISFIED SHERIFF FEES
+2 10/21/2026 02D03-2505-MF-000199 3817 MARIGOLD DR FORT WAYNE, IN 46815 $ 72,048.49 ELYSSA MEADE 850-422-2520 $ 313.00
+"""
+
+NO_SALES_TEXT = """[[SOURCE_DOCUMENT:https://www.allencountysheriff.org/wp-content/uploads/2026/09/NOVEMBER-2026.pdf]]
+NO SALES FOR THE MONTH OF NOVEMBER
+"""
+
 
 def test_scheduled_sheriff_refresh_returns_bounded_summary_and_creates_no_deal(tmp_path):
     app = Application(tmp_path / "app.db")
-    app.sheriff_discovery_fetch = lambda url, now: """
-        10/21/2026 10324 GREEN OAK BLVD 02D03-2509-MF-000383 $415,715.93
-    """
+    app.sheriff_discovery_fetch = lambda url, now: SHERIFF_TEXT
     app.parcel_resolver = lambda candidate: {
         "status": "resolved",
         "pin": "021110327015000075",
@@ -45,11 +52,11 @@ def test_sheriff_refresh_reuses_same_day_cache(tmp_path):
     calls = {"count": 0}
     def fetch(url, now):
         calls["count"] += 1
-        return "No sheriff sale listings currently scheduled"
+        return NO_SALES_TEXT
     app.sheriff_discovery_fetch = fetch
     first = refresh_source(app)
     second = refresh_source(app)
-    assert first["status"] == "no_active_sales"
+    assert first["status"] == "no_inventory"
     assert second["cached"] is True
     assert calls["count"] == 1
 
