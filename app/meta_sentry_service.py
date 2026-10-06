@@ -214,6 +214,97 @@ class MetaSentraMixin:
             )
         return {"run_id": run_id, "discovered": len(candidates), "new_quarantined": stored}
 
+    def meta_gap_queries(self):
+        """Generate bounded discovery intents from current buyer demand and source coverage."""
+        intents = self.search_intents()
+        markets = []
+        for intent in intents:
+            market = str(intent.get("market") or "").strip()
+            if market and market not in markets:
+                markets.append(market)
+        if not markets:
+            markets = ["Allen County, Indiana"]
+
+        with self.database.session() as (connection, _):
+            active_capabilities = set()
+            for row in connection.execute("SELECT capabilities_json FROM activated_sentras"):
+                active_capabilities.update(json.loads(row["capabilities_json"]))
+        capability_gaps = [
+            ("parcel assessor GIS", {"parcel_identity", "assessment", "geospatial"}),
+            ("sheriff foreclosure auction", {"sheriff_sale", "foreclosure"}),
+            ("tax sale delinquent property", {"tax_sale"}),
+            ("building permits code enforcement", {"permit", "code_enforcement"}),
+            ("property sales recorder deeds", {"sale_event", "recorded_document"}),
+        ]
+        queries = []
+        for market in markets[:5]:
+            for phrase, capabilities in capability_gaps:
+                if capabilities.issubset(active_capabilities):
+                    continue
+                queries.append({
+                    "query": f"{market} {phrase}",
+                    "market": market,
+                    "capability_gap": sorted(capabilities - active_capabilities),
+                })
+                if len(queries) >= 20:
+                    return queries
+        return queries
+
+    def _record_meta_discovery_failure(self, provider, query, error):
+        with self.database.session(write=True) as (connection, _):
+            connection.execute(
+                "INSERT INTO meta_discovery_runs VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    str(uuid4()), provider, query, 0, "", "failed",
+                    str(error)[:1000], _now(),
+                ),
+            )
+
+    def meta_discovery_cycle(self, data):
+        """Run a bounded demand/coverage-driven discovery cycle.
+
+        This is scheduler-ready: callers can invoke it manually now and a durable
+        scheduler can invoke the same method later without changing semantics.
+        """
+        providers = data.get("providers") or ["data_gov", "arcgis_online", "apify_store"]
+        if not isinstance(providers, list) or not 1 <= len(providers) <= 3:
+            raise ValueError("providers must contain 1-3 discovery providers")
+        allowed = {"data_gov", "arcgis_online", "apify_store"}
+        if any(provider not in allowed for provider in providers):
+            raise ValueError("unsupported discovery provider")
+        max_queries = data.get("max_queries", 6)
+        if isinstance(max_queries, bool) or not isinstance(max_queries, int) or not 1 <= max_queries <= 12:
+            raise ValueError("max_queries must be an integer from 1 to 12")
+
+        plans = self.meta_gap_queries()[:max_queries]
+        results = []
+        for plan in plans:
+            for provider in providers:
+                try:
+                    result = self.meta_discover({"provider": provider, "query": plan["query"]})
+                    results.append({
+                        "provider": provider,
+                        "query": plan["query"],
+                        "status": "success",
+                        **result,
+                    })
+                except (httpx.HTTPError, ValueError, TypeError) as exc:
+                    self._record_meta_discovery_failure(provider, plan["query"], exc)
+                    results.append({
+                        "provider": provider,
+                        "query": plan["query"],
+                        "status": "failed",
+                        "error": str(exc)[:500],
+                    })
+        return {
+            "queries": plans,
+            "attempts": len(results),
+            "successes": sum(item["status"] == "success" for item in results),
+            "failures": sum(item["status"] == "failed" for item in results),
+            "results": results,
+            "automatic_activation": False,
+        }
+
     def meta_discover(self, data):
         provider = str(data.get("provider") or "").strip()
         query = str(data.get("query") or "").strip()
