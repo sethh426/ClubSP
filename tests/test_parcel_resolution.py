@@ -25,6 +25,8 @@ def test_address_normalization_handles_county_format_variants():
     assert canonical_address("10324 GREEN OAK BLVD") == canonical_address("10324 GREENOAK BOULEVARD")
     assert canonical_address("1619 ST MARY'S AVE") == canonical_address("1619 SAINT MARYS AVENUE")
     assert canonical_address("2927 WESTBROOK DR B-206") != canonical_address("2927 WESTBROOK DR")
+    assert canonical_address("2927 WESTBROOK DR B-206") == canonical_address("2927 WESTBROOK DR UNIT B206")
+    assert canonical_address("4117 E SADDLE DR") == canonical_address("4117 SADDLE DR E")
 
 
 def test_resolver_confirms_one_site_address_and_parcel():
@@ -172,3 +174,68 @@ def test_scheduled_sheriff_candidate_can_stage_only_after_resolved_identity(tmp_
     assert staged["status"] == "pending"
     assert not app.state()["properties"]
     assert not app.state()["deals"]
+
+
+def test_resolver_accepts_exact_unit_and_directional_format_variants():
+    westbrook_site = [{
+        "fulladdr": "2927 WESTBROOK DR UNIT B206", "addrnum": "2927",
+        "unittype": "UNIT", "unitid": "B206", "PIN": "020735202000000074",
+        "GIS_ID": "02-07-35-202-000.000-074", "ZIP": "46805", "municipality": "FW",
+    }]
+    westbrook_parcel = [{
+        "PIN": "020735202000000074", "GIS_ID": "02-07-35-202-000.000-074",
+        "PropertyAddress1": "2927 Westbrook Dr", "PropertyCity": "Fort Wayne",
+        "PropertyState": "IN", "Zip_Code": "46805", "Property_Class_Description": "Condominium",
+        "Total_Value": 90000, "Sales_Price": 80000, "Sale_Date": 1700000000000,
+        "YearBuilt": 1985, "Legal_Acreage": 0,
+    }]
+    unit = resolve_parcel_identity(
+        candidate("2927 WESTBROOK DR B-206", "46805"),
+        request=arcgis_stub(westbrook_site, westbrook_parcel),
+    )
+    assert unit["status"] == "resolved"
+    assert unit["official_address"] == "2927 WESTBROOK DR UNIT B206"
+
+    saddle_site = [{
+        "fulladdr": "4117 SADDLE DR E", "addrnum": "4117",
+        "unittype": None, "unitid": None, "PIN": "021115479013000075",
+        "GIS_ID": "02-11-15-479-013.000-075", "ZIP": "46804", "municipality": "FW",
+    }]
+    saddle_parcel = [{
+        "PIN": "021115479013000075", "GIS_ID": "02-11-15-479-013.000-075",
+        "PropertyAddress1": "4117 Saddle Dr E", "PropertyCity": "Fort Wayne",
+        "PropertyState": "IN", "Zip_Code": "46804", "Property_Class_Description": "1 Family Dwell",
+        "Total_Value": 200000, "Sales_Price": 0, "Sale_Date": None,
+        "YearBuilt": 2000, "Legal_Acreage": 0.2,
+    }]
+    directional = resolve_parcel_identity(
+        candidate("4117 E SADDLE DR", "46804"),
+        request=arcgis_stub(saddle_site, saddle_parcel),
+    )
+    assert directional["status"] == "resolved"
+
+
+def test_resolver_surfaces_near_match_but_does_not_auto_resolve_spelling_or_suffix_conflict():
+    site = [{
+        "fulladdr": "3102 CRESTMONT DR", "addrnum": "3102",
+        "PIN": "021331278003000077", "GIS_ID": "02-13-31-278-003.000-077",
+        "ZIP": "46816", "municipality": "FW",
+    }]
+    result = resolve_parcel_identity(
+        candidate("3102 CRESMONT DR", "46816"),
+        request=arcgis_stub(site, []),
+    )
+    assert result["status"] == "unresolved"
+    assert result["review_suggestions"][0]["official_address"] == "3102 CRESTMONT DR"
+
+    suffix = [{
+        "fulladdr": "318 MCKINNIE AVE", "addrnum": "318",
+        "PIN": "021223227023000074", "GIS_ID": "02-12-23-227-023.000-074",
+        "ZIP": "46806", "municipality": "FW",
+    }]
+    result2 = resolve_parcel_identity(
+        candidate("318 MCKINNIE DR", "46806"),
+        request=arcgis_stub(suffix, []),
+    )
+    assert result2["status"] == "unresolved"
+    assert result2["review_suggestions"][0]["official_address"] == "318 MCKINNIE AVE"
