@@ -39,6 +39,7 @@ def test_resolver_confirms_one_site_address_and_parcel():
         "PIN": "021110327015000075", "GIS_ID": "02-11-10-327-015.000-075",
         "PropertyAddress1": "10324 Greenoak Blvd", "PropertyCity": "Fort Wayne",
         "PropertyState": "IN", "Zip_Code": "46814",
+        "OwnerofRecord": "SYNTHETIC OWNER",
         "Property_Class_Description": "1 Family Dwell - Platted Lot",
         "Total_Value": 200000, "Sales_Price": 150000, "Sale_Date": 1700000000000,
         "YearBuilt": 1998, "Legal_Acreage": 0.25,
@@ -48,6 +49,7 @@ def test_resolver_confirms_one_site_address_and_parcel():
     assert result["gis_id"] == "02-11-10-327-015.000-075"
     assert result["pin"] == "021110327015000075"
     assert result["official_address"] == "10324 GREENOAK BLVD"
+    assert result["owner_of_record"] == "SYNTHETIC OWNER"
     assert result["property_class"].startswith("1 Family")
 
 
@@ -239,3 +241,33 @@ def test_resolver_surfaces_near_match_but_does_not_auto_resolve_spelling_or_suff
     )
     assert result2["status"] == "unresolved"
     assert result2["review_suggestions"][0]["official_address"] == "318 MCKINNIE AVE"
+
+
+def test_resolver_requests_owner_but_not_mailing_contact_fields():
+    site = [{
+        "fulladdr": "10324 GREENOAK BLVD", "addrnum": "10324",
+        "unittype": None, "unitid": None, "PIN": "021110327015000075",
+        "GIS_ID": "02-11-10-327-015.000-075", "ZIP": "46814", "municipality": "FW",
+    }]
+    parcel = [{
+        "PIN": "021110327015000075", "GIS_ID": "02-11-10-327-015.000-075",
+        "OwnerofRecord": "SYNTHETIC OWNER",
+        "PropertyAddress1": "10324 Greenoak Blvd", "PropertyCity": "Fort Wayne",
+        "PropertyState": "IN", "Zip_Code": "46814",
+        "Property_Class_Description": "1 Family Dwell - Platted Lot",
+        "Total_Value": 200000, "Sales_Price": 150000, "Sale_Date": None,
+        "YearBuilt": 1998, "Legal_Acreage": 0.25,
+    }]
+    def request(url, params):
+        if "SiteAddresses_TrimbleUnity" in url:
+            return {"features": [{"attributes": row} for row in site]}
+        assert "OwnerofRecord" in params["outFields"]
+        assert "MailingAddress1" not in params["outFields"]
+        assert "MailingAddress2" not in params["outFields"]
+        assert "MailingCity" not in params["outFields"]
+        assert "MailingState" not in params["outFields"]
+        assert "MailingZip" not in params["outFields"]
+        return {"features": [{"attributes": row} for row in parcel]}
+    result = resolve_parcel_identity(candidate(), request=request)
+    assert result["owner_of_record"] == "SYNTHETIC OWNER"
+    assert not any(key.lower().startswith("mailing") for key in result)
