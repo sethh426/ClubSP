@@ -56,9 +56,19 @@ def build_command_center(workspace, funding_state, relationship_state, limit=12)
         drafts = row.get("saved_drafts", [])
         sendable = next((draft for draft in drafts if draft.get("sending_enabled")), None)
         overdue = bool(row.get("overdue"))
+        profile = row.get("profile") or {}
+        qualification = row.get("qualification")
+        if sendable:
+            relationship_kind = "approved_outreach"
+        elif qualification:
+            relationship_kind = "buyer_criteria_reconfirmation"
+        elif profile.get("kind") == "investor" and not profile.get("buyer_id"):
+            relationship_kind = "buyer_criteria_confirmation"
+        else:
+            relationship_kind = "relationship_follow_up"
         focus.append({
             "id": "relationship:" + rid,
-            "kind": "approved_outreach" if sendable else "relationship_follow_up",
+            "kind": relationship_kind,
             "source": "Relationship Desk",
             "title": row["profile"]["name"] + (
                 " · " + row["profile"]["company"] if row["profile"].get("company") else ""
@@ -68,11 +78,18 @@ def build_command_center(workspace, funding_state, relationship_state, limit=12)
             "source_rank": rank,
             "next_action": (
                 "Review and explicitly send the current approved draft"
-                if sendable else row.get("next_action") or "Review the relationship and record a next action"
+                if sendable else
+                "Confirm the investor's current buy box, funding evidence and closing capacity"
+                if relationship_kind == "buyer_criteria_confirmation" else
+                "Reconfirm the buyer's current criteria before the recorded mandate expires"
+                if relationship_kind == "buyer_criteria_reconfirmation" else
+                row.get("next_action") or "Review the relationship and record a next action"
             ),
             "href": "/relationships#relationship-" + rid,
             "follow_up_on": row.get("follow_up_on"),
-            "buyer_id": row["profile"].get("buyer_id"),
+            "buyer_id": profile.get("buyer_id"),
+            "qualification_id": qualification.get("id") if qualification else None,
+            "mandate_id": qualification.get("mandate_id") if qualification else None,
             "draft_id": sendable.get("id") if sendable else None,
             "blockers": [],
         })
@@ -97,9 +114,11 @@ def build_command_center(workspace, funding_state, relationship_state, limit=12)
     kind_order = {
         "deal_owner_review": 0,
         "approved_outreach": 1,
-        "relationship_follow_up": 2,
-        "deal_action": 3,
-        "buyer_matched_candidate": 4,
+        "buyer_criteria_confirmation": 2,
+        "buyer_criteria_reconfirmation": 3,
+        "relationship_follow_up": 4,
+        "deal_action": 5,
+        "buyer_matched_candidate": 6,
     }
     focus.sort(key=lambda item: (
         item["priority_band"],
@@ -120,7 +139,12 @@ def build_command_center(workspace, funding_state, relationship_state, limit=12)
         "summary": {
             "owner_review_deals": sum(item["kind"] == "deal_owner_review" for item in focus),
             "deal_actions": sum(item["kind"] == "deal_action" for item in focus),
-            "due_relationships": sum(item["kind"] in {"approved_outreach", "relationship_follow_up"} for item in focus),
+            "due_relationships": sum(item["kind"] in {
+                "approved_outreach", "buyer_criteria_confirmation",
+                "buyer_criteria_reconfirmation", "relationship_follow_up",
+            } for item in focus),
+            "buyer_criteria_confirmations": sum(item["kind"] == "buyer_criteria_confirmation" for item in focus),
+            "buyer_criteria_reconfirmations": sum(item["kind"] == "buyer_criteria_reconfirmation" for item in focus),
             "buyer_matched_candidates": sum(item["kind"] == "buyer_matched_candidate" for item in focus),
             "focus_items": len(focus),
         },
