@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.discovery import parse_notice
+from app.discovery import parse_notice, rank_sheriff_research, sheriff_research_priority
 from app.service import Application
 from app.server import create_server
 
@@ -297,3 +297,63 @@ def test_sheriff_parcel_resolution_http_route_requires_origin(tmp_path):
         assert saved['parcel_resolution_count'] == 0
     finally:
         server.shutdown(); server.server_close(); worker.join()
+
+
+def sheriff_priority_candidate(**changes):
+    candidate = {
+        "address": "100 REVIEW AVE", "city": "Fort Wayne", "state": "IN", "zip": "46805",
+        "sale_date": "2026-10-10", "judgment_amount": 90000, "minimum_bid": None,
+        "parcel_ids": ["02-00-00-000-001.000-000"], "intake_supported": True,
+        "intake_blockers": [], "source_document_url": "https://www.allencountysheriff.org/example.pdf",
+        "parcel_resolution": {
+            "status": "resolved", "property_class": "1 Family Dwell - Platted Lot",
+            "assessed_total": 40000, "year_built": 1950,
+            "prior_sale_price": 80000, "prior_sale_date": 1600000000000,
+        },
+    }
+    candidate.update(changes)
+    return candidate
+
+
+def test_sheriff_research_priority_scores_reviewability_not_value():
+    now = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
+    low_assessment = sheriff_priority_candidate()
+    high_assessment = sheriff_priority_candidate()
+    high_assessment["parcel_resolution"] = dict(high_assessment["parcel_resolution"], assessed_total=600000)
+    low = sheriff_research_priority(low_assessment, now)
+    high = sheriff_research_priority(high_assessment, now)
+    assert low["score"] == high["score"] == 100
+    assert low["label"] == high["label"] == "review_now"
+    assert low["economics_inferred"] is False
+    assert any("not a deal-quality or profit score" in value for value in low["limitations"])
+    assert any("Judgment amount is not treated" in value for value in low["limitations"])
+
+
+def test_sheriff_research_priority_penalizes_missing_identity_and_preserves_source_order():
+    now = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
+    incomplete = sheriff_priority_candidate(
+        address="100 INCOMPLETE AVE", parcel_ids=[], intake_supported=False,
+        intake_blockers=["Parcel identity required"],
+        parcel_resolution={"status": "unresolved", "reason": "No exact match"},
+    )
+    complete = sheriff_priority_candidate(address="200 COMPLETE AVE")
+    candidates = [incomplete, complete]
+    summary = rank_sheriff_research(candidates, now)
+    assert [item["address"] for item in candidates] == ["100 INCOMPLETE AVE", "200 COMPLETE AVE"]
+    assert complete["research_priority"]["rank"] == 1
+    assert incomplete["research_priority"]["rank"] == 2
+    assert complete["research_priority"]["score"] > incomplete["research_priority"]["score"]
+    assert summary["candidate_count"] == 2
+    assert "no profit or acquisition-price inference" in summary["score_scope"].lower()
+
+
+def test_sheriff_research_priority_uses_deadline_as_urgency_not_economics():
+    now = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
+    soon = sheriff_priority_candidate(sale_date="2026-10-10")
+    later = sheriff_priority_candidate(sale_date="2026-11-20")
+    soon_score = sheriff_research_priority(soon, now)
+    later_score = sheriff_research_priority(later, now)
+    assert soon_score["urgency_points"] == 20
+    assert later_score["urgency_points"] == 5
+    assert soon_score["score"] > later_score["score"]
+    assert soon_score["economics_inferred"] is False
