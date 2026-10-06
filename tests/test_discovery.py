@@ -17,6 +17,16 @@ The bid period begins October 1, 2026, at 11 AM eastern time through November 30
 <script>fake located at 999 Bad Road, Fort Wayne, Indiana</script>'''
 
 
+SHERIFF_TEXT = """[[SOURCE_DOCUMENT:https://www.allencountysheriff.org/wp-content/uploads/2026/09/OCTOBER-2026-1.pdf]]
+1 DATE OF SALE CAUSE NUMBER ADDRESS CANCELLATION DATE JUDGEMENT BID ATTORNEY PHONE SOLD TO SOLD FOR SATISFIED SHERIFF FEES
+2 10/21/2026 02D03-2505-MF-000199 3817 MARIGOLD DR FORT WAYNE, IN 46815 $ 72,048.49 ELYSSA MEADE 850-422-2520 $ 313.00
+3 10/21/2026 02D03-2512-MF-000505 4614 GOLFVIEW DR FORT WAYNE, IN 46818 9/4/2026 $ 132,877.46 BRYAN REDMOND 317-237-2727 CANCELLED 9/4/26 $ 313.00
+4 10/21/2026 02D03-2512-MF-000514 1201 HANCOCK AVE FORT WAYNE. IN 46803 $ 115,905.46 WESLEY PAGLES 513-396-8100 $ 319.00
+[[SOURCE_DOCUMENT:https://www.allencountysheriff.org/wp-content/uploads/2026/09/NOVEMBER-2026.pdf]]
+NO SALES FOR THE MONTH OF NOVEMBER
+"""
+
+
 def test_notice_fields_and_time_windows():
     result = parse_notice('north_campus', NOTICE, datetime(2026, 10, 2, tzinfo=timezone.utc))
     assert result['status'] == 'advertised_window'
@@ -195,3 +205,52 @@ def test_reviewed_snapshot_http_route_requires_origin_and_persists(tmp_path):
         assert not app.state()['properties'] and not app.state()['deals']
     finally:
         server.shutdown(); server.server_close(); worker.join()
+
+
+def test_sheriff_sale_parser_excludes_cancelled_and_never_invents_purchase_price():
+    result = parse_notice('sheriff_sales', SHERIFF_TEXT, datetime(2026, 10, 5, tzinfo=timezone.utc))
+    assert result['status'] == 'scheduled_sales'
+    assert [c['address'] for c in result['candidates']] == ['1201 HANCOCK AVE', '3817 MARIGOLD DR']
+    candidate = result['candidates'][1]
+    assert candidate['cause_number'] == '02D03-2505-MF-000199'
+    assert candidate['sale_date'] == '2026-10-21'
+    assert candidate['judgment_amount'] == 72048.49
+    assert candidate['minimum_bid'] is None
+    assert candidate['intake_supported'] is False
+    assert candidate['parcel_ids'] == []
+    assert 'not a purchase price' in candidate['price_basis']
+    assert candidate['source_document_url'].endswith('OCTOBER-2026-1.pdf')
+    assert '1 cancelled row(s) excluded' in result['excerpt']
+
+
+def test_sheriff_sale_no_sales_and_unknown_layout():
+    now = datetime(2026, 11, 5, tzinfo=timezone.utc)
+    no_sales = '[[SOURCE_DOCUMENT:https://example.test/november.pdf]]\nNO SALES FOR THE MONTH OF NOVEMBER'
+    result = parse_notice('sheriff_sales', no_sales, now)
+    assert result['status'] == 'no_inventory' and result['candidates'] == []
+    with pytest.raises(ValueError, match='layout changed'):
+        parse_notice('sheriff_sales', 'unrelated document', now)
+
+
+def test_sheriff_discovery_persists_research_only_candidates_and_unknown_price_buyer_screen(tmp_path):
+    app = Application(tmp_path/'app.db')
+    app.sheriff_discovery_fetch = lambda url, now: SHERIFF_TEXT
+    app.create_buyer({
+        'name': 'Synthetic buyer', 'company': 'Synthetic',
+        'locations': ['fort wayne, in'], 'strategies': ['assignment'],
+        'property_types': [], 'max_total_price': 1, 'max_repairs': 0,
+        'funding_status': 'unverified', 'verified_at': '', 'verification_reference': '',
+    })
+    saved = app.check_discovery({'source_id': 'sheriff_sales'})
+    assert saved['status'] == 'scheduled_sales'
+    state = app.discovery_state()
+    sheriff = next(item for item in state['sources'] if item['source_id'] == 'sheriff_sales')
+    candidate = sheriff['candidates'][0]
+    assert candidate['intake_supported'] is False
+    assert any('parcel identity' in blocker.lower() for blocker in candidate['intake_blockers'])
+    assert candidate['buyer_criteria'][0]['status'] == 'needs_more_information'
+    assert any('No acquisition price is established' in reason for reason in candidate['buyer_criteria'][0]['reasons'])
+    assert not any('exceeds' in reason for reason in candidate['buyer_criteria'][0]['reasons'])
+    assert not app.state()['properties'] and not app.state()['deals']
+    again = app.check_discovery({'source_id': 'sheriff_sales'})
+    assert again['cached'] is True and again['id'] == saved['id']
