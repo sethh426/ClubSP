@@ -138,3 +138,31 @@ Important boundaries:
 
 The adapter does not bid, register for a sale, contact a homeowner, infer motivation,
 create an offer, reserve funds or create a deal.
+
+
+## Allen County sheriff parcel identity
+
+Sheriff-sale PDFs do not include parcel IDs, so ClubSP does not treat a sheriff address alone as enough identity evidence.
+
+For current sheriff-sale candidates, ClubSP can query two official Allen County GIS services:
+
+1. the SiteAddresses FeatureServer, using the notice house number and ZIP;
+2. the parcel FeatureServer, using the returned GIS parcel ID and PIN for confirmation.
+
+The matcher is intentionally conservative. It normalizes common county formatting variants such as `GREEN OAK` vs `GREENOAK` and `ST MARY'S` vs `SAINT MARYS`, but it requires one exact normalized official address and one confirmed parcel. A sheriff address containing a unit will not be collapsed to a building-level address with no matching unit. Multiple parcel matches remain ambiguous.
+
+A resolved GIS identity may populate the candidate's Allen County `GIS_ID` and allow the candidate to enter **pending identity intake** while the scheduled sheriff sale remains current. Resolution does not establish:
+
+- a purchase price or opening bid;
+- title, ownership authority, lien priority or redemption status;
+- occupancy, condition, repairs or market value;
+- buyer interest, funding or profitability.
+
+The sheriff judgment amount remains notice evidence only and is never substituted for an acquisition price.
+
+The official services used are:
+
+- `Parcels/SiteAddresses_TrimbleUnity/FeatureServer/0`
+- `Parcels/AC_Parcel_iMap_org/FeatureServer/20`
+
+If those services are unavailable, ambiguous, or fail to confirm a single parcel, the candidate remains research-only.

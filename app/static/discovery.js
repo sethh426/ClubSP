@@ -56,6 +56,26 @@ document.addEventListener("DOMContentLoaded", () => {
       if (source.fetched_at) card.append(node("p", "Checked: " + source.fetched_at));
       if (source.excerpt) card.append(node("p", source.excerpt));
       const link = node("a", "Review official source"); link.href = source.url; link.target = "_blank"; link.rel = "noopener noreferrer"; card.append(link);
+      if (source.source_id === "sheriff_sales" && source.status === "scheduled_sales") {
+        const resolve = node("button", "Resolve parcel IDs from Allen County GIS");
+        resolve.type = "button"; resolve.className = "button";
+        const resolveStatus = node("p", ""); resolveStatus.setAttribute("role", "status");
+        resolve.addEventListener("click", async () => {
+          resolve.disabled = true; resolveStatus.textContent = "Checking official Allen County GIS…";
+          try {
+            const response = await fetch("/api/discovery/resolve-parcels", {
+              method:"POST", headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({check_id:source.id})
+            });
+            const saved = await response.json();
+            if (!response.ok) throw new Error(saved.error || "Parcel resolution failed");
+            resolveStatus.textContent = (saved.parcel_resolution_count || 0) + " candidate parcel(s) resolved from official GIS.";
+            await reload();
+          } catch (error) { resolveStatus.textContent = error.message; }
+          finally { resolve.disabled = false; }
+        });
+        card.append(resolve, resolveStatus);
+      }
       if (["source_access_blocked", "failed"].includes(source.status)) {
         const fallback = node("details", ""); fallback.append(node("summary", "Record reviewed official-source snapshot"));
         fallback.append(node("p", "Use this only with text copied from the configured official Allen County page. ClubSP will parse and save the snapshot with its reviewer and source URL; it still will not create a deal or authorize a bid."));
@@ -101,6 +121,14 @@ document.addEventListener("DOMContentLoaded", () => {
           card.append(documentLink);
         }
         if (candidate.parcel_ids?.length) card.append(node("p", "Parcels: " + candidate.parcel_ids.join(", ")));
+        if (candidate.parcel_resolution?.status === "resolved") {
+          const evidence = candidate.parcel_resolution;
+          card.append(node("p", "Official GIS match: " + evidence.official_address + " · PIN " + evidence.pin
+            + (evidence.property_class ? " · " + evidence.property_class : "")
+            + (evidence.year_built ? " · built " + evidence.year_built : ""), "small"));
+        } else if (candidate.parcel_resolution?.reason) {
+          card.append(node("p", "Parcel lookup: " + candidate.parcel_resolution.reason, "muted small"));
+        }
         for (const gap of candidate.review_gaps) card.append(node("p", gap));
         card.append(node("h4", "Preliminary buyer criteria"));
         if (!candidate.buyer_criteria?.length) {

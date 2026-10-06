@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from pypdf import PdfReader
 
 from .providers import NoRedirect, parcel_key
+from .parcel_resolution import resolve_parcel_identity
 from .discovery_intake import DiscoveryIntakeMixin, notice_blockers, preliminary_notice_buyers
 from .schema import assert_component_compatible, ensure_component
 
@@ -224,10 +225,67 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
         self.discovery_lock = threading.Lock()
         self.discovery_fetch = fetch_notice
         self.sheriff_discovery_fetch = fetch_sheriff_sales
+        self.parcel_resolver = resolve_parcel_identity
         with self.database.session(write=True) as (connection, _):
             assert_component_compatible(connection, "discovery")
             connection.execute('CREATE TABLE IF NOT EXISTS discovery_checks (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, fetched_at TEXT NOT NULL, body TEXT NOT NULL)')
             ensure_component(connection, "discovery")
+
+    def _resolve_sheriff_candidates(self, candidates, now):
+        resolved = 0
+        for candidate in candidates:
+            try:
+                result = self.parcel_resolver(candidate)
+            except (OSError, ValueError, UnicodeError):
+                result = {"status": "unavailable", "reason": "Allen County GIS lookup was unavailable; parcel remains unconfirmed"}
+            result["checked_at"] = now.isoformat()
+            candidate["parcel_resolution"] = result
+            if result.get("status") == "resolved":
+                candidate["parcel_ids"] = [result["gis_id"]]
+                candidate["intake_supported"] = True
+                candidate["identity_note"] = (
+                    "Parcel identity resolved against Allen County GIS site-address and parcel services. "
+                    "Owner/title review is still required."
+                )
+                resolved += 1
+            else:
+                candidate["parcel_ids"] = []
+                candidate["intake_supported"] = False
+        return resolved
+
+    def resolve_discovery_parcels(self, data):
+        if not isinstance(data, dict) or set(data) != {"check_id"}:
+            raise ValueError("Choose one saved sheriff discovery check")
+        check_id = data.get("check_id")
+        if not isinstance(check_id, str) or not check_id or len(check_id) > 100:
+            raise ValueError("Invalid discovery check")
+        now = datetime.now(timezone.utc)
+        if not self.discovery_lock.acquire(blocking=False):
+            raise ValueError("A notice check is already running")
+        try:
+            with self.database.session(write=True) as (connection, _):
+                row = connection.execute(
+                    "SELECT body FROM discovery_checks WHERE id=?", (check_id,)
+                ).fetchone()
+                if not row:
+                    raise LookupError("Saved notice not found")
+                record = json.loads(row["body"])
+                latest = connection.execute(
+                    "SELECT id FROM discovery_checks WHERE source_id='sheriff_sales' ORDER BY rowid DESC LIMIT 1"
+                ).fetchone()
+                if record.get("source_id") != "sheriff_sales" or not latest or latest["id"] != check_id:
+                    raise ValueError("Resolve parcels only on the latest saved sheriff-sale check")
+                if record.get("status") not in {"scheduled_sales", "no_active_sales"}:
+                    raise ValueError("This sheriff check has no current sale candidates to resolve")
+                count = self._resolve_sheriff_candidates(record.get("candidates", []), now)
+                record["parcel_resolution_checked_at"] = now.isoformat()
+                record["parcel_resolution_count"] = count
+                connection.execute(
+                    "UPDATE discovery_checks SET body=? WHERE id=?", (json.dumps(record), check_id)
+                )
+                return record
+        finally:
+            self.discovery_lock.release()
 
     def check_discovery(self, data):
         if set(data) != {'source_id'} or data['source_id'] not in SOURCES:
@@ -248,6 +306,9 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
                 body = (self.sheriff_discovery_fetch(SOURCES[source_id]['url'], now)
                         if source_id == 'sheriff_sales' else self.discovery_fetch(SOURCES[source_id]['url']))
                 parsed = parse_notice(source_id, body, now)
+                if source_id == 'sheriff_sales':
+                    parsed['parcel_resolution_count'] = self._resolve_sheriff_candidates(parsed.get('candidates', []), now)
+                    parsed['parcel_resolution_checked_at'] = now.isoformat()
                 digest = sha256(body.encode()).hexdigest()
                 record.update(parsed, content_hash=digest, changed=bool(prior and prior.get('content_hash') != digest))
             except HTTPError as error:
@@ -321,7 +382,9 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
                     candidate['intake_blockers'] = notice_blockers(connection, item, candidate)
                     if item['source_id'] == 'sheriff_sales':
                         candidate['review_gaps'] = [
-                            'Confirm the exact parcel identity from Allen County records before intake.',
+                            ('Confirm the exact parcel identity from Allen County records before intake.'
+                             if not candidate.get('parcel_ids')
+                             else 'Parcel identity was resolved from Allen County GIS; independently confirm title, ownership and legal description before action.'),
                             'Verify the sheriff sale is still scheduled and has not been cancelled or changed.',
                             'Judgment amount is not treated as an acquisition price or guaranteed opening bid.',
                             'Review title, liens, occupancy, condition, repairs, funding, fees and exit demand before any deal analysis.',

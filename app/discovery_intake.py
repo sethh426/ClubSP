@@ -67,7 +67,7 @@ class DiscoveryIntakeMixin:
             if not saved:
                 raise LookupError('Saved notice not found')
             notice = json.loads(saved['body'])
-            if notice['status'] not in {'advertised_window', 'before_advertised_window', 'past_advertised_window'} or index >= len(notice['candidates']):
+            if notice['status'] not in {'advertised_window', 'before_advertised_window', 'past_advertised_window', 'scheduled_sales'} or index >= len(notice['candidates']):
                 raise ValueError('This check has no usable saved candidate')
             candidate = notice['candidates'][index]
             if reviewed['parcel_id'] not in candidate['parcel_ids']:
