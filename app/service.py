@@ -30,6 +30,7 @@ from .transactions import TransactionMixin
 from .meta_sentry_service import MetaSentraMixin
 from .evidence_compiler import EvidenceCompilerMixin
 from .temporal_intelligence import TemporalIntelligenceMixin
+from .shadow_intelligence import ShadowIntelligenceMixin
 
 
 DEAL_STAGES = (
@@ -98,7 +99,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(TemporalIntelligenceMixin, EvidenceCompilerMixin, EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, MetaSentraMixin, GmailInboxMixin, TransactionMixin):
+class Application(ShadowIntelligenceMixin, TemporalIntelligenceMixin, EvidenceCompilerMixin, EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, MetaSentraMixin, GmailInboxMixin, TransactionMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
@@ -107,6 +108,7 @@ class Application(TemporalIntelligenceMixin, EvidenceCompilerMixin, EconomicRevi
         self._initialize_meta_sentras()
         self._initialize_evidence_compiler()
         self._initialize_temporal()
+        self._initialize_shadow()
         with self.database.session(write=True) as (connection, _):
             self._recover_knowledge_runs(connection)
             for deal in connection.execute("SELECT id FROM deals").fetchall():

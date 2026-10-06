@@ -92,3 +92,60 @@ cadence and event details. Tests cover ordered history, reordering invariance,
 adaptive bounds, budget/lease contention, disabled sources, failed reservations,
 cache invalidation and restart persistence. The disposable live smoke verifies
 an actual due-source acquisition and zero repeated acquisitions after restart.
+
+## Shadow Intelligence Network
+
+Immutable experiments compare an approved, mapped baseline with a successfully
+probed public candidate, or a rule variant over the same source. The challenger
+may remain unapproved for production. Experiment review is permission to acquire
+bounded shadow samples only. Probe/mapping/activation versions fence experiments;
+changed versions require a new experiment. Predicates support field presence,
+equality and numeric bounds; there is no arbitrary code evaluator.
+
+Each trial reserves both arms' estimated acquisition ceilings before network
+work. Trials enforce request-level and rolling per-experiment budgets, retain
+failed reservations, and use UUID idempotency and interruption detection. Both
+arms retain raw payloads and provenance exclusively in shadow storage. The
+shadow executor does not update compiler cache, source approval, health state,
+production facts, temporal schedules, buyer matches, deals or outreach.
+
+Comparisons report requested-record and capability coverage, exact duplicate
+hits, schema errors, policy weights, cost estimates, latency and normalized claim
+differences. Reviewed mapping component order supports comparison across different
+field names. Schema errors remain trial results and cannot re-quarantine the
+production baseline. Optional `buyer_fields` maps city, state, property_type,
+price and repairs for both arms; with an explicit strategy it compares current
+active buyers' recorded basic buy boxes in memory. These are criteria matches,
+not funding, eligibility, commitments or saved production buyer-match runs.
+Missing required buyer fields produce no claimed matches.
+
+False hits, accepted evidence and downstream successes remain unknown until a
+reviewer supplies outcome labels and an evidence reference. Reviews append
+history and validate counts against acquired hits. Aggregate reports show
+coverage/cost/latency/duplicate deltas. With at least three fully outcome-labeled
+successful trials, they can advise review of the challenger when coverage,
+quality and outcomes are no worse and cost/duplicates/false hits are no higher.
+These are small-sample comparisons, not calibrated success predictions. Promotion
+always requires the separate Meta-Sentra production approval lifecycle.
+
+- `GET /api/sentras/shadow`: experiments, recent trials, reviews and comparison reports.
+- `POST /api/sentras/shadow/experiment`: `name`, active `baseline_sentra_id`,
+  `challenger_fingerprint`, `owner_reviewed=true`, reviewed `identity_field`,
+  matching capability `field_map`, `note`, optional `rules`, `baseline_rules`,
+  `confidence`, `cost_cents`, `daily_trial_limit`, `daily_cost_limit_cents`,
+  `buyer_fields` and `strategy`. Configurations are immutable.
+- `POST /api/sentras/shadow/trial`: `experiment_id`, 1–25 exact `subjects`, UUID
+  `request_key`, optional `max_cost_cents`. There is no automatic shadow polling.
+- `POST /api/sentras/shadow/review`: `trial_id`, `decision`, `reviewer`, `note`,
+  `evidence_reference`, optional `outcomes` keyed by baseline/challenger with
+  `false_hits`, `accepted_evidence`, `downstream_successes`.
+
+The workspace provides source probe/proposal/review/activation, experiment
+creation, trial execution and outcome review. No page load makes acquisitions or
+approvals. Tests verify isolation, cross-schema mapping, rule variants, unknown
+outcomes, duplicate metrics, schema failures, budgets, profile changes,
+idempotency, reviewer count bounds, recommendations and auth/Origin gates.
+Desktop/mobile browser tests complete compiler, cadence-policy and shadow flows
+against explicitly synthetic offline sources. The disposable live smoke compares
+a real public layer with a presence-rule variant and verifies replay reuse. It
+establishes execution/isolation, not independent corroboration or source accuracy.

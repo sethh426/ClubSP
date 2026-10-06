@@ -243,6 +243,9 @@ class EvidenceCompilerMixin:
         # Contradictory cached evidence needs review; gathering more is not a resolution.
         plan = cheapest_sequence(profiles, request["capabilities"], request["threshold"], current,
                                  request["max_cost_cents"], request["max_calls"])
+        if conflicts:
+            plan = {"sequence": [], "cost_cents": 0, "predicted_scores": current,
+                    "satisfiable": False, "review_required": True}
         return {"request": request, **plan, "cached_scores": current, "conflicts": conflicts,
                 "cached_snapshot_ids": [s["id"] for s in cached], "lineage": lineage,
                 "confidence_basis": "operator policy weights; not a calibrated probability",

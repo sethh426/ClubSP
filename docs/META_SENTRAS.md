@@ -118,6 +118,8 @@ user's hosted process is running this version, has outbound access/credentials,
 or has the scheduler enabled. Check the actual hosted owner API and source
 history after deployment before declaring production operational.
 
-Operation Spike #1 remains gated on that operational verification. Its three
-additions are Evidence Compiler, Temporal Intelligence Engine and Shadow
-Intelligence Network.
+The deployed Meta-Sentra service passed that operational verification, including
+an authenticated Data.gov search using the privately configured personal key.
+Operation Spike #1 builds on this gate: Evidence Compiler, Temporal Intelligence
+Engine and Shadow Intelligence Network. See [OPERATION_SPIKE_1.md](OPERATION_SPIKE_1.md)
+for their runtime boundaries, operator APIs, workspace and validation.

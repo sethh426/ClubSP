@@ -40,9 +40,20 @@ def check():
         temporal_restart = Application(app.database.path).temporal_cycle()
         assert temporal['checked'] == 1 and temporal_restart['checked'] == 0
         assert restarted.temporal_state()['events']
+        experiment = restarted.shadow_experiment({'name':'Disposable same-source rule comparison',
+            'baseline_sentra_id':'live_check','challenger_fingerprint':candidate.fingerprint,
+            'owner_reviewed':True,'identity_field':'PARCEL_ID','field_map':{'parcel_identity':['PARCEL_ID']},
+            'rules':[{'field':'PARCEL_ID','op':'present'}],'note':'Disposable shadow mapping and access test'})
+        trial_request = {'experiment_id':experiment['id'],'subjects':[request['subject']], 'request_key':str(uuid4())}
+        trial = restarted.shadow_trial(trial_request)
+        replay = Application(app.database.path).shadow_trial(trial_request)
+        assert trial['status'] == 'completed' and replay == trial
+        assert trial['differences'] == [] and not trial['production_activation']
+        assert len(restarted.evidence_state()['runs']) == 2  # shadow does not enter the compiler cache
         report = {'status':'passed','live_compiler_calls':run['calls'],'restart_cache_calls':cached['calls'],
                   'snapshot_count':len(run['snapshot_ids']),'temporal_calls':temporal['checked'],
-                  'temporal_restart_calls':temporal_restart['checked'],'production_activation':False,'facts_imported':False}
+                  'temporal_restart_calls':temporal_restart['checked'],'shadow_trial_status':trial['status'],
+                  'shadow_retry_reused':replay['id']==trial['id'],'production_activation':False,'facts_imported':False}
         return report
 
 
