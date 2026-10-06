@@ -728,6 +728,19 @@ class RelationshipBook:
                 due = schedule["follow_up_on"]
                 eligible = not blocked and not paused
                 buyer = connection.execute("SELECT id,name,status FROM buyers WHERE id=?", (profile["buyer_id"],)).fetchone() if profile["buyer_id"] else None
+                qualification_row = connection.execute(
+                    "SELECT * FROM relationship_buyer_qualifications WHERE relationship_id=? ORDER BY rowid DESC LIMIT 1",
+                    (rid,),
+                ).fetchone()
+                qualification = self.decode(qualification_row) if qualification_row else None
+                if qualification:
+                    mandate = connection.execute(
+                        "SELECT * FROM buyer_mandates WHERE id=?", (qualification["mandate_id"],)
+                    ).fetchone()
+                    qualification["mandate"] = dict(mandate) if mandate else None
+                    if qualification["mandate"]:
+                        for key in ("markets_json", "strategies_json", "property_types_json"):
+                            qualification["mandate"][key[:-5]] = json.loads(qualification["mandate"].pop(key))
                 draft = None
                 if eligible and profile["email"] and profile["permission"] == "owner_reviewed":
                     area = ", ".join(profile["markets"]) or "your preferred areas"
@@ -754,7 +767,8 @@ class RelationshipBook:
                     saved_drafts.append(saved)
                 records.append({"id": rid, "profile": profile, "profile_history": history,
                     "interactions": interactions, "event_id": last["id"] if last else None,
-                    "buyer": dict(buyer) if buyer else None, "blocked": blocked, "paused": paused,
+                    "buyer": dict(buyer) if buyer else None, "qualification": qualification,
+                    "blocked": blocked, "paused": paused,
                     "follow_up_on": due, "next_action": schedule["next_action"],
                     "due": bool(eligible and due and due <= today), "overdue": bool(eligible and due and due < today),
                     "queue_status": "blocked" if blocked else "paused" if paused else "unscheduled" if not due else "due" if due <= today else "upcoming",
@@ -763,5 +777,6 @@ class RelationshipBook:
             buyers = [dict(row) for row in connection.execute("SELECT id,name,status FROM buyers ORDER BY name,id")]
         return {"today": today, "sending_enabled": False, "relationships": records, "buyers": buyers,
                 "summary": {"total": len(records), "due": sum(r["due"] for r in records),
-                    "overdue": sum(r["overdue"] for r in records), "blocked": sum(r["blocked"] for r in records)},
+                    "overdue": sum(r["overdue"] for r in records), "blocked": sum(r["blocked"] for r in records),
+                    "qualified_buyers": sum(bool(r["qualification"]) for r in records)},
                 "daily_focus": [r["id"] for r in records if r["due"]][:10]}
