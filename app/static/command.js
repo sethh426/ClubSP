@@ -19,6 +19,7 @@ function renderSummary(summary) {
     ["Owner-review deals", summary.owner_review_deals],
     ["Deal actions", summary.deal_actions],
     ["Due relationships", summary.due_relationships],
+    ["Contact permission to review", summary.contact_permission_reviews || 0],
     ["Buyer criteria to confirm", summary.buyer_criteria_confirmations || 0],
     ["Buyer criteria to reconfirm", summary.buyer_criteria_reconfirmations || 0],
     ["Outreach setup blockers", summary.outreach_setup_blockers || 0],
