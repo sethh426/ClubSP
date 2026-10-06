@@ -108,9 +108,9 @@ test("unknown investor permission requires explicit owner review before criteria
   await card.getByText("Review contact permission",{exact:true}).click();
   const form=card.locator(".permission-review-form");
   await expect(form.getByText("Open recorded public source",{exact:true})).toHaveAttribute("href","https://example.test/public-contact");
-  await form.getByLabel("Permission decision",{exact:true}).selectOption("allow_outreach");
-  await form.getByLabel("What you reviewed and why this decision is appropriate",{exact:true}).fill("Synthetic owner review of public business-contact source and recipient identity.");
-  await form.getByLabel("I reviewed the contact source, recipient identity, and this permission decision.",{exact:true}).check();
+  await form.locator('[name="decision"]').selectOption("allow_outreach");
+  await form.locator('[name="review_note"]').fill("Synthetic owner review of public business-contact source and recipient identity.");
+  await form.locator('input[type="checkbox"]').check();
   await form.getByRole("button",{name:"Record permission review",exact:true}).click();
 
   await expect(card.getByText("Review contact permission",{exact:true})).toHaveCount(0);
