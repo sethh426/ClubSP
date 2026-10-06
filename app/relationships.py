@@ -169,6 +169,89 @@ class RelationshipBook:
             connection.execute("INSERT INTO relationship_profiles VALUES(?,?,?,?,?,?)", (pid, rid, previous, key, encoded, utc_now().isoformat()))
             return self.decode(connection.execute("SELECT * FROM relationship_profiles WHERE id=?", (pid,)).fetchone())
 
+    def review_permission(self, rid, data):
+        key = identifier(data, "request_key")
+        profile_id = identifier(data, "profile_id")
+        event_id = identifier(data, "event_id", False)
+        decision = text_field(data, "decision", 20)
+        evidence_reference = text_field(data, "evidence_reference", 500)
+        review_note = text_field(data, "review_note", 2000)
+        if data.get("owner_confirmed_review") is not True:
+            raise ValueError("Explicit owner confirmation of the contact-permission review is required")
+        if decision not in {"allow_outreach", "block_outreach"}:
+            raise ValueError("Choose allow outreach or do not contact")
+        with self.database.session(write=True) as (connection, _):
+            current_row = self.context(connection, rid, profile_id, event_id)
+            current = self.decode(current_row)
+            existing = connection.execute(
+                "SELECT * FROM relationship_profiles WHERE request_key=?", (key,)
+            ).fetchone()
+            next_permission = "owner_reviewed" if decision == "allow_outreach" else "blocked"
+            if current["permission"] == "blocked" and next_permission == "owner_reviewed":
+                raise ValueError("Recorded suppression cannot be cleared in this release")
+            if connection.execute(
+                "SELECT 1 FROM relationship_stops WHERE relationship_id=?", (rid,)
+            ).fetchone() and next_permission == "owner_reviewed":
+                raise ValueError("Recorded suppression cannot be cleared in this release")
+            if current["email"] and email_blocked(connection, current["email"]) and next_permission == "owner_reviewed":
+                raise ValueError("Recorded suppression cannot be cleared in this release")
+
+            payload = {
+                name: current[name] for name in [
+                    "name", "company", "email", "kind", "status", "needs",
+                    "source_reference", "owner", "markets", "buyer_id", "follow_up_on",
+                ]
+            }
+            payload["permission"] = next_permission
+            payload["permission_reference"] = evidence_reference
+            payload["event_id_at_review"] = event_id
+            if next_permission == "owner_reviewed":
+                if current["kind"] == "investor" and not current.get("buyer_id"):
+                    payload["next_action"] = "Confirm the investor's current buy box, funding evidence and closing capacity"
+                else:
+                    payload["next_action"] = current.get("next_action") or "Review the relationship and record the next action"
+            else:
+                payload["status"] = "paused" if current["status"] not in {"closed"} else current["status"]
+                payload["follow_up_on"] = ""
+                payload["next_action"] = ""
+
+            encoded = json.dumps(payload, sort_keys=True)
+            if existing:
+                if (existing["relationship_id"] != rid or existing["previous_id"] != profile_id
+                        or existing["payload"] != encoded):
+                    raise ValueError("request_key already records a different permission review")
+                result = self.decode(existing)
+                result["review_note"] = review_note
+                return result
+
+            pid = str(uuid4())
+            connection.execute(
+                "INSERT INTO relationship_profiles VALUES(?,?,?,?,?,?)",
+                (pid, rid, profile_id, key, encoded, utc_now().isoformat()),
+            )
+            interaction_id = str(uuid4())
+            interaction_payload = {
+                "direction": "note",
+                "outcome": "general" if next_permission == "owner_reviewed" else "stop",
+                "note": "Contact permission review: " + review_note,
+                "evidence_reference": evidence_reference,
+                "occurred_on": business_today().isoformat(),
+                "follow_up_on": payload["follow_up_on"],
+                "next_action": payload["next_action"],
+            }
+            connection.execute(
+                "INSERT INTO relationship_interactions VALUES(?,?,?,?,?,?,?)",
+                (
+                    interaction_id, rid, "permission:" + key, pid, event_id,
+                    json.dumps(interaction_payload, sort_keys=True), utc_now().isoformat(),
+                ),
+            )
+            result = self.decode(connection.execute(
+                "SELECT * FROM relationship_profiles WHERE id=?", (pid,)
+            ).fetchone())
+            result["review_note"] = review_note
+            return result
+
     def interact(self, rid, data):
         key = identifier(data, "request_key")
         profile_id = identifier(data, "profile_id")
