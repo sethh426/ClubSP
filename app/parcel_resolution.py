@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from difflib import SequenceMatcher
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener
 
@@ -38,14 +39,24 @@ def _default_request(url, params):
 
 
 def canonical_address(value):
-    value = re.sub(r"[^A-Z0-9 ]+", " ", str(value).upper())
+    value = str(value).upper()
+    # Sheriff notices sometimes render unit IDs as B-206 while GIS uses B206.
+    value = re.sub(r"\b([A-Z])-(\d{2,4})\b", r"\1\2", value)
+    value = re.sub(r"[^A-Z0-9 ]+", " ", value)
     tokens = value.split()
     synonyms = {
         "SAINT": "ST", "STREET": "ST", "AVENUE": "AVE", "BOULEVARD": "BLVD",
         "ROAD": "RD", "DRIVE": "DR", "LANE": "LN", "COURT": "CT",
         "CIRCLE": "CIR", "PARKWAY": "PKWY", "PLACE": "PL", "TERRACE": "TER",
+        "APARTMENT": "", "APT": "", "UNIT": "", "SUITE": "", "STE": "",
     }
     tokens = [synonyms.get(token, token) for token in tokens]
+    tokens = [token for token in tokens if token]
+    directions = {"N", "S", "E", "W", "NE", "NW", "SE", "SW"}
+    # Allen County data can place the directional before or after the road name.
+    if len(tokens) >= 3 and tokens[-1] in directions:
+        direction = tokens.pop()
+        tokens.insert(1, direction)
     return "".join(tokens)
 
 
@@ -97,7 +108,28 @@ def resolve_parcel_identity(candidate, request=None):
         matches[(str(pin), str(gis_id))] = attrs
 
     if not matches:
-        return {"status": "unresolved", "reason": "No exact normalized Allen County site-address match"}
+        suggestions = []
+        for attrs in _rows(site_data):
+            fulladdr = attrs.get("fulladdr")
+            pin, gis_id = attrs.get("PIN"), attrs.get("GIS_ID")
+            if not fulladdr or not pin or not gis_id:
+                continue
+            try:
+                parcel_key(str(gis_id).replace(".", ""))
+            except ValueError:
+                continue
+            score = SequenceMatcher(None, target, canonical_address(fulladdr)).ratio()
+            if score >= 0.80:
+                suggestions.append({
+                    "official_address": fulladdr, "pin": str(pin), "gis_id": str(gis_id),
+                    "similarity": round(score, 3),
+                })
+        suggestions.sort(key=lambda item: (-item["similarity"], item["official_address"]))
+        return {
+            "status": "unresolved",
+            "reason": "No exact normalized Allen County site-address match",
+            "review_suggestions": suggestions[:3],
+        }
     if len(matches) != 1:
         return {"status": "ambiguous", "reason": "Multiple Allen County parcel identities match this address"}
 
