@@ -110,7 +110,9 @@ def test_http_forbidden_is_recorded_as_source_access_blocked(tmp_path):
     assert result['status'] == 'source_access_blocked'
     assert result['retrieval_mode'] == 'server_fetch'
     assert result['candidates'] == []
-    assert '403' not in json.dumps(result)
+    assert 'http_status' not in result
+    assert 'error' not in result
+    assert 'refused this server-side request' in result['excerpt']
     cached = app.check_discovery({'source_id': 'north_campus'})
     assert cached['cached'] is True and cached['id'] == result['id']
 
