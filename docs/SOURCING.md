@@ -105,3 +105,36 @@ Documentation used for the transport/schema implementation:
 - https://www.python-httpx.org/advanced/timeouts/
 - https://www.python-httpx.org/advanced/resource-limits/
 - https://docs.pydantic.dev/latest/concepts/strict_mode/
+
+
+## Allen County sheriff-sale research source
+
+ClubSP can check the Allen County Sheriff's official annual mortgage-foreclosure sale
+index and read up to three current/near-term monthly PDF documents. The PDFs are
+fetched only after the owner presses the discovery check button, are limited to
+1 MiB and ten pages each, and are extracted with the pure-Python `pypdf` library.
+Successful checks use the same 24-hour discovery cache and six-attempt-per-source
+daily limit as the other official notices.
+
+The initial adapter stages **research evidence only** for Fort Wayne rows. It records
+the scheduled sale date, foreclosure cause number, address, ZIP, judgment amount
+and official monthly PDF reference. Cancelled rows and already-past sale dates are
+excluded from active candidates.
+
+Important boundaries:
+
+- the published **judgment amount is not treated as an opening bid, acquisition price,
+  ARV, seller price or expected cost**;
+- the sheriff PDF does not provide a parcel ID, so ClubSP does not create a property
+  or stage candidate intake from these rows;
+- parcel identity must be confirmed independently from Allen County records before
+  the record can enter the normal sourcing workflow;
+- a scheduled sheriff sale can be cancelled or changed, so the current official
+  notice must be rechecked before relying on it;
+- title, liens, occupancy, condition, repairs, funding, fees, redemption issues and
+  exit demand remain separate diligence;
+- buyer screening uses only known market/type fields until an actual acquisition
+  price is established.
+
+The adapter does not bid, register for a sale, contact a homeowner, infer motivation,
+create an offer, reserve funds or create a deal.
