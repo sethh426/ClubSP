@@ -61,6 +61,7 @@ def apply_discovery_gis_evidence(memory, property_id, batch, row_id):
         ))
 
     values = {
+        "recorded_owner_name": resolution.get("owner_of_record"),
         "official_gis_address": resolution.get("official_address"),
         "gis_pin": resolution.get("pin"),
         "gis_parcel_id": resolution.get("gis_id"),
@@ -95,6 +96,67 @@ def apply_discovery_gis_evidence(memory, property_id, batch, row_id):
             ))
         applied.append(attribute)
     return applied
+
+
+def apply_current_owner_evidence(memory, property_id, row_id, resolution):
+    owner = str(resolution.get("owner_of_record") or "").strip()
+    if not owner:
+        raise ValueError("Allen County parcel record does not publish an owner of record for this parcel")
+    checked_raw = resolution.get("checked_at")
+    try:
+        observed_at = datetime.fromisoformat(checked_raw) if isinstance(checked_raw, str) else utc_now()
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=timezone.utc)
+    except ValueError:
+        observed_at = utc_now()
+    digest = hashlib.sha256(
+        json.dumps({
+            "gis_id": resolution.get("gis_id"),
+            "pin": resolution.get("pin"),
+            "owner_of_record": owner,
+            "checked_at": observed_at.isoformat(),
+        }, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    raw_reference = f"official-owner-recheck:{row_id}:{digest}"
+    source_id = uuid5(NAMESPACE_URL, raw_reference)
+    if source_id not in memory.sources:
+        memory.add_source(SourceRecord(
+            id=source_id, source_type="official_gis_owner",
+            provider="Allen County GIS",
+            url=resolution.get("parcel_service"),
+            retrieved_at=observed_at,
+            raw_reference=raw_reference,
+            content_hash=digest,
+            reliability_score=0.9,
+        ))
+
+    pid = UUID(property_id)
+    current = [
+        fact for fact in memory.facts.values()
+        if fact.subject_type == "property"
+        and fact.subject_id == pid
+        and fact.attribute == "recorded_owner_name"
+        and fact.status == "active"
+    ]
+    same = next((fact for fact in current if str(fact.value).strip() == owner), None)
+    if same is not None:
+        return {
+            "owner": owner, "fact_id": str(same.id), "source_id": str(same.source_id),
+            "changed": False,
+        }
+    for fact in current:
+        fact.status = "superseded"
+    fact_id = uuid5(source_id, "recorded_owner_name")
+    if fact_id not in memory.facts:
+        memory.add_fact(Fact(
+            id=fact_id, subject_type="property", subject_id=pid,
+            attribute="recorded_owner_name", value=owner, value_type="text",
+            source_id=source_id, observed_at=observed_at, confidence=0.9,
+        ))
+    return {
+        "owner": owner, "fact_id": str(fact_id), "source_id": str(source_id),
+        "changed": bool(current),
+    }
 
 def sale_snapshot(connection, property_id):
     rows = [json.loads(r["body"]) for r in connection.execute(
@@ -455,6 +517,68 @@ class SourcingMixin:
             connection.execute("UPDATE sourcing_rows SET body=?,status=? WHERE id=?", (json.dumps(body), "accepted" if action == "accept" else "excluded", row_id))
         return {"id": row_id, "status": "accepted" if action == "accept" else "excluded", "property_id": property_id}
 
+
+
+    def refresh_discovery_owner_evidence(self, row_id, data):
+        if data != {}:
+            raise ValueError("Owner evidence refresh takes no editable fields")
+        with self.database.session() as (connection, _):
+            record = connection.execute(
+                "SELECT * FROM sourcing_rows WHERE id=?", (row_id,)
+            ).fetchone()
+            if not record:
+                raise LookupError("Import row not found")
+            if record["status"] != "accepted":
+                raise ValueError("Only accepted discovery rows can refresh owner evidence")
+            body = json.loads(record["body"])
+            batch = json.loads(connection.execute(
+                "SELECT body FROM sourcing_batches WHERE id=?", (record["batch_id"],)
+            ).fetchone()["body"])
+            discovery = batch.get("discovery") or {}
+            candidate = discovery.get("candidate") or {}
+            property_id = body.get("review", {}).get("property_id")
+            expected_parcel = body.get("value", {}).get("parcel_id")
+            if not property_id or not expected_parcel or not discovery:
+                raise ValueError("This row is not an accepted discovery property")
+            lookup_candidate = {
+                "address": candidate.get("address") or body.get("value", {}).get("address"),
+                "city": candidate.get("city") or body.get("value", {}).get("city"),
+                "state": candidate.get("state") or body.get("value", {}).get("state"),
+                "zip": candidate.get("zip") or body.get("value", {}).get("zip"),
+            }
+
+        try:
+            resolution = self.parcel_resolver(lookup_candidate)
+        except (OSError, ValueError, UnicodeError):
+            raise ValueError("Allen County GIS owner lookup was unavailable; no owner evidence was changed") from None
+        if resolution.get("status") != "resolved":
+            raise ValueError("Allen County GIS did not resolve the accepted property exactly; no owner evidence was changed")
+        if identity(resolution.get("gis_id")) != identity(expected_parcel):
+            raise ValueError("Allen County GIS parcel no longer matches the accepted parcel; no owner evidence was changed")
+        resolution["checked_at"] = utc_now().isoformat()
+
+        with self.database.session(write=True) as (connection, memory):
+            record = connection.execute(
+                "SELECT * FROM sourcing_rows WHERE id=?", (row_id,)
+            ).fetchone()
+            if not record or record["status"] != "accepted":
+                raise ValueError("Accepted sourcing row changed during owner lookup; refresh before retrying")
+            body = json.loads(record["body"])
+            if body.get("review", {}).get("property_id") != property_id:
+                raise ValueError("Accepted property changed during owner lookup; refresh before retrying")
+            result = apply_current_owner_evidence(memory, property_id, row_id, resolution)
+            body["review"]["owner_evidence_refreshed_at"] = resolution["checked_at"]
+            body["review"]["owner_evidence_fact_id"] = result["fact_id"]
+            connection.execute(
+                "UPDATE sourcing_rows SET body=? WHERE id=?", (json.dumps(body), row_id)
+            )
+            return {
+                "id": row_id, "property_id": property_id,
+                "recorded_owner_name": result["owner"],
+                "owner_fact_id": result["fact_id"],
+                "changed": result["changed"],
+                "execution_authorized": False,
+            }
 
     def refresh_discovery_gis_evidence(self, row_id, data):
         if data != {}:
