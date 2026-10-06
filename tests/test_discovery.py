@@ -3,6 +3,7 @@ import json
 import threading
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 import pytest
 
@@ -235,6 +236,7 @@ def test_sheriff_sale_no_sales_and_unknown_layout():
 def test_sheriff_discovery_persists_research_only_candidates_and_unknown_price_buyer_screen(tmp_path):
     app = Application(tmp_path/'app.db')
     app.sheriff_discovery_fetch = lambda url, now: SHERIFF_TEXT
+    app.parcel_resolver = lambda candidate: {"status": "unresolved", "reason": "Synthetic unresolved fixture"}
     app.create_buyer({
         'name': 'Synthetic buyer', 'company': 'Synthetic',
         'locations': ['fort wayne, in'], 'strategies': ['assignment'],
