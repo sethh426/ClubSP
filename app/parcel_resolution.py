@@ -139,7 +139,7 @@ def resolve_parcel_identity(candidate, request=None):
         "where": "GIS_ID='" + gis_id.replace("'", "''") + "'",
         "outFields": (
             "PIN,GIS_ID,PropertyAddress1,PropertyCity,PropertyState,Zip_Code,"
-            "Property_Class_Description,Total_Value,Sales_Price,Sale_Date,YearBuilt,Legal_Acreage"
+            "OwnerofRecord,Property_Class_Description,Total_Value,Sales_Price,Sale_Date,YearBuilt,Legal_Acreage"
         ),
         "returnGeometry": "false", "resultRecordCount": "5",
     }, request=request)
@@ -158,6 +158,7 @@ def resolve_parcel_identity(candidate, request=None):
         "official_address": site.get("fulladdr"),
         "zip": str(site.get("ZIP") or ""),
         "municipality": site.get("municipality") or "",
+        "owner_of_record": parcel.get("OwnerofRecord") or "",
         "property_class": parcel.get("Property_Class_Description") or "",
         "assessed_total": parcel.get("Total_Value"),
         "prior_sale_price": parcel.get("Sales_Price"),

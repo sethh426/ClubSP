@@ -167,6 +167,7 @@ def sheriff_resolved_notice():
             "availability": "Synthetic scheduled sheriff notice.",
             "parcel_resolution": {
                 "status": "resolved",
+                "owner_of_record": "SYNTHETIC SAVED OWNER",
                 "pin": "020000000001000000",
                 "gis_id": "02-00-00-000-001.000-000",
                 "official_address": "100 GIS REVIEW AVE",
@@ -217,6 +218,7 @@ def test_accepted_discovery_property_preserves_saved_official_gis_evidence(tmp_p
     }
     assert facts["parcel_id"]["value"] == "02-00-00-000-001.000-000"
     assert facts["property_type"]["value"] == "single_family"
+    assert facts["recorded_owner_name"]["value"] == "SYNTHETIC SAVED OWNER"
     assert facts["official_gis_address"]["value"] == "100 GIS REVIEW AVE"
     assert facts["property_class"]["value"] == "1 Family Dwell - Platted Lot"
     assert facts["assessed_total"]["value"] == 185000
@@ -283,3 +285,105 @@ def test_gis_backfill_http_route_updates_accepted_discovery_row(tmp_path, monkey
         assert not app.state()["deals"]
     finally:
         server.shutdown(); server.server_close(); worker.join()
+
+
+def test_owner_recheck_requires_exact_same_parcel_and_creates_no_deal(tmp_path, monkeypatch):
+    import app.sourcing as sourcing
+    monkeypatch.setattr(intake, "utc_now", lambda: NOW)
+    monkeypatch.setattr(sourcing, "utc_now", lambda: NOW)
+    app = Application(tmp_path / "app.db")
+    staged = stage_resolved_sheriff(app)
+    accepted = app.review_candidate(staged["row_id"], REVIEW)
+    pid = accepted["property_id"]
+
+    app.parcel_resolver = lambda candidate: {
+        "status": "resolved",
+        "owner_of_record": "CURRENT SYNTHETIC OWNER",
+        "pin": "020000000001000000",
+        "gis_id": "02-00-00-000-001.000-000",
+        "official_address": "100 GIS REVIEW AVE",
+        "parcel_service": "https://gis.acimap.us/acfw/rest/services/Parcels/AC_Parcel_iMap_org/FeatureServer/20",
+    }
+    first = app.refresh_discovery_owner_evidence(staged["row_id"], {})
+    second = app.refresh_discovery_owner_evidence(staged["row_id"], {})
+    assert first["recorded_owner_name"] == "CURRENT SYNTHETIC OWNER"
+    assert first["refreshed"] is True
+    assert second["owner_fact_id"] == first["owner_fact_id"]
+    assert second["refreshed"] is False
+    state = app.state()
+    owner_facts = [
+        fact for fact in state["facts"]
+        if str(fact["subject_id"]) == pid and fact["attribute"] == "recorded_owner_name"
+        and fact["status"] == "active"
+    ]
+    assert len(owner_facts) == 1
+    assert owner_facts[0]["value"] == "CURRENT SYNTHETIC OWNER"
+    assert not state["deals"]
+
+    app.parcel_resolver = lambda candidate: {
+        "status": "resolved", "owner_of_record": "WRONG PARCEL OWNER",
+        "pin": "wrong", "gis_id": "02-00-00-000-999.000-000",
+        "parcel_service": "https://gis.acimap.us/example",
+    }
+    with pytest.raises(ValueError, match="no longer matches"):
+        app.refresh_discovery_owner_evidence(staged["row_id"], {})
+    assert app.state()["deals"] == []
+
+
+def test_later_owner_recheck_refreshes_and_supersedes_prior_current_fact(tmp_path, monkeypatch):
+    import app.sourcing as sourcing
+    monkeypatch.setattr(intake, "utc_now", lambda: NOW)
+    current_time = [NOW]
+    monkeypatch.setattr(sourcing, "utc_now", lambda: current_time[0])
+    app = Application(tmp_path / "app.db")
+    staged = stage_resolved_sheriff(app)
+    accepted = app.review_candidate(staged["row_id"], REVIEW)
+    pid = accepted["property_id"]
+
+    owner = ["OWNER ONE"]
+    app.parcel_resolver = lambda candidate: {
+        "status": "resolved", "owner_of_record": owner[0],
+        "pin": "020000000001000000", "gis_id": "02-00-00-000-001.000-000",
+        "parcel_service": "https://gis.acimap.us/acfw/rest/services/Parcels/AC_Parcel_iMap_org/FeatureServer/20",
+    }
+    first = app.refresh_discovery_owner_evidence(staged["row_id"], {})
+    current_time[0] = NOW + timedelta(days=1)
+    owner[0] = "OWNER TWO"
+    second = app.refresh_discovery_owner_evidence(staged["row_id"], {})
+    assert second["changed"] is True
+    assert second["owner_fact_id"] != first["owner_fact_id"]
+
+    state = Application(app.database.path).state()
+    owner_facts = [
+        fact for fact in state["facts"]
+        if str(fact["subject_id"]) == pid and fact["attribute"] == "recorded_owner_name"
+    ]
+    active = [fact for fact in owner_facts if fact["status"] == "active"]
+    superseded = [fact for fact in owner_facts if fact["status"] == "superseded"]
+    assert len(active) == 1 and active[0]["value"] == "OWNER TWO"
+    assert any(fact["value"] == "OWNER ONE" for fact in superseded)
+    assert not state["deals"]
+
+
+def test_owner_recheck_rejects_unresolved_or_missing_owner_atomically(tmp_path, monkeypatch):
+    import app.sourcing as sourcing
+    monkeypatch.setattr(intake, "utc_now", lambda: NOW)
+    monkeypatch.setattr(sourcing, "utc_now", lambda: NOW)
+    app = Application(tmp_path / "app.db")
+    staged = stage_resolved_sheriff(app)
+    app.review_candidate(staged["row_id"], REVIEW)
+    before = len(app.state()["facts"])
+
+    app.parcel_resolver = lambda candidate: {"status": "unresolved", "reason": "fixture"}
+    with pytest.raises(ValueError, match="did not resolve"):
+        app.refresh_discovery_owner_evidence(staged["row_id"], {})
+    assert len(app.state()["facts"]) == before
+
+    app.parcel_resolver = lambda candidate: {
+        "status": "resolved", "owner_of_record": "",
+        "pin": "020000000001000000", "gis_id": "02-00-00-000-001.000-000",
+        "parcel_service": "https://gis.acimap.us/example",
+    }
+    with pytest.raises(ValueError, match="does not publish"):
+        app.refresh_discovery_owner_evidence(staged["row_id"], {})
+    assert len(app.state()["facts"]) == before

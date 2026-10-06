@@ -104,6 +104,19 @@ function renderSourcing() {
             finally { refresh.disabled = false; }
           });
           card.append(refresh, refreshStatus);
+          const ownerRefresh = node("button", "Recheck owner of record", "button secondary"); ownerRefresh.type = "button";
+          const ownerStatus = node("p", "", "muted small"); ownerStatus.setAttribute("role", "status");
+          ownerRefresh.addEventListener("click", async () => {
+            ownerRefresh.disabled = true; ownerStatus.textContent = "Checking official Allen County parcel owner…";
+            try {
+              const saved = await api("/api/sourcing/rows/" + row.id + "/refresh-owner", {});
+              ownerStatus.textContent = "Owner-of-record evidence refreshed: " + saved.recorded_owner_name
+                + ". This does not verify seller authority or permission to contact.";
+              await refreshState();
+            } catch (error) { ownerStatus.textContent = error.message; }
+            finally { ownerRefresh.disabled = false; }
+          });
+          card.append(ownerRefresh, ownerStatus);
         }
         if (row.review.property_id) {
           const open = node("button", "Open reviewed property", "button secondary"); open.type = "button";
