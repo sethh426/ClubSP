@@ -449,7 +449,7 @@ class RelationshipBook:
                 ),
             )
             connection.execute(
-                "INSERT INTO relationship_buyer_qualifications VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO relationship_buyer_qualifications VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (
                     qualification_id, key, rid, profile_id, event_id, buyer_id, mandate_id,
                     linked_profile_id, encoded, now,
