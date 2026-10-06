@@ -142,3 +142,60 @@ test("sheriff parcel resolution can unlock reviewed intake without inventing a p
   await expect(output).toContainText("Judgment amount (not a purchase price)");
   await expect(output.getByText("Stage for identity review", {exact:true})).toHaveCount(1);
 });
+
+
+test("sheriff research ranking sorts display without changing persisted candidate index", async ({ page }) => {
+  let posted;
+  const incomplete = {
+    address:"100 INCOMPLETE AVE", city:"Fort Wayne", state:"IN", zip:"46805",
+    cause_number:"02D03-2601-MF-000001", sale_date:"2026-10-21",
+    judgment_amount:90000, minimum_bid:null, intake_supported:false, parcel_ids:[],
+    availability:"Scheduled sheriff sale notice.", identity_note:"Parcel unresolved.",
+    review_gaps:["Confirm parcel"], intake_blockers:["Parcel identity required"], buyer_criteria:[],
+    research_priority:{rank:2,score:25,label:"needs_identity_or_data",reasons:["Deadline nearby"],
+      limitations:["This is a research-readiness and deadline score, not a deal-quality or profit score."]}
+  };
+  const complete = {
+    address:"200 COMPLETE AVE", city:"Fort Wayne", state:"IN", zip:"46805",
+    cause_number:"02D03-2601-MF-000002", sale_date:"2026-10-21",
+    judgment_amount:120000, minimum_bid:null, intake_supported:true,
+    parcel_ids:["02-00-00-000-002.000-000"],
+    availability:"Scheduled sheriff sale notice.",
+    identity_note:"Parcel identity resolved against Allen County GIS.",
+    review_gaps:["Review title"], intake_blockers:[], buyer_criteria:[],
+    parcel_resolution:{status:"resolved",official_address:"200 COMPLETE AVE",pin:"020000000002000000",
+      gis_id:"02-00-00-000-002.000-000",property_class:"1 Family Dwell - Platted Lot",year_built:1950},
+    research_priority:{rank:1,score:100,label:"review_now",
+      reasons:["Official Allen County parcel identity is resolved"],
+      limitations:["This is a research-readiness and deadline score, not a deal-quality or profit score."]}
+  };
+  const source = {
+    id:"sheriff-check", name:"Allen County Sheriff mortgage foreclosure sales",
+    source_id:"sheriff_sales", url:"https://www.allencountysheriff.org/2026-sheriff-sales/",
+    status:"scheduled_sales", candidates:[incomplete, complete],
+    research_priority_summary:{review_now:1,research_next:0,needs_identity_or_data:1,candidate_count:2,
+      score_scope:"Research readiness and deadline urgency only; no profit or acquisition-price inference."}
+  };
+  await page.route("**/api/discovery", route => route.fulfill({json:{sources:[source]}}));
+  await page.route("**/api/discovery/intake", async route => {
+    posted = route.request().postDataJSON();
+    await route.fulfill({json:{id:"batch",row_id:"row",status:"pending",duplicate:false}});
+  });
+  await page.goto("/");
+  await page.getByText("Official sale-notice discovery", {exact:true}).click();
+  const output = page.locator("#discovery-output");
+  await expect(output).toContainText("Research queue · 1 review now");
+  const headings = output.locator("h4");
+  await expect(headings.nth(0)).toHaveText("200 COMPLETE AVE");
+  await expect(output).toContainText("Research priority #1 · 100/100 · review now");
+  await output.getByText("Stage for identity review", {exact:true}).click();
+  const form = output.locator("form").filter({has: output.getByRole("button",{name:"Stage pending intake"})});
+  await form.getByLabel("Verified ZIP").fill("46805");
+  await form.getByLabel("Reviewed property type").fill("single family");
+  await form.getByLabel("Reviewer", {exact:true}).fill("Synthetic reviewer");
+  await form.getByLabel("Evidence and survey / parcel portion review notes").fill("Synthetic review");
+  await form.getByLabel("I checked the address, market, selected parcel and surveyed portions").check();
+  await form.getByRole("button",{name:"Stage pending intake"}).click();
+  expect(posted.candidate_index).toBe(1);
+  expect(posted.parcel_id).toBe("02-00-00-000-002.000-000");
+});
