@@ -25,6 +25,9 @@ test("revenue command center is read-only, ranked, and renders evidence as text"
     ]
   };
   await page.route("**/api/command-center", route => route.fulfill({json:payload}));
+  await page.route("**/api/gmail/status", route => route.fulfill({json:{
+    configured:true,connected:true,sending_enabled:false,expected_email:"sethpina11@gmail.com"
+  }}));
   await page.goto("/command");
   await expect(page.getByRole("heading",{name:"What can move money forward now?"})).toBeVisible();
   await expect(page.locator("#command-summary")).toContainText("Owner-review deals1");
@@ -47,4 +50,36 @@ test("command center route is available from the property workspace", async ({pa
   const link=page.getByRole("link",{name:/Revenue Command Center/});
   await expect(link).toBeVisible();
   await expect(link).toHaveAttribute("href","/command");
+});
+
+
+test("command center surfaces disconnected Gmail as an outreach setup blocker", async ({page}) => {
+  const payload={
+    execution_authorized:false,
+    scope:"Read-only focus queue; no execution authority.",
+    summary:{
+      owner_review_deals:0,deal_actions:0,due_relationships:8,
+      buyer_criteria_confirmations:8,buyer_criteria_reconfirmations:0,
+      buyer_matched_candidates:0,focus_items:8
+    },
+    items:Array.from({length:8},(_,index)=>({
+      id:"relationship:"+index,kind:"buyer_criteria_confirmation",source:"Relationship Desk",
+      title:"Investor "+index,status:"due",priority_band:2,source_rank:index,
+      next_action:"Confirm buy box",href:"/relationships#relationship-"+index,blockers:[]
+    }))
+  };
+  await page.route("**/api/command-center", route=>route.fulfill({json:payload}));
+  await page.route("**/api/gmail/status", route=>route.fulfill({json:{
+    configured:true,connected:false,sending_enabled:false,
+    expected_email:"sethpina11@gmail.com"
+  }}));
+  await page.goto("/command");
+  const cards=page.locator(".command-item");
+  await expect(cards).toHaveCount(9);
+  await expect(cards.first()).toContainText("OUTREACH SETUP");
+  await expect(cards.first()).toContainText("Reconnect Gmail · sethpina11@gmail.com");
+  await expect(cards.first()).toContainText("Gmail is configured but not connected.");
+  await expect(cards.first().getByRole("link",{name:"Open source workspace"})).toHaveAttribute("href","/#gmail-workspace");
+  await expect(page.locator("#command-summary")).toContainText("Outreach setup blockers1");
+  await expect(page.locator("#command-summary")).toContainText("Buyer criteria to confirm8");
 });
