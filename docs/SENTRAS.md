@@ -12,6 +12,8 @@ Prefer official structured APIs first. Use permitted extraction only when the re
 
 ## Completion plan — 12 sections
 
+The tracked exit criteria and current operational gate are in [Sentra delivery gates](SENTRA_DELIVERY_GATES.md). The implemented definition, routing and observation contract is in [Sentra kernel](SENTRA_KERNEL.md). Registry row counts are not production source counts.
+
 ### 1. Sentra kernel and registry
 Define the canonical Sentra contract, capabilities, source class, acquisition mode, jurisdiction, cadence, cost/rights controls, freshness, provenance, health state, and downstream handoff.
 

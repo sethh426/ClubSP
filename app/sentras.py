@@ -6,14 +6,43 @@ outreach, deal creation, offers, payments, or other consequential actions.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+import ipaddress
+import re
 from typing import Literal
+from urllib.parse import urlsplit
 
 SentraStatus = Literal["active", "planned", "standby", "disabled"]
 AcquisitionMode = Literal[
     "direct_http", "official_api", "arcgis", "apify_actor",
     "crawlee_http", "playwright", "file_parser", "webhook", "manual_import",
 ]
+ACQUISITION_MODES = frozenset(AcquisitionMode.__args__)
+SOURCE_TYPES = frozenset({"public_record", "market_provider", "source_catalog", "page_monitor", "internal", "licensed_import", "unclassified"})
+
+
+def public_source_url(value: str) -> str:
+    """Validate a configured URL without making a request or resolving DNS."""
+    if not isinstance(value, str) or any(ord(c) < 33 for c in value):
+        raise ValueError("source URL must be a public HTTPS URL")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("source URL must be a public HTTPS URL") from exc
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or port not in (None, 443):
+        raise ValueError("source URL must be a public HTTPS URL on port 443")
+    host = parsed.hostname.rstrip(".").lower()
+    if host == "localhost" or host.endswith((".local", ".localhost", ".internal", ".invalid")):
+        raise ValueError("local or reserved source hosts are not allowed")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        if not address.is_global:
+            raise ValueError("private or reserved source addresses are not allowed")
+    return value
 
 
 @dataclass(frozen=True)
@@ -31,6 +60,65 @@ class SentraDefinition:
     downstream: tuple[str, ...] = ("evidence_review",)
     credential_env: str | None = None
     estimated_cost_class: Literal["free", "low", "metered", "unknown"] = "unknown"
+    source_type: str = "unclassified"
+    provenance_refs: tuple[str, ...] = ("builtin:app.sentras",)
+    schema_fingerprint: str | None = None
+    rights_review_ref: str | None = None
+    max_cost_per_run_cents: int | None = None
+    daily_request_limit: int = 20
+    coverage_markets: tuple[str, ...] = ()
+    coverage_scope: Literal["market", "country", "global", "internal", "unconfirmed"] = "unconfirmed"
+    verified_capabilities: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if not isinstance(self.id, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,99}", self.id):
+            raise ValueError("Sentra id must begin with a letter and contain letters, numbers or underscores")
+        for name in ("name", "family", "jurisdiction", "rights_note"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip() or len(value) > 4000:
+                raise ValueError(f"Sentra {name} must be nonempty bounded text")
+        if self.status not in SentraStatus.__args__ or self.acquisition_mode not in ACQUISITION_MODES:
+            raise ValueError("unsupported Sentra status or acquisition mode")
+        if self.source_type not in SOURCE_TYPES or self.estimated_cost_class not in {"free", "low", "metered", "unknown"}:
+            raise ValueError("unsupported source type or cost class")
+        if self.coverage_scope not in {"market", "country", "global", "internal", "unconfirmed"}:
+            raise ValueError("unsupported coverage scope")
+        for name in ("capabilities", "downstream", "provenance_refs", "coverage_markets", "verified_capabilities"):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or len(values) > 100 or any(not isinstance(v, str) or not v.strip() or len(v) > 500 for v in values):
+                raise ValueError(f"Sentra {name} must be a bounded tuple of text")
+            if len(set(values)) != len(values):
+                raise ValueError(f"Sentra {name} must be unique")
+        if not self.capabilities or not self.provenance_refs:
+            raise ValueError("Sentra capabilities and provenance are required")
+        if not set(self.verified_capabilities).issubset(self.capabilities):
+            raise ValueError("verified capabilities must be declared capabilities")
+        if self.coverage_scope == "market" and not self.coverage_markets:
+            raise ValueError("market coverage requires explicit market aliases")
+        if self.source_type == "internal":
+            if self.coverage_scope != "internal" or not self.source_url.startswith("https://localhost.invalid/meta/"):
+                raise ValueError("internal Sentras require an internal scope and endpoint")
+        else:
+            public_source_url(self.source_url)
+        if self.freshness_target_hours is not None and (type(self.freshness_target_hours) is not int or not 1 <= self.freshness_target_hours <= 8760):
+            raise ValueError("freshness target must be positive integer hours")
+        if type(self.daily_request_limit) is not int or not 1 <= self.daily_request_limit <= 1000:
+            raise ValueError("daily request limit must be an integer from 1 to 1000")
+        if self.max_cost_per_run_cents is not None and (type(self.max_cost_per_run_cents) is not int or self.max_cost_per_run_cents < 0):
+            raise ValueError("cost ceiling must be nonnegative integer cents")
+        if self.credential_env is not None and (not isinstance(self.credential_env, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", self.credential_env)):
+            raise ValueError("credentials must reference an environment variable name")
+        if self.schema_fingerprint is not None and not re.fullmatch(r"[0-9a-f]{64}", self.schema_fingerprint):
+            raise ValueError("schema fingerprint must be a sha256 digest")
+        if self.rights_review_ref is not None and (not isinstance(self.rights_review_ref, str) or not self.rights_review_ref.strip() or len(self.rights_review_ref) > 4000):
+            raise ValueError("rights review reference must be bounded text")
+
+    def catalog_record(self):
+        row = asdict(self)
+        for name in ("capabilities", "downstream", "provenance_refs", "coverage_markets", "verified_capabilities"):
+            row[name] = list(row[name])
+        row["credential_configured_by"] = row.pop("credential_env")
+        return row
 
 
 SENTRAS: dict[str, SentraDefinition] = {
@@ -39,6 +127,10 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Allen County ACCDC availability",
         family="public_property",
         acquisition_mode="direct_http",
+        source_type="page_monitor",
+        estimated_cost_class="free",
+        coverage_scope="market",
+        coverage_markets=("Allen County, Indiana", "Fort Wayne, IN", "Fort Wayne, Indiana"),
         capabilities=("availability", "public_sale_notice", "change_detection"),
         jurisdiction="Allen County, Indiana",
         status="active",
@@ -51,6 +143,10 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Allen County North Campus sale notice",
         family="public_property",
         acquisition_mode="direct_http",
+        source_type="page_monitor",
+        estimated_cost_class="free",
+        coverage_scope="market",
+        coverage_markets=("Allen County, Indiana", "Fort Wayne, IN", "Fort Wayne, Indiana"),
         capabilities=("public_sale_notice", "parcel", "minimum_bid", "bid_window", "change_detection"),
         jurisdiction="Allen County, Indiana",
         status="active",
@@ -63,6 +159,10 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Allen County sheriff sales",
         family="foreclosure_auction",
         acquisition_mode="file_parser",
+        source_type="public_record",
+        estimated_cost_class="free",
+        coverage_scope="market",
+        coverage_markets=("Allen County, Indiana", "Fort Wayne, IN", "Fort Wayne, Indiana"),
         capabilities=("sheriff_sale", "foreclosure_notice", "sale_date", "judgment_amount", "documents"),
         jurisdiction="Allen County, Indiana",
         status="active",
@@ -75,6 +175,10 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Allen County iMap parcel evidence",
         family="parcel_assessor",
         acquisition_mode="arcgis",
+        source_type="public_record",
+        estimated_cost_class="free",
+        coverage_scope="market",
+        coverage_markets=("Allen County, Indiana", "Fort Wayne, IN", "Fort Wayne, Indiana"),
         capabilities=("parcel_identity", "owner_of_record", "assessment", "property_attributes"),
         jurisdiction="Allen County, Indiana",
         status="active",
@@ -87,6 +191,7 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="RentCast sale listings",
         family="listing_market",
         acquisition_mode="official_api",
+        source_type="market_provider",
         capabilities=("active_listing", "market", "property_type", "price", "beds", "baths", "sqft", "year_built"),
         jurisdiction="United States where provider coverage applies",
         status="active",
@@ -101,6 +206,7 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="RealEstateAPI inventory preflight",
         family="listing_market",
         acquisition_mode="official_api",
+        source_type="market_provider",
         capabilities=("inventory_count", "buyer_demand_preflight"),
         jurisdiction="United States where provider coverage applies",
         status="active",
@@ -143,6 +249,8 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Meta-Sentra: Apify Store discovery",
         family="meta_discovery",
         acquisition_mode="official_api",
+        source_type="source_catalog",
+        coverage_scope="global",
         capabilities=("source_discovery", "actor_discovery", "coverage_gap_search"),
         jurisdiction="Global catalog; downstream source jurisdiction varies",
         status="active",
@@ -157,6 +265,8 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Meta-Sentra: ArcGIS Hub discovery",
         family="meta_discovery",
         acquisition_mode="official_api",
+        source_type="source_catalog",
+        coverage_scope="global",
         capabilities=("source_discovery", "dataset_discovery", "coverage_gap_search"),
         jurisdiction="Public ArcGIS Hub content",
         status="active",
@@ -171,6 +281,8 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Meta-Sentra: Data.gov discovery",
         family="meta_discovery",
         acquisition_mode="official_api",
+        source_type="source_catalog",
+        coverage_scope="global",
         capabilities=("source_discovery", "dataset_discovery", "government_catalog"),
         jurisdiction="United States government catalog",
         status="active",
@@ -186,6 +298,8 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Meta-Sentra: schema probe",
         family="meta_quality",
         acquisition_mode="direct_http",
+        source_type="internal",
+        coverage_scope="internal",
         capabilities=("schema_probe", "schema_fingerprint", "source_quality"),
         jurisdiction="Quarantined sources only",
         status="active",
@@ -200,6 +314,8 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Meta-Sentra: source health and drift",
         family="meta_quality",
         acquisition_mode="manual_import",
+        source_type="internal",
+        coverage_scope="internal",
         capabilities=("source_health", "schema_drift", "freshness_monitoring", "re_quarantine"),
         jurisdiction="All registered Sentras",
         status="active",
@@ -214,24 +330,7 @@ SENTRAS: dict[str, SentraDefinition] = {
 
 def sentra_catalog() -> list[dict]:
     """Return JSON-safe, non-secret Sentra metadata for APIs/UI."""
-    return [
-        {
-            "id": item.id,
-            "name": item.name,
-            "family": item.family,
-            "acquisition_mode": item.acquisition_mode,
-            "capabilities": list(item.capabilities),
-            "jurisdiction": item.jurisdiction,
-            "status": item.status,
-            "source_url": item.source_url,
-            "freshness_target_hours": item.freshness_target_hours,
-            "rights_note": item.rights_note,
-            "downstream": list(item.downstream),
-            "credential_configured_by": item.credential_env,
-            "estimated_cost_class": item.estimated_cost_class,
-        }
-        for item in SENTRAS.values()
-    ]
+    return [item.catalog_record() for item in SENTRAS.values()]
 
 
 def sentras_for_capability(capability: str, *, include_planned: bool = False) -> list[SentraDefinition]:

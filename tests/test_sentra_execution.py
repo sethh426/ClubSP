@@ -11,7 +11,7 @@ from app.sentras import SENTRAS
 
 def test_execution_request_rejects_unknown_sentra():
     with pytest.raises(ValueError, match="unknown Sentra"):
-        SentraExecutionRequest("missing")
+        execute_sentra(SentraExecutionRequest("missing"))
 
 
 def test_execution_request_rejects_oversized_limit():

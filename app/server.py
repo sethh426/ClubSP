@@ -150,6 +150,15 @@ def handler_for(application, gmail, auth=None):
                     self.send_json(400, {"error": str(error)})
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/sentras":
+                try:
+                    query = parse_qs(urlsplit(self.path).query, max_num_fields=4)
+                    self.send_json(200, application.sentra_catalog_state(
+                        limit=int(query.get("limit", ["100"])[0]), offset=int(query.get("offset", ["0"])[0])))
+                except (ValueError, TypeError) as error:
+                    self.send_json(400, {"error": str(error)})
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/gmail/status":
                 self.send_json(200, gmail.status(self.gmail_origin()))
             elif path == "/api/gmail/inbox":
@@ -259,6 +268,11 @@ def handler_for(application, gmail, auth=None):
                     self.end_headers()
                     self.wfile.write(body)
                     return
+                elif path in {"/api/sentras/run", "/api/sentras/route"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.run_sentra(data) if path.endswith("/run") else application.sentra_route(data)
                 elif path == "/api/sentras/meta/cycle":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})

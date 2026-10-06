@@ -12,6 +12,7 @@ COMPONENT_VERSIONS = {
     "funding": 1,
     "transactions": 1,
     "meta_sentras": 2,
+    "sentra_kernel": 1,
 }
 
 

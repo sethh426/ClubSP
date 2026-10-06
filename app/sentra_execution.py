@@ -13,6 +13,8 @@ import os
 import time
 
 from .sentras import SENTRAS, SentraDefinition
+from .meta_source_transport import fetch_source, source_schema
+from .sentra_registry import SentraRegistry, execution_blockers
 
 
 MAX_EXECUTION_BYTES = 2_000_000
@@ -27,12 +29,14 @@ class SentraExecutionRequest:
     max_bytes: int = MAX_EXECUTION_BYTES
 
     def __post_init__(self) -> None:
-        if self.sentra_id not in SENTRAS:
-            raise ValueError("unknown Sentra")
+        if not isinstance(self.sentra_id, str) or not self.sentra_id.strip():
+            raise ValueError("Sentra id is required")
         if self.operation not in {"observe", "search", "lookup", "refresh"}:
             raise ValueError("unsupported Sentra operation")
-        if not 1 <= self.max_bytes <= MAX_EXECUTION_BYTES:
+        if type(self.max_bytes) is not int or not 1 <= self.max_bytes <= MAX_EXECUTION_BYTES:
             raise ValueError("max_bytes is outside the supported range")
+        if not isinstance(self.input_data, Mapping):
+            raise ValueError("Sentra input must be a mapping")
 
 
 @dataclass(frozen=True)
@@ -61,7 +65,7 @@ class SentraExecutor:
 
 def canonical_payload_bytes(payload: Any) -> bytes:
     try:
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise ValueError("Sentra payload must be JSON serializable") from exc
 
@@ -104,7 +108,6 @@ class OfficialJSONExecutor(SentraExecutor):
         except ImportError as exc:
             raise ValueError("HTTP Sentra execution requires httpx") from exc
 
-        headers = {"Accept": "application/json", "User-Agent": "ClubSP/0.1 Sentra"}
         if definition.credential_env:
             credential = os.environ.get(definition.credential_env, "").strip()
             if not credential:
@@ -114,21 +117,36 @@ class OfficialJSONExecutor(SentraExecutor):
             raise ValueError("credentialed official API Sentras require a provider-specific executor")
 
         started = time.time_ns()
-        with httpx.Client(timeout=10.0, follow_redirects=False) as client:
-            response = client.get(definition.source_url, headers=headers)
-        if response.status_code != 200:
-            raise ValueError(f"Sentra source returned HTTP {response.status_code}")
-        if len(response.content) > request.max_bytes:
-            raise ValueError("Sentra source response exceeded the configured payload limit")
-        payload = response.json()
+        if request.input_data or request.operation not in {"observe", "refresh"}:
+            raise ValueError("this executor supports configured source observation only")
+        response = fetch_source(definition.source_url, max_bytes=request.max_bytes)
+        schema, payload = source_schema(response)
+        if "json" not in response.content_type:
+            raise ValueError("official JSON executor requires a JSON source")
         return result_from_payload(
             definition,
             payload,
-            source_url=str(response.url),
+            source_url=definition.source_url,
             started_ns=started,
-            metadata={"http_status": response.status_code},
+            metadata={"http_status": 200, "schema_fingerprint": schema["schema_fingerprint"],
+                      "raw_sha256": response.payload_hash, "evidence_scope": "raw_source"},
             max_bytes=request.max_bytes,
         )
+
+
+class DirectHTTPExecutor(SentraExecutor):
+    acquisition_mode = "direct_http"
+
+    def execute(self, definition, request):
+        if definition.credential_env or request.input_data or request.operation not in {"observe", "refresh"}:
+            raise ValueError("this executor supports uncredentialed configured source observation only")
+        started = time.time_ns()
+        response = fetch_source(definition.source_url, max_bytes=request.max_bytes)
+        schema, payload = source_schema(response)
+        return result_from_payload(definition, payload, started_ns=started, max_bytes=request.max_bytes,
+                                   metadata={"schema_fingerprint": schema["schema_fingerprint"],
+                                             "raw_sha256": response.payload_hash,
+                                             "evidence_scope": "raw_source"})
 
 
 class ApifyActorExecutor(SentraExecutor):
@@ -142,46 +160,13 @@ class ApifyActorExecutor(SentraExecutor):
     acquisition_mode = "apify_actor"
 
     def execute(self, definition: SentraDefinition, request: SentraExecutionRequest) -> SentraExecutionResult:
-        token = os.environ.get(definition.credential_env or "APIFY_TOKEN", "").strip()
-        if not token:
-            raise ValueError("APIFY_TOKEN is not configured")
-        actor_id = str(request.input_data.get("approved_actor_id") or "").strip()
-        if not actor_id:
-            raise ValueError("approved_actor_id is required for an Apify Sentra")
-        if request.input_data.get("actor_approved") is not True:
-            raise ValueError("Apify actor must be explicitly approved before execution")
-
-        try:
-            import httpx
-        except ImportError as exc:
-            raise ValueError("Apify Sentra execution requires httpx") from exc
-
-        actor_input = request.input_data.get("actor_input") or {}
-        max_total_charge_usd = request.input_data.get("max_total_charge_usd")
-        params = {"token": token, "waitForFinish": 30}
-        if max_total_charge_usd is not None:
-            params["maxTotalChargeUsd"] = max_total_charge_usd
-
-        started = time.time_ns()
-        url = f"https://api.apify.com/v2/acts/{actor_id}/runs"
-        with httpx.Client(timeout=35.0, follow_redirects=False) as client:
-            response = client.post(url, params=params, json=actor_input)
-        if response.status_code not in {200, 201}:
-            raise ValueError(f"Apify Actor start failed with HTTP {response.status_code}")
-        if len(response.content) > request.max_bytes:
-            raise ValueError("Apify run response exceeded the configured payload limit")
-        payload = response.json()
-        return result_from_payload(
-            definition,
-            payload,
-            source_url=definition.source_url,
-            started_ns=started,
-            metadata={"actor_id": actor_id, "http_status": response.status_code},
-            max_bytes=request.max_bytes,
-        )
+        # A caller-supplied actor_approved flag is not a persisted registry approval.
+        # Actor launch/dataset collection and durable billing are section 2 gates.
+        raise ValueError("Apify execution requires a registry-backed Actor contract and durable cost accounting")
 
 
 EXECUTORS: dict[str, SentraExecutor] = {
+    "direct_http": DirectHTTPExecutor(),
     "official_api": OfficialJSONExecutor(),
     "apify_actor": ApifyActorExecutor(),
 }
@@ -194,8 +179,14 @@ def executor_for(definition: SentraDefinition) -> SentraExecutor:
     return executor
 
 
-def execute_sentra(request: SentraExecutionRequest) -> SentraExecutionResult:
-    definition = SENTRAS[request.sentra_id]
-    if definition.status not in {"active", "standby"}:
+def execute_sentra(request: SentraExecutionRequest, *, registry=None) -> SentraExecutionResult:
+    registry = registry or SentraRegistry(SENTRAS.values())
+    definition = registry.get(request.sentra_id)
+    if definition.status != "active":
         raise ValueError("Sentra is not enabled for execution")
+    if definition.source_type == "internal":
+        raise ValueError("internal Sentras run through their application service")
+    blockers = execution_blockers(definition)
+    if blockers:
+        raise ValueError("Sentra execution blocked: " + ", ".join(blockers))
     return executor_for(definition).execute(definition, request)

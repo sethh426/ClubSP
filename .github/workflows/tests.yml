@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, sentras-foundation-20261006]
 
 concurrency:
   group: app-tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -64,7 +64,7 @@ jobs:
           path: test-results/
           retention-days: 7
   meta-live:
-    if: github.head_ref == 'sentras-foundation-20261006'
+    if: github.head_ref == 'sentras-foundation-20261006' || github.base_ref == 'sentras-foundation-20261006'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
