@@ -189,7 +189,8 @@ test("sheriff research ranking sorts display without changing persisted candidat
   await expect(headings.nth(0)).toHaveText("200 COMPLETE AVE");
   await expect(output).toContainText("Research priority #1 · 100/100 · review now");
   await output.getByText("Stage for identity review", {exact:true}).click();
-  const form = output.locator("form").filter({has: output.getByRole("button",{name:"Stage pending intake"})});
+  const stageButton = output.getByRole("button",{name:"Stage pending intake"});
+  const form = stageButton.locator("xpath=ancestor::form");
   await form.getByLabel("Verified ZIP").fill("46805");
   await form.getByLabel("Reviewed property type").fill("single family");
   await form.getByLabel("Reviewer", {exact:true}).fill("Synthetic reviewer");
