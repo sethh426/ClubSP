@@ -154,3 +154,42 @@ def test_reviewed_snapshot_rejects_bad_provenance_atomically(tmp_path, change):
         app.record_discovery_snapshot(data)
     after = len(app.discovery_state()['sources'][1].get('candidates', []))
     assert after == before
+
+
+def test_reviewed_snapshot_http_route_requires_origin_and_persists(tmp_path):
+    app = Application(tmp_path/'app.db')
+    server = create_server(tmp_path/'app.db', port=0, application=app)
+    origin = 'http://127.0.0.1:' + str(server.server_address[1])
+    worker = threading.Thread(target=server.serve_forever); worker.start()
+    payload = {
+        'source_id': 'north_campus',
+        'source_url': 'https://www.allencounty.in.gov/1305/Sale-of-North-Campus-Property',
+        'body': NOTICE,
+        'reviewer': 'Owner review',
+        'note': 'Reviewed configured official page.',
+    }
+    try:
+        rejected = Request(
+            origin+'/api/discovery/snapshot',
+            data=json.dumps(payload).encode(),
+            headers={'Content-Type':'application/json'},
+            method='POST',
+        )
+        with pytest.raises(HTTPError) as error:
+            urlopen(rejected)
+        assert error.value.code == 403
+
+        accepted = Request(
+            origin+'/api/discovery/snapshot',
+            data=json.dumps(payload).encode(),
+            headers={'Content-Type':'application/json','Origin':origin},
+            method='POST',
+        )
+        with urlopen(accepted) as response:
+            saved = json.load(response)
+        assert saved['retrieval_mode'] == 'reviewed_official_snapshot'
+        assert saved['candidates'][0]['minimum_bid'] == 100000
+        assert app.discovery_state()['sources'][1]['id'] == saved['id']
+        assert not app.state()['properties'] and not app.state()['deals']
+    finally:
+        server.shutdown(); server.server_close(); worker.join()
