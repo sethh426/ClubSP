@@ -175,8 +175,8 @@ class MetaSentraMixin:
     def meta_discover(self, data):
         provider = str(data.get("provider") or "").strip()
         query = str(data.get("query") or "").strip()
-        if provider not in {"apify_store", "data_gov"}:
-            raise ValueError("provider must be apify_store or data_gov")
+        if provider not in {"apify_store", "data_gov", "arcgis_online"}:
+            raise ValueError("provider must be apify_store, data_gov, or arcgis_online")
         if not 2 <= len(query) <= 200:
             raise ValueError("query must be 2-200 characters")
 
@@ -197,7 +197,7 @@ class MetaSentraMixin:
                         candidates.append(normalize_apify_store_item(item))
                     except ValueError:
                         continue
-            else:
+            elif provider == "data_gov":
                 response = client.get(
                     "https://catalog.data.gov/api/3/action/package_search",
                     params={"q": query, "rows": META_QUERY_LIMIT},
@@ -211,6 +211,39 @@ class MetaSentraMixin:
                         candidates.append(normalize_ckan_dataset(item, provider="data_gov"))
                     except ValueError:
                         continue
+            else:
+                response = client.get(
+                    "https://www.arcgis.com/sharing/rest/search",
+                    params={"q": query + ' AND access:"public"', "num": META_QUERY_LIMIT, "f": "json"},
+                    headers={"Accept":"application/json","User-Agent":"ClubSP/0.1 Meta-Sentra"},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                items = payload.get("results", []) if isinstance(payload, dict) else []
+                for item in items[:META_QUERY_LIMIT]:
+                    item_id = str(item.get("id") or "").strip()
+                    title = str(item.get("title") or "").strip()
+                    if not item_id or not title:
+                        continue
+                    item_url = str(item.get("url") or "").strip() or (
+                        "https://www.arcgis.com/home/item.html?id=" + item_id
+                    )
+                    description = str(item.get("snippet") or item.get("description") or "").strip()
+                    candidates.append(SourceCandidate(
+                        discovery_provider="arcgis_hub",
+                        external_id=item_id,
+                        name=title,
+                        source_url=item_url,
+                        description=description,
+                        jurisdiction_hint=str(item.get("owner") or "").strip(),
+                        capabilities_hint=(),
+                        metadata={
+                            "type": item.get("type"),
+                            "owner": item.get("owner"),
+                            "modified": item.get("modified"),
+                            "tags": item.get("tags", []),
+                        },
+                    ))
         if len(response.content) > 2_000_000:
             raise ValueError("Meta-Sentra discovery response exceeded limit")
         return self._store_discovered_candidates(
@@ -270,29 +303,36 @@ class MetaSentraMixin:
             "content_type": content_type, "shape": shape, "fields": fields
         })
         now = _now()
-        from_state = row["state"]
-        to_state = "schema_probed"
         with self.database.session(write=True) as (connection, _):
-            connection.execute(
-                """UPDATE meta_source_candidates SET state=?,schema_fingerprint=?,
-                   probe_json=?,updated_at=? WHERE fingerprint=?""",
-                (to_state, schema_fingerprint, json.dumps(schema, sort_keys=True), now, fingerprint),
-            )
+            current = row["state"]
+            if current in {"quarantined", "requarantined"}:
+                first = make_transition(
+                    fingerprint, current, "metadata_probed", automated=True,
+                    reason="Bounded metadata probe completed",
+                    evidence_refs=(f"http:{response.status_code}",),
+                )
+                connection.execute(
+                    "INSERT INTO meta_source_events VALUES(?,?,?,?,?,?,?,?)",
+                    (str(uuid4()), fingerprint, first.from_state, first.to_state, 1,
+                     first.reason, json.dumps(list(first.evidence_refs)), now),
+                )
+                current = "metadata_probed"
             transition = make_transition(
-                fingerprint, from_state, to_state, automated=True,
+                fingerprint, current, "schema_probed", automated=True,
                 reason="Bounded schema probe completed",
                 evidence_refs=(f"schema:{schema_fingerprint}",),
-            ) if from_state != "metadata_probed" else make_transition(
-                fingerprint, "metadata_probed", "schema_probed", automated=True,
-                reason="Bounded schema probe completed",
-                evidence_refs=(f"schema:{schema_fingerprint}",),
+            )
+            connection.execute(
+                """UPDATE meta_source_candidates SET state='schema_probed',schema_fingerprint=?,
+                   probe_json=?,updated_at=? WHERE fingerprint=?""",
+                (schema_fingerprint, json.dumps(schema, sort_keys=True), now, fingerprint),
             )
             connection.execute(
                 "INSERT INTO meta_source_events VALUES(?,?,?,?,?,?,?,?)",
                 (str(uuid4()), fingerprint, transition.from_state, transition.to_state, 1,
                  transition.reason, json.dumps(list(transition.evidence_refs)), now),
             )
-        return {"fingerprint": fingerprint, "state": to_state, "schema": schema, "schema_fingerprint": schema_fingerprint}
+        return {"fingerprint": fingerprint, "state": "schema_probed", "schema": schema, "schema_fingerprint": schema_fingerprint}
 
     def meta_propose(self, data):
         fingerprint = str(data.get("fingerprint") or "").strip()
