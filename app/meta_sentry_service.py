@@ -683,7 +683,9 @@ class MetaSentraMixin:
         result = result_from_payload(definition, payload, started_ns=started, max_bytes=PROBE_BYTES,
                                      metadata={"candidate_fingerprint": row["fingerprint"],
                                                "schema_fingerprint": row["schema_fingerprint"], "raw_payload_hash": schema["payload_hash"]})
-        return {**asdict(result), "event_key": result.event_key, "evidence_imported": False}
+        output = {**asdict(result), "event_key": result.event_key, "evidence_imported": False}
+        self.temporal_observe_result(row, output)
+        return output
 
     def meta_health_check(self, data):
         max_sources = _bounded_integer(data.get("max_sources", 10), "max_sources", 1, 50)

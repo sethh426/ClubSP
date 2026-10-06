@@ -35,8 +35,14 @@ def check():
         assert run['status'] == cached['status'] == 'sufficient'
         assert run['calls'] == 1 and cached['calls'] == 0
         assert not run['facts_imported']
+        restarted.temporal_policy({'sentra_id':'live_check','owner_reviewed':True,'note':'Disposable adaptive polling test'})
+        temporal = restarted.temporal_cycle()
+        temporal_restart = Application(app.database.path).temporal_cycle()
+        assert temporal['checked'] == 1 and temporal_restart['checked'] == 0
+        assert restarted.temporal_state()['events']
         report = {'status':'passed','live_compiler_calls':run['calls'],'restart_cache_calls':cached['calls'],
-                  'snapshot_count':len(run['snapshot_ids']),'production_activation':False,'facts_imported':False}
+                  'snapshot_count':len(run['snapshot_ids']),'temporal_calls':temporal['checked'],
+                  'temporal_restart_calls':temporal_restart['checked'],'production_activation':False,'facts_imported':False}
         return report
 
 

@@ -2,6 +2,8 @@ const { test, expect } = require('@playwright/test');
 test('evidence planning and collection show unavailable coverage without inventing records', async ({page}) => {
   await page.goto('/sentras');
   await expect(page.getByRole('heading', {name:'Evidence Compiler'})).toBeVisible();
+  await expect(page.getByRole('heading', {name:'Temporal Intelligence Engine'})).toBeVisible();
+  await expect(page.locator('#temporal-sources')).toContainText('No source observations yet.');
   await page.getByLabel('Parcel or record identity').fill('synthetic-A1');
   await page.getByLabel('County and state').fill('Synthetic County');
   await page.getByLabel('Evidence goals (comma separated)').fill('parcel_identity');

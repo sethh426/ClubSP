@@ -219,9 +219,12 @@ class EvidenceCompilerMixin:
                 profile = {**json.loads(row["body"]), "version": row["version"], "activation": row["activation"]}
                 profiles.append(profile)
                 maximum_age = min(request["max_age_hours"], row["freshness_target_hours"]) * 3600
+                changed = c.execute("SELECT last_change_at FROM temporal_sources WHERE sentra_id=? AND activation=?",
+                                    (row["sentra_id"], row["activation"])).fetchone()
+                earliest = max(now - maximum_age, changed[0] or 0) if changed else now - maximum_age
                 saved = c.execute("""SELECT * FROM evidence_snapshots WHERE sentra_id=? AND activation=?
                     AND profile_version=? AND subject=? AND retrieved_at>=? ORDER BY retrieved_at DESC,id DESC LIMIT 1""",
-                    (row["sentra_id"], row["activation"], row["version"], request["subject"], now - maximum_age)).fetchone()
+                    (row["sentra_id"], row["activation"], row["version"], request["subject"], earliest)).fetchone()
                 if saved:
                     cached.append(self._decode_evidence_snapshot(saved))
         return profiles, cached

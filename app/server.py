@@ -146,6 +146,11 @@ def handler_for(application, gmail, auth=None):
                     self.send_json(200, application.evidence_state())
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/sentras/temporal":
+                try:
+                    self.send_json(200, application.temporal_state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/sentras/meta":
                 try:
                     query = parse_qs(urlsplit(self.path).query, max_num_fields=4)
@@ -266,6 +271,11 @@ def handler_for(application, gmail, auth=None):
                     self.end_headers()
                     self.wfile.write(body)
                     return
+                elif path in {"/api/sentras/temporal/policy", "/api/sentras/temporal/cycle"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.temporal_policy(data) if path.endswith("/policy") else application.temporal_cycle(data)
                 elif path in {"/api/sentras/evidence/profile", "/api/sentras/evidence/plan", "/api/sentras/evidence/run"}:
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})

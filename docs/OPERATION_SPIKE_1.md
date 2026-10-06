@@ -53,3 +53,42 @@ stop, empty/foreign records, failures, stale cache, version changes, conflicts,
 restart persistence, idempotency and desktop/mobile UI. `python -m app.evidence_check`
 checks a real public layer in a disposable database, including restart cache reuse;
 it makes no production source approvals or property imports.
+
+## Temporal Intelligence Engine
+
+Every successful dynamic acquisition now appends a source observation. Content
+signatures ignore row/key ordering, compare field hashes for reviewed identities,
+and record baseline, stable and changed samples. Events preserve prior/new
+signatures, changed fields, newly sampled identities and identities absent from the
+sample. Absence is not interpreted as deletion, ownership change or complete
+coverage. Changes also invalidate older compiler cache even inside its age window.
+Mapping or activation changes start a new baseline.
+
+Enabled per-source policies acquire from the server's existing scheduler. Source
+polling starts at a reviewed base interval, halves on changes and expands by 50%
+after three spaced stable observations. It maintains an EWMA of observed
+inter-change gaps and clamps every interval between a reviewed minimum (at least
+one hour) and the approved source freshness target (at most seven days). This is
+learning detection timing from samples, not knowing when a publisher changed data.
+Rapid repeated observations do not teach a slower cadence. Budget ceilings can
+prevent a desired freshness interval; the saved state explicitly reports that gap.
+
+SQLite per-source leases and unique reservations prevent duplicate scheduled
+acquisitions across processes. Next due times, cadence, events, errors and rolling
+24-hour call/cost limits persist across restarts. Calls are reserved before network
+work, including failed/interrupted attempts. Disabled, re-quarantined or differently
+activated sources are excluded. Background data acquisition requires an explicit
+reviewed per-source policy; discovery automation never enables it.
+
+- `GET /api/sentras/temporal`: recent observations, series and policies.
+- `POST /api/sentras/temporal/policy`: active `sentra_id`, `owner_reviewed=true`,
+  `note`, optional `enabled`, `min_interval_seconds`, `base_interval_seconds`,
+  `daily_call_limit`, `daily_cost_limit_cents`, `cost_cents`.
+- `POST /api/sentras/temporal/cycle`: bounded due-source checks, optional
+  `max_sources` (default 3, maximum 10). The usual scheduler calls this every wake.
+
+The Sentra Intelligence workspace exposes policies, observed change counts,
+cadence and event details. Tests cover ordered history, reordering invariance,
+adaptive bounds, budget/lease contention, disabled sources, failed reservations,
+cache invalidation and restart persistence. The disposable live smoke verifies
+an actual due-source acquisition and zero repeated acquisitions after restart.

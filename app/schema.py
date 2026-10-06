@@ -13,6 +13,7 @@ COMPONENT_VERSIONS = {
     "transactions": 1,
     "meta_sentras": 2,
     "evidence_compiler": 1,
+    "temporal_intelligence": 1,
 }
 
 
