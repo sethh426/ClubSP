@@ -252,6 +252,11 @@ def handler_for(application, gmail, auth=None):
                         self.send_json(403, {"error": "A matching Origin is required"})
                         return
                     result = application.record_discovery_snapshot(data)
+                elif path == "/api/discovery/resolve-parcels":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.resolve_discovery_parcels(data)
                 elif path == "/api/discovery/intake":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
