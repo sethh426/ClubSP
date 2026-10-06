@@ -128,6 +128,10 @@ document.addEventListener("DOMContentLoaded", () => {
             + (evidence.year_built ? " · built " + evidence.year_built : ""), "small"));
         } else if (candidate.parcel_resolution?.reason) {
           card.append(node("p", "Parcel lookup: " + candidate.parcel_resolution.reason, "muted small"));
+          for (const suggestion of candidate.parcel_resolution.review_suggestions || []) {
+            card.append(node("p", "Review-only GIS suggestion: " + suggestion.official_address
+              + " · PIN " + suggestion.pin + " · similarity " + suggestion.similarity, "muted small"));
+          }
         }
         for (const gap of candidate.review_gaps) card.append(node("p", gap));
         card.append(node("h4", "Preliminary buyer criteria"));
