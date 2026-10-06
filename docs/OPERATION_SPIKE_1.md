@@ -149,3 +149,16 @@ Desktop/mobile browser tests complete compiler, cadence-policy and shadow flows
 against explicitly synthetic offline sources. The disposable live smoke compares
 a real public layer with a presence-rule variant and verifies replay reuse. It
 establishes execution/isolation, not independent corroboration or source accuracy.
+# Allen County ArcGIS compatibility
+
+Legacy layers that explicitly report `supportsPagination: false` use a bounded
+object-ID inventory (2 MiB, at most 250,000 nonnegative integer IDs), followed by
+a query for the first 25 sorted unique IDs. Record responses remain byte bounded
+and must contain at most 25 features, only requested IDs, and the approved field
+contract. Geometry attributes may be omitted when geometry is disabled. Shadow
+and production execution use the same bounded acquisition helper.
+
+ArcGIS metadata may contain up to 256 fields; JSON/CSV limits remain 100. This
+supports joined county layers without treating them as complete county exports.
+An acquisition can make a metadata request, an ID request and a record request;
+compiler call counts refer to acquisitions, not individual HTTP requests.

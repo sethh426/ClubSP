@@ -179,6 +179,8 @@ def source_schema(response):
             descriptors = payload["fields"]
             if any(not isinstance(f, dict) or not f.get("name") or not f.get("type") for f in descriptors):
                 raise ValueError("ArcGIS layer field contract is invalid")
+            if len({f["name"] for f in descriptors}) != len(descriptors):
+                raise ValueError("ArcGIS layer has duplicate field names")
             field_types = {f["name"]: [f["type"]] for f in descriptors}
             shape = "arcgis_layer"
             item_count = len(descriptors)
@@ -211,7 +213,7 @@ def source_schema(response):
             item_count = len(rows)
     else:
         raise ValueError("source needs a dedicated adapter; only JSON, CSV, and ArcGIS layers are executable")
-    if not field_types or len(field_types) > 100:
+    if not field_types or len(field_types) > (256 if shape == "arcgis_layer" else 100):
         raise ValueError("source field contract is empty or excessive")
     fields = sorted(field_types)
     contract = {"shape": shape, "fields": fields, "field_types": field_types}
@@ -226,3 +228,47 @@ def source_schema(response):
         "freshness_fields": [f for f in fields if any(t in f.lower() for t in ("updated", "modified", "timestamp", "date"))],
     }
     return schema, payload
+
+
+def arcgis_sample(url, schema, metadata, fetch=fetch_source):
+    """At most 25 rows, including legacy layers without pagination.
+
+    Legacy ID inventories are capped at 2 MiB; only 25 selected IDs are
+    requested as records. This is a sample, never a county-wide export.
+    """
+    endpoint = url.rstrip("/") + "/query"
+    params = {"f": "json", "where": "1=1", "outFields": "*", "returnGeometry": "false"}
+    selected = None
+    if metadata.get("advancedQueryCapabilities", {}).get("supportsPagination") is False:
+        oid_fields = [f for f, types in schema["field_types"].items() if types == ["esriFieldTypeOID"]]
+        if len(oid_fields) != 1:
+            raise ValueError("legacy ArcGIS layer needs one object-ID field")
+        inventory = fetch(endpoint, params={"f": "json", "where": "1=1", "returnIdsOnly": "true"},
+                          max_bytes=DISCOVERY_BYTES).json()
+        if (not isinstance(inventory, dict) or "error" in inventory or
+                inventory.get("objectIdFieldName") != oid_fields[0] or
+                not isinstance(inventory.get("objectIds"), list) or
+                len(inventory["objectIds"]) > 250000 or
+                any(type(i) is not int or i < 0 for i in inventory["objectIds"])):
+            raise ValueError("legacy ArcGIS object-ID inventory is invalid or excessive")
+        selected = sorted(set(inventory["objectIds"]))[:25]
+        if not selected:
+            params["where"] = "1=0"
+        else:
+            params["objectIds"] = ",".join(map(str, selected))
+    else:
+        params["resultRecordCount"] = 25
+    response = fetch(endpoint, params=params)
+    payload = response.json()
+    if (not isinstance(payload, dict) or "error" in payload or
+            not isinstance(payload.get("features"), list) or len(payload["features"]) > 25):
+        raise ValueError("ArcGIS query did not return its bounded record envelope")
+    expected = set(schema["fields"])
+    geometry = {f for f, types in schema["field_types"].items() if types == ["esriFieldTypeGeometry"]}
+    for feature in payload["features"]:
+        if (not isinstance(feature, dict) or not isinstance(feature.get("attributes"), dict) or
+                not expected - geometry <= set(feature["attributes"]) <= expected):
+            raise ValueError("ArcGIS records drifted from the approved layer fields")
+        if selected is not None and feature["attributes"].get(oid_fields[0]) not in selected:
+            raise ValueError("legacy ArcGIS returned an unrequested object ID")
+    return response, payload

@@ -18,7 +18,7 @@ from .meta_sentras import (
     quarantine_record,
 )
 from .meta_source_transport import (
-    DISCOVERY_BYTES, PROBE_BYTES, fetch_source, source_schema, validate_public_url,
+    DISCOVERY_BYTES, PROBE_BYTES, fetch_source, source_schema, validate_public_url, arcgis_sample,
 )
 from .sentra_execution import result_from_payload
 from .sentra_lifecycle import make_transition
@@ -639,17 +639,7 @@ class MetaSentraMixin:
             if not _compatible_schema(json.loads(row["probe_json"]), schema):
                 raise ValueError("source schema drifted from its approved field contract")
             if kind == "execution" and row["acquisition_mode"] == "arcgis":
-                response = fetch_source(row["source_url"].rstrip("/") + "/query", params={
-                    "f": "json", "where": "1=1", "outFields": "*", "returnGeometry": "false",
-                    "resultRecordCount": 25,
-                })
-                payload = response.json()
-                if not isinstance(payload, dict) or "error" in payload or not isinstance(payload.get("features"), list):
-                    raise ValueError("ArcGIS query did not return its approved record envelope")
-                expected = set(schema["fields"])
-                for feature in payload["features"]:
-                    if not isinstance(feature, dict) or not isinstance(feature.get("attributes"), dict) or set(feature["attributes"]) != expected:
-                        raise ValueError("ArcGIS records drifted from the approved layer fields")
+                response, payload = arcgis_sample(row["source_url"], schema, payload, fetch=fetch_source)
                 schema = {**schema, "payload_hash": response.payload_hash, "sample_bytes": len(response.body)}
             error = None
         except ValueError as exc:
