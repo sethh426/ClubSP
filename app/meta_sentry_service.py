@@ -24,6 +24,7 @@ from .sentra_execution import result_from_payload
 from .sentra_lifecycle import make_transition
 from .schema import assert_component_compatible, ensure_component
 from .sentras import SENTRAS, SentraDefinition
+from .sentra_registry import covers_market
 
 
 META_QUERY_LIMIT = 25
@@ -259,13 +260,7 @@ class MetaSentraMixin:
                                     for i in self.search_intents() if str(i.get("market") or "").strip()))
         markets = markets or ["Allen County, Indiana"]
         with self.database.session() as (connection, _):
-            coverage = [
-                (definition.jurisdiction, set(definition.capabilities))
-                for definition in SENTRAS.values() if definition.status == "active" and not definition.family.startswith("meta_")
-            ] + [
-                (row["jurisdiction"], set(json.loads(row["capabilities_json"])))
-                for row in connection.execute("SELECT jurisdiction,capabilities_json FROM activated_sentras")
-            ]
+            coverage = list(self._sentra_registry(connection).definitions.values())
         gaps = [
             ("parcel assessor GIS", {"parcel_identity", "assessment", "geospatial"}),
             ("sheriff foreclosure auction", {"sheriff_sale", "foreclosure"}),
@@ -276,11 +271,9 @@ class MetaSentraMixin:
         queries = []
         for market in markets[:5]:
             active = set()
-            market_key = re.sub(r"[^a-z0-9]", "", market.lower())
-            for jurisdiction, capabilities in coverage:
-                # Broad/provider-plan descriptions do not prove a county is covered.
-                if re.sub(r"[^a-z0-9]", "", jurisdiction.lower()) == market_key:
-                    active.update(capabilities)
+            for definition in coverage:
+                if definition.status == "active" and covers_market(definition, market):
+                    active.update(definition.verified_capabilities)
             for phrase, capabilities in gaps:
                 missing = capabilities - active
                 if missing:
@@ -428,7 +421,7 @@ class MetaSentraMixin:
             raise LookupError("source candidate not found")
         return dict(row)
 
-    def _sample_candidate(self, row):
+    def _sample_candidate(self, row, *, max_bytes=PROBE_BYTES):
         if row["discovery_provider"] == "apify_store":
             raise ValueError("Apify Actors remain discovery-only until a cost-controlled Actor adapter is reviewed")
         url = validate_public_url(row["source_url"])
@@ -436,7 +429,7 @@ class MetaSentraMixin:
         if re.search(r"/(?:MapServer|FeatureServer)/?$", urlsplit(url).path, re.I):
             raise ValueError("ArcGIS service roots need a declared layer before schema review")
         params = {"f": "json"} if re.search(r"/(?:MapServer|FeatureServer)/\d+/?$", urlsplit(url).path, re.I) else None
-        return source_schema(fetch_source(url, params=params, max_bytes=PROBE_BYTES))
+        return source_schema(fetch_source(url, params=params, max_bytes=max_bytes))
 
     def _probe_arcgis_service(self, row):
         response = fetch_source(row["source_url"], params={"f": "json"}, max_bytes=PROBE_BYTES)
@@ -589,6 +582,9 @@ class MetaSentraMixin:
             if connection.execute("SELECT 1 FROM activated_sentras WHERE id=?", (sentra_id,)).fetchone():
                 raise ValueError("sentra_id is already registered")
             now = _now()
+            self._kernel_definition_for_activation(connection, row, {**data, "sentra_id": sentra_id,
+                "family": family, "jurisdiction": jurisdiction, "rights_note": rights,
+                "acquisition_mode": mode, "freshness_target_hours": freshness})
             connection.execute("""
                 INSERT INTO activated_sentras(
                     id,candidate_fingerprint,name,family,acquisition_mode,capabilities_json,
@@ -619,6 +615,8 @@ class MetaSentraMixin:
             WHERE fingerprint=?
         """, (_now(), fingerprint))
         connection.execute("DELETE FROM activated_sentras WHERE candidate_fingerprint=?", (fingerprint,))
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sentra_kernel_definitions'").fetchone():
+            connection.execute("DELETE FROM sentra_kernel_definitions WHERE candidate_fingerprint=?", (fingerprint,))
 
     def meta_requarantine(self, fingerprint, reason):
         fingerprint, reason = _fingerprint(fingerprint), str(reason or "").strip()
@@ -633,16 +631,16 @@ class MetaSentraMixin:
             self._requarantine(connection, fingerprint, reason)
         return {"fingerprint": fingerprint, "state": "requarantined"}
 
-    def _check_active(self, row, kind):
+    def _check_active(self, row, kind, *, max_bytes=PROBE_BYTES):
         try:
-            schema, payload = self._sample_candidate(row)
+            schema, payload = self._sample_candidate(row, max_bytes=max_bytes)
             if not _compatible_schema(json.loads(row["probe_json"]), schema):
                 raise ValueError("source schema drifted from its approved field contract")
             if kind == "execution" and row["acquisition_mode"] == "arcgis":
                 response = fetch_source(row["source_url"].rstrip("/") + "/query", params={
                     "f": "json", "where": "1=1", "outFields": "*", "returnGeometry": "false",
                     "resultRecordCount": 25,
-                })
+                }, max_bytes=max_bytes)
                 payload = response.json()
                 if not isinstance(payload, dict) or "error" in payload or not isinstance(payload.get("features"), list):
                     raise ValueError("ArcGIS query did not return its approved record envelope")
@@ -669,9 +667,16 @@ class MetaSentraMixin:
     def meta_execute(self, data):
         if set(data) != {"sentra_id"}:
             raise ValueError("execution accepts only the approved sentra_id")
+        self._active_source(data["sentra_id"])
+        run = self.run_sentra({"sentra_id": data["sentra_id"], "request_key": str(uuid4())})
+        if run["status"] != "success":
+            raise ValueError("source was re-quarantined or its observation failed: " + run["error_code"])
+        return run["result"]
+
+    def _execute_meta_source(self, data, *, max_bytes=PROBE_BYTES):
         row = self._active_source(data.get("sentra_id"))
         started = time.time_ns()
-        schema, payload, error = self._check_active(row, "execution")
+        schema, payload, error = self._check_active(row, "execution", max_bytes=max_bytes)
         if error:
             raise ValueError("source was re-quarantined: " + error)
         definition = SentraDefinition(
@@ -680,7 +685,7 @@ class MetaSentraMixin:
             status="active", source_url=row["source_url"], freshness_target_hours=row["freshness_target_hours"],
             rights_note=row["rights_note"],
         )
-        result = result_from_payload(definition, payload, started_ns=started, max_bytes=PROBE_BYTES,
+        result = result_from_payload(definition, payload, started_ns=started, max_bytes=max_bytes,
                                      metadata={"candidate_fingerprint": row["fingerprint"],
                                                "schema_fingerprint": row["schema_fingerprint"], "raw_payload_hash": schema["payload_hash"]})
         return {**asdict(result), "event_key": result.event_key, "evidence_imported": False}
