@@ -249,6 +249,11 @@ def handler_for(application, gmail, auth=None):
                     self.end_headers()
                     self.wfile.write(body)
                     return
+                elif path == "/api/sentras/meta/cycle":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_discovery_cycle(data)
                 elif path == "/api/sentras/meta/discover":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
