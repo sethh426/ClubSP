@@ -401,9 +401,13 @@ def handler_for(application, gmail, auth=None):
                     result = application.import_candidates(data)
                 elif path.startswith("/api/sourcing/rows/"):
                     parts = path.strip("/").split("/")
-                    if len(parts) != 5 or parts[4] != "review":
+                    if len(parts) != 5 or parts[4] not in {"review", "refresh-gis"}:
                         raise LookupError("Route not found")
-                    result = application.review_candidate(parts[3], data)
+                    result = (
+                        application.review_candidate(parts[3], data)
+                        if parts[4] == "review"
+                        else application.refresh_discovery_gis_evidence(parts[3], data)
+                    )
                 elif path.startswith("/api/sourcing/sales/"):
                     parts = path.strip("/").split("/")
                     if len(parts) != 5 or parts[4] != "withdraw":
