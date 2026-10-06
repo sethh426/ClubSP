@@ -230,20 +230,20 @@ def source_schema(response):
     return schema, payload
 
 
-def arcgis_sample(url, schema, metadata, fetch=fetch_source):
+def arcgis_sample(url, schema, metadata, fetch=fetch_source, where="1=1"):
     """At most 25 rows, including legacy layers without pagination.
 
     Legacy ID inventories are capped at 2 MiB; only 25 selected IDs are
     requested as records. This is a sample, never a county-wide export.
     """
     endpoint = url.rstrip("/") + "/query"
-    params = {"f": "json", "where": "1=1", "outFields": "*", "returnGeometry": "false"}
+    params = {"f": "json", "where": where, "outFields": "*", "returnGeometry": "false"}
     selected = None
     if metadata.get("advancedQueryCapabilities", {}).get("supportsPagination") is False:
         oid_fields = [f for f, types in schema["field_types"].items() if types == ["esriFieldTypeOID"]]
         if len(oid_fields) != 1:
             raise ValueError("legacy ArcGIS layer needs one object-ID field")
-        inventory = fetch(endpoint, params={"f": "json", "where": "1=1", "returnIdsOnly": "true"},
+        inventory = fetch(endpoint, params={"f": "json", "where": where, "returnIdsOnly": "true"},
                           max_bytes=DISCOVERY_BYTES).json()
         if (not isinstance(inventory, dict) or "error" in inventory or
                 inventory.get("objectIdFieldName") != oid_fields[0] or

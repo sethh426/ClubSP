@@ -142,6 +142,8 @@ def handler_for(application, gmail, auth=None):
                 return
             if path == "/api/discovery":
                 self.send_json(200, application.discovery_state())
+            elif path == "/api/sentras/property/watches":
+                self.send_json(200, application.property_watches())
             elif path == "/api/sentras/evidence":
                 try:
                     self.send_json(200, application.evidence_state())
@@ -289,6 +291,12 @@ def handler_for(application, gmail, auth=None):
                         self.send_json(403, {"error": "A matching Origin is required"})
                         return
                     result = application.temporal_policy(data) if path.endswith("/policy") else application.temporal_cycle(data)
+                elif path in {"/api/sentras/property/search", "/api/sentras/property/research", "/api/sentras/property/stop"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    action = path.rsplit("/",1)[-1]
+                    result = {"search":application.property_search,"research":application.property_research,"stop":application.property_watch_stop}[action](data)
                 elif path in {"/api/sentras/evidence/profile", "/api/sentras/evidence/plan", "/api/sentras/evidence/run"}:
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})

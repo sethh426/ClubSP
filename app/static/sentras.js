@@ -49,6 +49,7 @@ async function reload() {
     show(pre, event.details); details.append(summary, pre); $('temporal-events').append(details);
   }
   renderShadow(shadow);
+  await renderWatches();
 }
 let busy = false;
 let pendingKey = null;
@@ -97,6 +98,53 @@ $('temporal-policy').addEventListener('submit', async event => {
   } catch (error) {$('status').textContent = error.message;}
 });
 reload().catch(error => {$('status').textContent = error.message;});
+
+function propertyCard(result,container) {
+  container.replaceChildren();
+  const heading=document.createElement('h3'); heading.textContent=result.address || 'Property research';
+  const message=document.createElement('p'); message.textContent=result.message;
+  container.append(heading,message);
+  if (result.assessed_value !== null && result.assessed_value !== undefined) {
+    const value=document.createElement('p'); value.textContent=`County assessed value: ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(result.assessed_value)}`; container.append(value);
+  }
+  const note=document.createElement('p'); note.className='muted small'; note.textContent=result.note || '';container.append(note);
+  for(const source of result.sources || []) {
+    const link=document.createElement('a'); link.href=source.url;link.textContent='County source';link.target='_blank';link.rel='noopener noreferrer';
+    const date=document.createElement('p');date.textContent=`Retrieved ${new Date(source.retrieved_at*1000).toLocaleString()}`;container.append(link,date);
+  }
+}
+async function renderWatches() {
+  const state=await api('/api/sentras/property/watches');$('property-watches').replaceChildren();
+  for(const watch of state.watches.filter(w=>w.enabled)) {
+    const card=document.createElement('section');card.className='property-card';propertyCard({...watch.result,address:watch.address},card);
+    const next=document.createElement('p');next.textContent=`Next update: ${new Date(watch.next_due*1000).toLocaleString()}`;
+    const stop=document.createElement('button');stop.className='button';stop.textContent='Stop daily updates';
+    stop.addEventListener('click',async()=>{stop.disabled=true;try{await api('/api/sentras/property/stop',{id:watch.id});await renderWatches();}catch(e){$('status').textContent=e.message;stop.disabled=false;}});
+    card.append(next,stop);$('property-watches').append(card);
+  }
+  if(!$('property-watches').children.length)$('property-watches').textContent='Research a property to start its daily updates.';
+}
+$('address-search').addEventListener('submit',async event=>{
+  event.preventDefault();if(busy)return;busy=true;
+  const button=event.target.querySelector('button');button.disabled=true;$('status').textContent='Searching county addresses…';$('address-matches').replaceChildren();
+  try {
+    const result=await api('/api/sentras/property/search',Object.fromEntries(new FormData(event.target)));
+    $('address-coverage').textContent=result.coverage_note;
+    for(const match of result.matches) {
+      const card=document.createElement('section');card.className='property-card';
+      const name=document.createElement('h3');name.textContent=match.address;
+      const research=document.createElement('button');research.className='button primary';research.textContent='Research property';let requestKey=null;
+      research.addEventListener('click',async()=>{
+        if(busy)return;busy=true;research.disabled=true;$('status').textContent='Researching this property…';
+        if(!requestKey)requestKey=crypto.randomUUID();
+        try{const summary=await api('/api/sentras/property/research',{subject:match.subject,request_key:requestKey,watch:$('watch-daily').checked});propertyCard(summary,$('property-result'));$('status').textContent=summary.message;if(summary.status!=='running')requestKey=null;await renderWatches();}
+        catch(e){$('status').textContent=e.message;}finally{busy=false;research.disabled=false;}
+      });card.append(name,research);$('address-matches').append(card);
+    }
+    $('status').textContent=result.matches.length ? 'Choose the matching property below.' : 'No match in the connected records. Try just the house number and street name; this source does not cover every county property.';
+    if(result.limited)$('status').textContent+=' Showing up to 25 records; narrow the address if needed.';
+  }catch(e){$('status').textContent=e.message;}finally{busy=false;button.disabled=false;}
+});
 
 function parseMapping(text) {
   const mapping = Object.create(null);

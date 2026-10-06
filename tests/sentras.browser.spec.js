@@ -1,6 +1,26 @@
 const { test, expect } = require('@playwright/test');
+test('address-first research hides jargon and enables clear daily watches',async({page})=>{
+  let watched=false;
+  await page.route('**/api/sentras/property/watches',route=>route.fulfill({json:{watches:watched?[{id:'test-watch',address:'123 MAIN ST',enabled:true,next_due:1791500000,result:{status:'sufficient',message:'County evidence collected.',assessed_value:150000,note:'Tax assessment, not market value.'}}]:[]}}));
+  await page.route('**/api/sentras/property/search',route=>route.fulfill({json:{matches:[{subject:'P-1',address:'123 MAIN ST'}],coverage_note:'Connected records only.',limited:false}}));
+  await page.route('**/api/sentras/property/research',route=>{
+    const data=route.request().postDataJSON();expect(data.watch).toBe(true);expect(data.threshold).toBeUndefined();watched=true;
+    return route.fulfill({json:{status:'sufficient',address:'123 MAIN ST',message:'County evidence collected.',assessed_value:150000,note:'Tax assessment, not market value.',watching:true}});
+  });
+  await page.goto('/sentras');
+  await expect(page.getByLabel('Evidence threshold')).not.toBeVisible();
+  await page.getByLabel('Street address', {exact:true}).fill('123 Main');
+  await page.getByRole('button',{name:'Find property',exact:true}).click();
+  await page.getByRole('button',{name:'Research property',exact:true}).click();
+  await expect(page.locator('#property-result')).toContainText('$150,000');
+  await expect(page.locator('#property-watches')).toContainText('123 MAIN ST');
+  await expect(page.getByRole('button',{name:'Stop daily updates'})).toBeVisible();
+  const dimensions=await page.evaluate(()=>({width:innerWidth,content:document.documentElement.scrollWidth}));
+  expect(dimensions.content).toBeLessThanOrEqual(dimensions.width+1);
+});
 test('evidence planning and collection show unavailable coverage without inventing records', async ({page}) => {
   await page.goto('/sentras');
+  await page.locator('#advanced-tools > summary').click();
   await expect(page.getByRole('heading', {name:'Evidence Compiler'})).toBeVisible();
   await expect(page.getByRole('heading', {name:'Temporal Intelligence Engine'})).toBeVisible();
   await expect(page.getByRole('heading', {name:'Shadow Intelligence Network'})).toBeVisible();
@@ -18,6 +38,7 @@ test('evidence planning and collection show unavailable coverage without inventi
 
 test('reviewed compiler, temporal policy and shadow trial work through the operator workspace', async ({page}) => {
   await page.goto('/sentras');
+  await page.locator('#advanced-tools > summary').click();
   await expect(page.locator('#sources')).toContainText('browser_baseline');
   await page.getByLabel('Parcel or record identity').fill('synthetic-A1');
   await page.getByLabel('County and state').fill('Browser Fixture County');

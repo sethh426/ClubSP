@@ -151,6 +151,25 @@ a real public layer with a presence-rule variant and verifies replay reuse. It
 establishes execution/isolation, not independent corroboration or source accuracy.
 # Allen County ArcGIS compatibility
 
+The owner workspace now starts with a street address. Address searches use the
+explicitly approved Allen County comparable-property source and its reviewed
+field contract. Results require selecting the matching address; ambiguous
+matches are not silently merged. This source is not county-wide coverage.
+
+Research uses reviewed policy weights and a zero-cost, one-acquisition default;
+thresholds and parcel IDs remain in Advanced tools. ArcGIS compiler acquisition
+now targets the reviewed identity field, rather than hoping a parcel appears in
+the first 25 source rows. Targeted queries do not teach whole-source temporal
+cadence or invalidate unrelated parcels from a different sample composition.
+
+Checking “Keep this property updated daily” saves an owner-enabled watch only
+after a sufficient research run. SQLite due times and leases survive restart;
+at most 25 watches can be enabled and one due watch runs per scheduler wake.
+The next due time is reserved before acquisition, including on failure. Watches
+use the currently active reviewed free source, never reactivate quarantined
+feeds, and show failures on the owner page. Stop controls disable future work.
+No facts, deals, messages or offers are created. There are no email/push alerts.
+
 Legacy layers that explicitly report `supportsPagination: false` use a bounded
 object-ID inventory (2 MiB, at most 250,000 nonnegative integer IDs), followed by
 a query for the first 25 sorted unique IDs. Record responses remain byte bounded

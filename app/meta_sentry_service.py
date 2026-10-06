@@ -633,13 +633,13 @@ class MetaSentraMixin:
             self._requarantine(connection, fingerprint, reason)
         return {"fingerprint": fingerprint, "state": "requarantined"}
 
-    def _check_active(self, row, kind):
+    def _check_active(self, row, kind, where=None):
         try:
             schema, payload = self._sample_candidate(row)
             if not _compatible_schema(json.loads(row["probe_json"]), schema):
                 raise ValueError("source schema drifted from its approved field contract")
             if kind == "execution" and row["acquisition_mode"] == "arcgis":
-                response, payload = arcgis_sample(row["source_url"], schema, payload, fetch=fetch_source)
+                response, payload = arcgis_sample(row["source_url"], schema, payload, fetch=fetch_source, where=where or "1=1")
                 schema = {**schema, "payload_hash": response.payload_hash, "sample_bytes": len(response.body)}
             error = None
         except ValueError as exc:
@@ -660,8 +660,11 @@ class MetaSentraMixin:
         if set(data) != {"sentra_id"}:
             raise ValueError("execution accepts only the approved sentra_id")
         row = self._active_source(data.get("sentra_id"))
+        return self._execute_source(row)
+
+    def _execute_source(self, row, where=None):
         started = time.time_ns()
-        schema, payload, error = self._check_active(row, "execution")
+        schema, payload, error = self._check_active(row, "execution", where=where)
         if error:
             raise ValueError("source was re-quarantined: " + error)
         definition = SentraDefinition(
@@ -674,7 +677,8 @@ class MetaSentraMixin:
                                      metadata={"candidate_fingerprint": row["fingerprint"],
                                                "schema_fingerprint": row["schema_fingerprint"], "raw_payload_hash": schema["payload_hash"]})
         output = {**asdict(result), "event_key": result.event_key, "evidence_imported": False}
-        self.temporal_observe_result(row, output)
+        if where is None:
+            self.temporal_observe_result(row, output)
         return output
 
     def meta_health_check(self, data):
