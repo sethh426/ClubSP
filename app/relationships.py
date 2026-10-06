@@ -744,9 +744,32 @@ class RelationshipBook:
                 draft = None
                 if eligible and profile["email"] and profile["permission"] == "owner_reviewed":
                     area = ", ".join(profile["markets"]) or "your preferred areas"
-                    draft = {"subject": "Your current buying priorities" if profile["kind"] == "investor" else "A possible working relationship",
-                             "body": f"Hi {profile['name']},\n\nAre you currently open to discussing opportunities in {area}? What criteria and timing should I understand before suggesting a next step?\n\nIf you prefer no further contact, please let me know.",
-                             "sending_enabled": False}
+                    if profile["kind"] == "investor":
+                        draft = {
+                            "subject": "Your current buying priorities",
+                            "body": (
+                                f"Hi {profile['name']},\n\n"
+                                f"I’m mapping active buyers in {area} before I send opportunities around. "
+                                "Are you actively buying there? If so, could you share your current buy box: "
+                                "areas or neighborhoods, property types, whether you accept assignment deals, "
+                                "maximum purchase price, repair tolerance, how you typically fund purchases, "
+                                "and your normal closing window?\n\n"
+                                "I’ll use that to avoid sending you deals that do not fit. "
+                                "If you prefer no further contact, please let me know."
+                            ),
+                            "sending_enabled": False,
+                        }
+                    else:
+                        draft = {
+                            "subject": "A possible working relationship",
+                            "body": (
+                                f"Hi {profile['name']},\n\n"
+                                f"Are you currently open to discussing opportunities in {area}? "
+                                "What criteria and timing should I understand before suggesting a next step?\n\n"
+                                "If you prefer no further contact, please let me know."
+                            ),
+                            "sending_enabled": False,
+                        }
                 saved_drafts = []
                 for row in connection.execute("SELECT * FROM relationship_drafts WHERE relationship_id=? ORDER BY rowid DESC", (rid,)):
                     saved = self.decode(row)
