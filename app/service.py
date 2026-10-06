@@ -27,6 +27,7 @@ from .sourcing import SourcingMixin, sale_snapshot
 from .commitment_graph import CommitmentGraphMixin
 from .provider_integrations import ProviderIntegrationMixin
 from .transactions import TransactionMixin
+from .meta_sentry_service import MetaSentraMixin
 
 
 DEAL_STAGES = (
@@ -95,12 +96,13 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, GmailInboxMixin, TransactionMixin):
+class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, MetaSentraMixin, GmailInboxMixin, TransactionMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
         self._initialize_gmail_inbox()
         self._initialize_transactions()
+        self._initialize_meta_sentras()
         with self.database.session(write=True) as (connection, _):
             self._recover_knowledge_runs(connection)
             for deal in connection.execute("SELECT id FROM deals").fetchall():
