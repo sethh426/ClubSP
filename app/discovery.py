@@ -319,8 +319,17 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
                     if item['status'] == 'running': item['status'] = 'incomplete_check'
                 for candidate in item['candidates']:
                     candidate['intake_blockers'] = notice_blockers(connection, item, candidate)
-                    candidate['review_gaps'] = ['Review current sale terms, parcel portions, property type, funding, title, costs and exit demand.']
+                    if item['source_id'] == 'sheriff_sales':
+                        candidate['review_gaps'] = [
+                            'Confirm the exact parcel identity from Allen County records before intake.',
+                            'Verify the sheriff sale is still scheduled and has not been cancelled or changed.',
+                            'Judgment amount is not treated as an acquisition price or guaranteed opening bid.',
+                            'Review title, liens, occupancy, condition, repairs, funding, fees and exit demand before any deal analysis.',
+                        ]
+                    else:
+                        candidate['review_gaps'] = ['Review current sale terms, parcel portions, property type, funding, title, costs and exit demand.']
+                        if candidate.get('bid_end') and now >= datetime.fromisoformat(candidate['bid_end']):
+                            candidate['review_gaps'].append('Advertised bid period has ended; current availability is unverified.')
                     candidate['buyer_criteria'] = preliminary_notice_buyers(connection, candidate)
-                    if now >= datetime.fromisoformat(candidate['bid_end']): candidate['review_gaps'].append('Advertised bid period has ended; current availability is unverified.')
                 checks.append(item)
             return {'sources': checks, 'automatic_checks': False, 'creates_deals': False}
