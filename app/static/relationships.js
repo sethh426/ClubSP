@@ -64,6 +64,54 @@ function relInteractionForm(record, state) {
   const button=relNode("button","Record interaction","button primary");button.type="submit";form.append(button);
   relSubmit(form,button,`/api/relationships/${record.id}/interactions`,data=>({...data,profile_id:record.profile.id,event_id:record.event_id || ""})); return form;
 }
+
+function relBuyerQualificationForm(record) {
+  const latest = record.interactions[0], p = record.profile;
+  if (record.buyer || record.blocked || record.paused || p.kind !== "investor" || !latest
+      || latest.direction !== "incoming" || !["general","interested"].includes(latest.outcome)) return null;
+  const form = relNode("form",undefined,"relationship-form buyer-qualification-form");
+  form.append(relNode("p","Use only criteria confirmed in the latest incoming conversation. This creates a buyer and a time-bounded mandate; it does not verify funding unless you record reviewed evidence.","muted small wide"));
+  relField(form,"markets","Confirmed markets (one per line)",(p.markets || []).join("\n"),"textarea",true,2000);
+  const strategies=relNode("fieldset",undefined,"wide"),legend=relNode("legend","Confirmed strategies");
+  strategies.append(legend);
+  for(const value of ["assignment","resale"]){
+    const label=relNode("label"),box=relNode("input");box.type="checkbox";box.name="buyer_strategy";box.value=value;
+    if(value==="assignment") box.checked=true;
+    label.append(box,document.createTextNode(" "+value));strategies.append(label);
+  }
+  form.append(strategies);
+  relField(form,"property_types","Confirmed property types (one per line)","","textarea",false,2000);
+  const price=relField(form,"max_total_price","Maximum total acquisition price","","number",true);price.min="0";price.step="0.01";
+  const repairs=relField(form,"max_repairs","Maximum repairs","","number",true);repairs.min="0";repairs.step="0.01";
+  relSelect(form,"funding_status","Funding evidence status",[["unverified","Unverified"],["owner_reviewed","Owner reviewed evidence"],["verified","Verified evidence on record"]],"unverified");
+  relField(form,"funding_reference","Funding evidence reference");
+  const refresh=relField(form,"refresh_days","Reconfirm criteria after days","30","number",true);refresh.min="1";refresh.max="90";refresh.step="1";
+  const priority=relField(form,"priority","Mandate priority (0–100)","50","number",true);priority.min="0";priority.max="100";priority.step="1";
+  const active=relField(form,"max_active_reservations","Max active reservations","1","number",true);active.min="1";active.max="100";active.step="1";
+  const units=relField(form,"target_units_per_month","Target units per month","1","number",true);units.min="1";units.max="1000";units.step="1";
+  relField(form,"mandate_name","Mandate name (optional)");
+  relField(form,"review_note","What the investor actually confirmed","","textarea",true,2000);
+  const confirmLabel=relNode("label",undefined,"wide"),confirm=relNode("input");confirm.type="checkbox";confirm.required=true;
+  confirmLabel.append(confirm,document.createTextNode(" I reviewed the latest incoming conversation and these fields reflect its confirmed buyer criteria."));form.append(confirmLabel);
+  const button=relNode("button","Promote confirmed reply to buyer demand","button primary");button.type="submit";form.append(button);
+  relSubmit(form,button,`/api/relationships/${record.id}/buyer-qualification`,data=>{
+    const strategies=[...form.querySelectorAll('input[name="buyer_strategy"]:checked')].map(x=>x.value);
+    delete data.buyer_strategy;
+    return {...data,
+      profile_id:p.id,event_id:record.event_id || "",
+      markets:data.markets.split("\n").map(v=>v.trim()).filter(Boolean),
+      strategies,
+      property_types:data.property_types.split("\n").map(v=>v.trim()).filter(Boolean),
+      max_total_price:Number(data.max_total_price),max_repairs:Number(data.max_repairs),
+      refresh_days:Number(data.refresh_days),priority:Number(data.priority),
+      max_active_reservations:Number(data.max_active_reservations),
+      target_units_per_month:Number(data.target_units_per_month),
+      owner_confirmed_criteria:confirm.checked
+    };
+  });
+  return form;
+}
+
 function relFilter() {
   const filter=document.getElementById("relationship-filter").value, query=document.getElementById("relationship-search").value.trim().toLowerCase(); let count=0;
   document.querySelectorAll(".relationship-card").forEach(card=>{card.hidden= !((filter==="all" || filter===card.dataset.status) && card.dataset.search.includes(query)); if(!card.hidden)count++;});
@@ -127,7 +175,7 @@ function relDetails(title, parent) {const details=relNode("details",undefined,"w
 async function relLoad() {
   const state=await relApi("/api/relationships");
   const metrics=document.getElementById("relationship-summary");metrics.replaceChildren();
-  for(const [key,label] of [["total","Relationships"],["due","Follow-ups due"],["overdue","Overdue"],["blocked","Do not contact"]]){const n=relNode("article");n.append(relNode("span",label),relNode("strong",String(state.summary[key])));metrics.append(n);}
+  for(const [key,label] of [["total","Relationships"],["due","Follow-ups due"],["qualified_buyers","Qualified buyers"],["overdue","Overdue"],["blocked","Do not contact"]]){const n=relNode("article");n.append(relNode("span",label),relNode("strong",String(state.summary[key])));metrics.append(n);}
   document.getElementById("relationship-create-form").replaceChildren(relProfileForm(null,state));
   const focus=document.getElementById("relationship-focus");focus.replaceChildren();
   state.daily_focus.forEach(id=>{const r=state.relationships.find(x=>x.id===id),li=relNode("li"),link=relNode("a",r.profile.name);link.href=`#relationship-${id}`;link.addEventListener("click",()=>{document.getElementById("relationship-filter").value="all";document.getElementById("relationship-search").value="";relFilter();});li.append(link,relNode("p",`${r.next_action} · ${r.follow_up_on} · ${r.profile.owner}`,"small"));focus.append(li);});
@@ -140,6 +188,14 @@ async function relLoad() {
     card.append(relNode("p",`${r.next_action || "Record a next action"} · ${r.follow_up_on || "No date"} · Owner: ${p.owner}`),relNode("p",p.needs || "Buying needs have not been recorded.","small"),relNode("p",`Contact: ${p.email || "No email recorded"} · Areas: ${p.markets.join(", ") || "Unknown"}`,"small"));
     card.append(relNode("p",r.buyer?`Linked buyer: ${r.buyer.name} (${r.buyer.status}). Review current criteria in the buyer registry.`:"No buyer linked. A relationship does not establish buyer qualification.","muted small"));
     const interaction=relDetails("Record conversation / next step",card);interaction.append(relInteractionForm(r,state));
+    const qualificationForm=relBuyerQualificationForm(r);
+    if(qualificationForm){
+      const qualification=relDetails("Promote confirmed reply to buyer demand",card);qualification.append(qualificationForm);
+    }
+    if(r.qualification?.mandate){
+      const q=r.qualification, m=q.mandate;
+      card.append(relNode("p",`Qualified buyer demand · mandate active through ${m.expires_at || "no expiry"} · max price ${Number(m.max_total_price).toLocaleString("en-US")} · max repairs ${Number(m.max_repairs).toLocaleString("en-US")}`,"small"));
+    }
     const edit=relDetails("Edit relationship / schedule",card);edit.append(relProfileForm(r,state));
     if(r.draft){const d=relDetails("Message text for owner review",card);d.classList.add("relationship-draft");d.append(relDraftForm(r));d.append(relNode("p","Review identity, context, recipient and permission. Saved drafts and reviews remain in history. Approval records review of this exact text; no email is sent.","muted small"));}
     else card.append(relNode("p","Message text unavailable: record an email and current permission review; paused and blocked records are excluded.","muted small"));
