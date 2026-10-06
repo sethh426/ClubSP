@@ -20,8 +20,16 @@ def notice_blockers(connection, notice, candidate, property_type=None):
     age = (now - datetime.fromisoformat(notice['fetched_at'])).total_seconds()
     if not 0 <= age < 86400:
         blockers.append('Official notice is stale; check the source again')
-    if not datetime.fromisoformat(candidate['bid_start']) <= now < datetime.fromisoformat(candidate['bid_end']):
-        blockers.append('Advertised bid window is not currently open')
+    if candidate.get('bid_start') and candidate.get('bid_end'):
+        if not datetime.fromisoformat(candidate['bid_start']) <= now < datetime.fromisoformat(candidate['bid_end']):
+            blockers.append('Advertised bid window is not currently open')
+    elif candidate.get('sale_date'):
+        if candidate['sale_date'] < now.date().isoformat():
+            blockers.append('Scheduled sheriff sale date has passed; verify current status')
+        if not candidate.get('parcel_ids'):
+            blockers.append('Sheriff notice does not provide parcel identity; confirm the parcel before intake')
+    else:
+        blockers.append('Official notice does not provide a usable current sale window')
     return blockers
 
 
@@ -123,8 +131,11 @@ def preliminary_notice_buyers(connection, candidate, property_type=None):
         gaps = ['Verify full acquisition price, fees, repairs, strategy, buyer interest and current funding']
         if market not in locations:
             outside.append('Market is outside this buyer’s recorded criteria')
-        if candidate['minimum_bid'] > row['max_total_price']:
+        minimum_bid = candidate.get('minimum_bid')
+        if minimum_bid is not None and minimum_bid > row['max_total_price']:
             outside.append('Advertised minimum bid exceeds this buyer’s recorded price ceiling')
+        if minimum_bid is None:
+            gaps.append('No acquisition price is established; recorded judgment amount is not treated as a purchase price')
         if property_type is None:
             gaps.append('Property type has not been reviewed')
         elif types and '_'.join(property_type.lower().split()) not in types:

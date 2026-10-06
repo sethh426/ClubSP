@@ -2,13 +2,17 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 from html.parser import HTMLParser
+import io
+import calendar
 import json
 import re
 import threading
 from urllib.error import HTTPError
 from urllib.request import Request, build_opener
+from urllib.parse import urljoin
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+from pypdf import PdfReader
 
 from .providers import NoRedirect, parcel_key
 from .discovery_intake import DiscoveryIntakeMixin, notice_blockers, preliminary_notice_buyers
@@ -17,6 +21,7 @@ from .schema import assert_component_compatible, ensure_component
 SOURCES = {
     'accdc': {'name': 'Allen County ACCDC availability', 'url': 'https://www.allencounty.in.gov/334/ACCDC-Properties'},
     'north_campus': {'name': 'Allen County North Campus sale notice', 'url': 'https://www.allencounty.in.gov/1305/Sale-of-North-Campus-Property'},
+    'sheriff_sales': {'name': 'Allen County Sheriff mortgage foreclosure sales', 'url': 'https://www.allencountysheriff.org/2026-sheriff-sales/'},
 }
 
 
@@ -35,7 +40,147 @@ class PageText(HTMLParser):
         if not self.skip: self.parts.append(data)
 
 
+class AnchorLinks(HTMLParser):
+    def __init__(self):
+        super().__init__(); self.links = []; self.href = None; self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'a':
+            self.href = dict(attrs).get('href')
+            self.parts = []
+
+    def handle_data(self, data):
+        if self.href is not None:
+            self.parts.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == 'a' and self.href is not None:
+            self.links.append((self.href, ' '.join(' '.join(self.parts).split())))
+            self.href = None
+            self.parts = []
+
+
+def _bounded_response(url, accept, limit):
+    request = Request(url, headers={'User-Agent': 'ClubSP/0.1 bounded official sale notice check', 'Accept': accept})
+    with build_opener(NoRedirect()).open(request, timeout=10) as response:
+        raw = response.read(limit + 1)
+        content_type = response.headers.get('Content-Type', '')
+        final_url = response.geturl()
+    if len(raw) > limit:
+        raise ValueError('Source exceeds notice size limit')
+    return raw, content_type, final_url
+
+
+def fetch_sheriff_sales(index_url, now):
+    raw, content_type, _ = _bounded_response(index_url, 'text/html', 524288)
+    if 'text/html' not in content_type:
+        raise ValueError('Unexpected sheriff source format')
+    html = raw.decode('utf-8')
+    parser = AnchorLinks(); parser.feed(html)
+    local = now.astimezone(ZoneInfo('America/Indiana/Indianapolis'))
+    wanted = []
+    year, month = local.year, local.month
+    for offset in range(3):
+        m = month + offset
+        y = year + (m - 1) // 12
+        m = (m - 1) % 12 + 1
+        wanted.append(f'{calendar.month_name[m].upper()} {y}')
+    links = {}
+    for href, label in parser.links:
+        key = label.strip().upper()
+        if key in wanted and href.lower().endswith('.pdf'):
+            links[key] = urljoin(index_url, href)
+    if not links:
+        raise ValueError('No current sheriff-sale documents were found on the official index')
+    documents = []
+    for label in wanted:
+        url = links.get(label)
+        if not url:
+            continue
+        pdf, pdf_type, final_url = _bounded_response(url, 'application/pdf', 1048576)
+        if 'application/pdf' not in pdf_type:
+            raise ValueError('Unexpected sheriff-sale document format')
+        reader = PdfReader(io.BytesIO(pdf), strict=False)
+        if not 1 <= len(reader.pages) <= 10:
+            raise ValueError('Sheriff-sale document has an unsupported page count')
+        text = '\n'.join(page.extract_text(extraction_mode='layout') or '' for page in reader.pages)
+        if len(text) > 200000:
+            raise ValueError('Sheriff-sale extracted text exceeds supported size')
+        documents.append(f'[[SOURCE_DOCUMENT:{final_url}]]\n{text}')
+    if not documents:
+        raise ValueError('Current sheriff-sale documents could not be read')
+    return '\n'.join(documents)
+
+
+_SHERIFF_ROW = re.compile(
+    r'^\s*\d+\s+(?P<sale>\d{1,2}/\d{1,2}/\d{4})\s+'
+    r'(?P<cause>\S+-MF-\S+)\s+'
+    r'(?P<address>.+? FORT WAYNE[,.] IN \d{5})\s+'
+    r'(?:(?P<cancel>\d{1,2}/\d{1,2}/\d{4})\s+)?'
+    r'\$\s*(?P<judgment>[\d,]+\.\d{2})\b'
+)
+
+
+def parse_sheriff_sales(body, now):
+    local_today = now.astimezone(ZoneInfo('America/Indiana/Indianapolis')).date()
+    candidates, current_document = [], ''
+    saw_no_sales, saw_rows, cancelled, past = False, 0, 0, 0
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('[[SOURCE_DOCUMENT:') and stripped.endswith(']]'):
+            current_document = stripped[len('[[SOURCE_DOCUMENT:'):-2]
+            continue
+        if 'NO SALES FOR THE MONTH' in stripped.upper():
+            saw_no_sales = True
+        match = _SHERIFF_ROW.match(line)
+        if not match:
+            continue
+        saw_rows += 1
+        sale_date = datetime.strptime(match.group('sale'), '%m/%d/%Y').date()
+        cancel_date = match.group('cancel') or ''
+        if cancel_date:
+            cancelled += 1
+            continue
+        if sale_date < local_today:
+            past += 1
+            continue
+        full_address = ' '.join(match.group('address').split()).replace(' FORT WAYNE. IN ', ' FORT WAYNE, IN ')
+        before_city, zip_code = full_address.rsplit(' FORT WAYNE, IN ', 1)
+        amount = float(match.group('judgment').replace(',', ''))
+        if not 0 < amount <= 1000000000:
+            raise ValueError('Invalid sheriff-sale judgment amount')
+        candidates.append({
+            'address': before_city, 'city': 'Fort Wayne', 'state': 'IN', 'zip': zip_code,
+            'cause_number': match.group('cause'), 'sale_date': sale_date.isoformat(),
+            'judgment_amount': amount, 'cancellation_date': '',
+            'parcel_ids': [], 'minimum_bid': None, 'intake_supported': False,
+            'price_basis': 'Judgment amount is recorded notice data, not a purchase price or guaranteed opening bid.',
+            'identity_note': 'Sheriff notice does not provide parcel identity. Confirm the parcel independently before intake.',
+            'availability': 'Scheduled sheriff sale notice; verify current status because sales may be cancelled or changed.',
+            'source_document_url': current_document,
+        })
+    candidates.sort(key=lambda item: (item['sale_date'], item['address'], item['cause_number']))
+    if candidates:
+        status = 'scheduled_sales'
+    elif saw_rows and cancelled:
+        status = 'no_active_sales'
+    elif saw_rows and past:
+        status = 'past_sales'
+    elif saw_no_sales:
+        status = 'no_inventory'
+    else:
+        raise ValueError('Sheriff-sale document layout changed')
+    excerpt = (
+        f'{len(candidates)} current Fort Wayne sheriff-sale candidate(s); '
+        f'{cancelled} cancelled row(s) excluded and {past} past row(s) excluded. '
+        'Judgment amounts are not treated as acquisition prices.'
+    )
+    return {'status': status, 'candidates': candidates, 'excerpt': excerpt}
+
+
 def parse_notice(source_id, body, now):
+    if source_id == 'sheriff_sales':
+        return parse_sheriff_sales(body, now)
     parser = PageText(); parser.feed(body)
     text = ' '.join(' '.join(parser.parts).split())
     if source_id == 'accdc':
@@ -78,6 +223,7 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
     def _initialize_discovery(self):
         self.discovery_lock = threading.Lock()
         self.discovery_fetch = fetch_notice
+        self.sheriff_discovery_fetch = fetch_sheriff_sales
         with self.database.session(write=True) as (connection, _):
             assert_component_compatible(connection, "discovery")
             connection.execute('CREATE TABLE IF NOT EXISTS discovery_checks (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, fetched_at TEXT NOT NULL, body TEXT NOT NULL)')
@@ -99,7 +245,8 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
                 record = {'id': str(uuid4()), 'source_id': source_id, **SOURCES[source_id], 'fetched_at': now.isoformat(), 'status': 'running', 'candidates': []}
                 connection.execute('INSERT INTO discovery_checks VALUES(?,?,?,?)', (record['id'], source_id, record['fetched_at'], json.dumps(record)))
             try:
-                body = self.discovery_fetch(SOURCES[source_id]['url'])
+                body = (self.sheriff_discovery_fetch(SOURCES[source_id]['url'], now)
+                        if source_id == 'sheriff_sales' else self.discovery_fetch(SOURCES[source_id]['url']))
                 parsed = parse_notice(source_id, body, now)
                 digest = sha256(body.encode()).hexdigest()
                 record.update(parsed, content_hash=digest, changed=bool(prior and prior.get('content_hash') != digest))
@@ -172,8 +319,17 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
                     if item['status'] == 'running': item['status'] = 'incomplete_check'
                 for candidate in item['candidates']:
                     candidate['intake_blockers'] = notice_blockers(connection, item, candidate)
-                    candidate['review_gaps'] = ['Review current sale terms, parcel portions, property type, funding, title, costs and exit demand.']
+                    if item['source_id'] == 'sheriff_sales':
+                        candidate['review_gaps'] = [
+                            'Confirm the exact parcel identity from Allen County records before intake.',
+                            'Verify the sheriff sale is still scheduled and has not been cancelled or changed.',
+                            'Judgment amount is not treated as an acquisition price or guaranteed opening bid.',
+                            'Review title, liens, occupancy, condition, repairs, funding, fees and exit demand before any deal analysis.',
+                        ]
+                    else:
+                        candidate['review_gaps'] = ['Review current sale terms, parcel portions, property type, funding, title, costs and exit demand.']
+                        if candidate.get('bid_end') and now >= datetime.fromisoformat(candidate['bid_end']):
+                            candidate['review_gaps'].append('Advertised bid period has ended; current availability is unverified.')
                     candidate['buyer_criteria'] = preliminary_notice_buyers(connection, candidate)
-                    if now >= datetime.fromisoformat(candidate['bid_end']): candidate['review_gaps'].append('Advertised bid period has ended; current availability is unverified.')
                 checks.append(item)
             return {'sources': checks, 'automatic_checks': False, 'creates_deals': False}

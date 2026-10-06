@@ -3,7 +3,7 @@ name = "clubsp"
 version = "0.1.0"
 description = "ClubSP Wholesale Autopilot core"
 requires-python = ">=3.11"
-dependencies = ["httpx>=0.28.1,<0.29", "pydantic>=2.12,<3"]
+dependencies = ["httpx>=0.28.1,<0.29", "pydantic>=2.12,<3", "pypdf>=6,<7"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

@@ -67,3 +67,35 @@ test("stale notice blockers prevent staging a discovered notice", async ({ page 
   await expect(page.locator("#discovery-output")).toContainText("Official notice is stale");
   await expect(page.getByRole("button", {name:"Stage pending intake"})).toHaveCount(0);
 });
+
+
+test("sheriff-sale candidates render as research-only without treating judgment as price", async ({ page }) => {
+  const candidate = {
+    address:"3817 MARIGOLD DR", city:"Fort Wayne", state:"IN", zip:"46815",
+    cause_number:"02D03-2505-MF-000199", sale_date:"2026-10-21",
+    judgment_amount:72048.49, minimum_bid:null, intake_supported:false, parcel_ids:[],
+    availability:"Scheduled sheriff sale notice; verify current status because sales may be cancelled or changed.",
+    identity_note:"Sheriff notice does not provide parcel identity. Confirm the parcel independently before intake.",
+    source_document_url:"https://www.allencountysheriff.org/example.pdf",
+    review_gaps:["Confirm the exact parcel identity from Allen County records before intake."],
+    intake_blockers:["Sheriff notice does not provide parcel identity; confirm the parcel before intake."],
+    buyer_criteria:[{name:"Synthetic buyer",status:"needs_more_information",
+      reasons:["No acquisition price is established; recorded judgment amount is not treated as a purchase price"],
+      funding_status_on_record:"unverified",commitment_confirmed:false}],
+  };
+  await page.route("**/api/discovery", route => route.fulfill({json:{sources:[{
+    id:"sheriff-check",name:"Allen County Sheriff mortgage foreclosure sales",
+    source_id:"sheriff_sales",url:"https://www.allencountysheriff.org/2026-sheriff-sales/",
+    status:"scheduled_sales",candidates:[candidate]
+  }]}}));
+  await page.goto("/");
+  await page.getByText("Official sale-notice discovery", {exact:true}).click();
+  const output=page.locator("#discovery-output");
+  await expect(output).toContainText("Judgment amount (not a purchase price): $72,048.49");
+  await expect(output).toContainText("Scheduled sheriff sale date: 2026-10-21");
+  await expect(output).toContainText("Foreclosure cause: 02D03-2505-MF-000199");
+  await output.getByText("Research only · parcel confirmation required", {exact:true}).click();
+  await expect(output).toContainText("does not establish a parcel identity or purchase price");
+  await expect(output.getByRole("button", {name:"Stage pending intake"})).toHaveCount(0);
+  await expect(output.getByRole("link", {name:"Review official monthly sheriff-sale document"})).toHaveAttribute("rel","noopener noreferrer");
+});
