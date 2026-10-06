@@ -19,6 +19,7 @@ from .meta_sentras import (
 )
 from .sentra_lifecycle import make_transition
 from .schema import assert_component_compatible, ensure_component
+from .sentras import SENTRAS
 
 
 META_QUERY_LIMIT = 25
@@ -225,8 +226,13 @@ class MetaSentraMixin:
         if not markets:
             markets = ["Allen County, Indiana"]
 
+        active_capabilities = {
+            capability
+            for definition in SENTRAS.values()
+            if definition.status == "active"
+            for capability in definition.capabilities
+        }
         with self.database.session() as (connection, _):
-            active_capabilities = set()
             for row in connection.execute("SELECT capabilities_json FROM activated_sentras"):
                 active_capabilities.update(json.loads(row["capabilities_json"]))
         capability_gaps = [
