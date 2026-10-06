@@ -68,7 +68,7 @@ class RelationshipBook:
         self.application = application
         self.database = application.database
         with self.database.session(write=True) as (connection, _):
-            assert_component_compatible(connection, "relationships")
+            relationship_schema = assert_component_compatible(connection, "relationships")
             statements = [
                 "CREATE TABLE IF NOT EXISTS relationships (id TEXT PRIMARY KEY, created_at TEXT NOT NULL)",
                 "CREATE TABLE IF NOT EXISTS relationship_profiles (id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL REFERENCES relationships(id), previous_id TEXT UNIQUE REFERENCES relationship_profiles(id), request_key TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, created_at TEXT NOT NULL)",
@@ -86,7 +86,10 @@ class RelationshipBook:
             ]
             for statement in statements:
                 connection.execute(statement)
-            if ensure_component(connection, "relationships", target=1) == 1:
+            if relationship_schema == 0:
+                ensure_component(connection, "relationships", target=1)
+                relationship_schema = 1
+            if relationship_schema < 2:
                 ensure_component(
                     connection, "relationships",
                     migrations={1: _migrate_relationships_v1_to_v2},
