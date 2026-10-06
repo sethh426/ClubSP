@@ -131,7 +131,6 @@ class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchM
                 connection, result["deals"], result["discovery"]
             )
             result["provider_integrations"] = self._provider_state(connection)
-            result["meta_sentras"] = self.meta_sentra_state()
             result["transactions"] = self._transaction_state(connection, result["deals"])
             result["today"] = business_today().isoformat()
             result["research"] = self._research_snapshots(connection)
