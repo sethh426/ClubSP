@@ -20,6 +20,7 @@ from .command_center import build_command_center
 from .auth import OwnerAuth, SESSION_COOKIE
 from .preflight import deployment_readiness
 from .meta_sentry_scheduler import MetaSentraScheduler, scheduler_config
+from .sentra_runtime import load_sentra_environment
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
@@ -150,6 +151,13 @@ def handler_for(application, gmail, auth=None):
                     self.send_json(400, {"error": str(error)})
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/sentras":
+                self.send_json(200, application.sentra_state())
+            elif path.startswith("/api/sentras/runs/"):
+                try:
+                    self.send_json(200, application.sentra_evidence(path.rsplit("/", 1)[-1]))
+                except LookupError as exc:
+                    self.send_json(404, {"error": str(exc)})
             elif path == "/api/gmail/status":
                 self.send_json(200, gmail.status(self.gmail_origin()))
             elif path == "/api/gmail/inbox":
@@ -259,6 +267,11 @@ def handler_for(application, gmail, auth=None):
                     self.end_headers()
                     self.wfile.write(body)
                     return
+                elif path == "/api/sentras/run":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.run_sentra(data)
                 elif path == "/api/sentras/meta/cycle":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
@@ -576,6 +589,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     load_local_environment(Path(__file__).resolve().parent.parent / ".env")
+    load_sentra_environment(Path(__file__).resolve().parent.parent / ".env")
     application = Application(args.db)
     gmail = GmailConnection(Path(args.db).parent / "private")
     auth = OwnerAuth()

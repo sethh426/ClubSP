@@ -31,8 +31,10 @@ class SentraExecutionRequest:
             raise ValueError("unknown Sentra")
         if self.operation not in {"observe", "search", "lookup", "refresh"}:
             raise ValueError("unsupported Sentra operation")
-        if not 1 <= self.max_bytes <= MAX_EXECUTION_BYTES:
+        if type(self.max_bytes) is not int or not 1 <= self.max_bytes <= MAX_EXECUTION_BYTES:
             raise ValueError("max_bytes is outside the supported range")
+        if not isinstance(self.input_data, Mapping):
+            raise ValueError("input_data must be an object")
 
 
 @dataclass(frozen=True)
@@ -61,7 +63,7 @@ class SentraExecutor:
 
 def canonical_payload_bytes(payload: Any) -> bytes:
     try:
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise ValueError("Sentra payload must be JSON serializable") from exc
 
@@ -181,6 +183,20 @@ class ApifyActorExecutor(SentraExecutor):
         )
 
 
+class ConfiguredSourceExecutor(SentraExecutor):
+    """Runs a fixed collector after the application reserves its durable quota."""
+
+    def __init__(self, transport=None):
+        self.transport = transport
+
+    def execute(self, definition, request):
+        from .sentra_collectors import collect_source
+        started = time.time_ns()
+        payload, metadata = collect_source(definition, request, transport=self.transport)
+        return result_from_payload(definition, payload, started_ns=started,
+                                   metadata=metadata, max_bytes=request.max_bytes)
+
+
 EXECUTORS: dict[str, SentraExecutor] = {
     "official_api": OfficialJSONExecutor(),
     "apify_actor": ApifyActorExecutor(),
@@ -188,14 +204,25 @@ EXECUTORS: dict[str, SentraExecutor] = {
 
 
 def executor_for(definition: SentraDefinition) -> SentraExecutor:
+    from .sentra_collectors import SOURCE_SPECS
+    if definition.id in SOURCE_SPECS:
+        return ConfiguredSourceExecutor()
     executor = EXECUTORS.get(definition.acquisition_mode)
     if executor is None:
         raise ValueError(f"no executor registered for acquisition mode {definition.acquisition_mode}")
     return executor
 
 
-def execute_sentra(request: SentraExecutionRequest) -> SentraExecutionResult:
+def execute_sentra(request: SentraExecutionRequest, *, transport=None) -> SentraExecutionResult:
+    from .sentra_collectors import SOURCE_SPECS
     definition = SENTRAS[request.sentra_id]
     if definition.status not in {"active", "standby"}:
         raise ValueError("Sentra is not enabled for execution")
+    if os.environ.get("CLUBSP_SENTRAS_DISABLED", "").lower() in {"1", "true", "yes", "on"}:
+        raise ValueError("Sentra execution is disabled")
+    disabled = os.environ.get("CLUBSP_DISABLED_SENTRAS", "").split(",")
+    if definition.id in {value.strip() for value in disabled}:
+        raise ValueError("This Sentra is disabled")
+    if definition.id in SOURCE_SPECS:
+        return ConfiguredSourceExecutor(transport).execute(definition, request)
     return executor_for(definition).execute(definition, request)

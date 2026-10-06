@@ -6,6 +6,10 @@ A **Sentra** is a governed source-intelligence unit. It monitors or queries an e
 
 The architecture target is **thousands of near-real-time sources**. The first 100 Sentras are a validation milestone, not the ceiling.
 
+The [first 25 source collectors](FIRST_25_SENTRAS.md) now have fixed executors,
+durable evidence/health/budget tracking, API routes and operator commands.
+Their implementation tests do not imply live verification or unattended deployment.
+
 A Sentra is **not synonymous with a scraper**. Its acquisition method can be an official API, ArcGIS/Socrata/open-data API, Apify Actor, Crawlee HTTP crawler, Playwright/browser extraction, PDF/CSV/XLSX parser, webhook/feed, or controlled manual/licensed-provider import.
 
 Prefer official structured APIs first. Use permitted extraction only when the required information is not available through a stable structured source.

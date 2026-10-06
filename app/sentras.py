@@ -75,7 +75,7 @@ SENTRAS: dict[str, SentraDefinition] = {
         name="Allen County iMap parcel evidence",
         family="parcel_assessor",
         acquisition_mode="arcgis",
-        capabilities=("parcel_identity", "owner_of_record", "assessment", "property_attributes"),
+        capabilities=("parcel_identity", "owner_of_record", "site_address", "reported_transfer_date"),
         jurisdiction="Allen County, Indiana",
         status="active",
         source_url="https://gis.acimap.us/services/rest/services/CFW/Parcels_With_Ownership_Information/MapServer/0",
@@ -210,6 +210,74 @@ SENTRAS: dict[str, SentraDefinition] = {
         estimated_cost_class="low",
     )
 }
+
+
+# These are source collectors. Meta-Sentras and unconfigured Actor families are
+# deliberately excluded from the first-25 milestone.
+_PUBLIC_MONITORS = (
+    ("allen_county_tax_sale", "Allen County tax-sale notices", "tax_sale", "Allen County, Indiana", "https://www.allencounty.in.gov/270/Tax-Sale", ("tax_sale_notice_index", "document_links")),
+    ("allen_county_assessor_resources", "Allen County assessor resource monitor", "parcel_assessor", "Allen County, Indiana", "https://www.allencounty.in.gov/164/Assessor", ("assessor_resource_index", "document_links")),
+    ("allen_county_treasurer_resources", "Allen County treasurer resource monitor", "tax", "Allen County, Indiana", "https://www.allencounty.in.gov/284/Treasurer", ("tax_resource_index", "document_links")),
+    ("allen_county_recorder_resources", "Allen County recorder resource monitor", "recorded_documents", "Allen County, Indiana", "https://www.allencountyrecorder.us/resources", ("recorder_resource_index", "document_links")),
+    ("allen_county_building_resources", "Allen County building-permit resource monitor", "permits", "Allen County, Indiana", "https://www.allencounty.in.gov/234/Building-Department", ("permit_resource_index", "document_links")),
+    ("allen_county_planning_hearings", "Allen County planning-hearing document index", "planning", "Allen County, Indiana", "https://www.allencounty.in.gov/1255/Public-Hearing-Documents", ("planning_notice_index", "document_links")),
+    ("allen_county_zoning_resources", "Allen County zoning-map resource monitor", "planning", "Allen County, Indiana", "https://www.allencounty.in.gov/1320/Zoning-Map", ("zoning_resource_index", "document_links")),
+    ("fort_wayne_code_resources", "Fort Wayne code-compliance resource monitor", "code_enforcement", "Fort Wayne, Indiana", "https://www.cityoffortwayne.in.gov/256/Neighborhood-Code-Compliance", ("code_resource_index", "document_links")),
+    ("fort_wayne_redevelopment", "Fort Wayne redevelopment notices and agendas", "public_property", "Fort Wayne, Indiana", "https://www.cityoffortwayne.in.gov/475/Redevelopment-Commission", ("redevelopment_notice_index", "document_links")),
+    ("indiana_surplus_property", "Indiana surplus real-estate notice index", "public_property", "Indiana", "https://www.in.gov/idoa/state-resource-management/state-and-federal-surplus/real-estate-sales/surplus-property-information/", ("surplus_notice_index", "document_links")),
+    ("hud_home_resources", "HUD home-sale resource monitor", "reo", "United States", "https://www.hud.gov/topics/buying_a_home", ("reo_resource_index", "document_links")),
+    ("gsa_property_disposition", "GSA real-property disposition resource monitor", "public_property", "United States", "https://www.gsa.gov/real-estate/real-property-disposition", ("federal_property_resource_index", "document_links")),
+)
+for _id, _name, _family, _jurisdiction, _url, _capabilities in _PUBLIC_MONITORS:
+    SENTRAS[_id] = SentraDefinition(
+        id=_id, name=_name, family=_family, acquisition_mode="direct_http",
+        capabilities=(*_capabilities, "page_change_detection"),
+        jurisdiction=_jurisdiction, status="standby", source_url=_url,
+        freshness_target_hours=24, estimated_cost_class="free",
+        rights_note="Bounded public-page monitoring only. Linked records require separate access and identity review; no bulk record access is assumed.",
+    )
+
+SENTRAS["census_address_geocoder"] = SentraDefinition(
+    id="census_address_geocoder", name="Census single-address geocoder",
+    family="identity", acquisition_mode="official_api",
+    capabilities=("address_match", "geocode"), jurisdiction="United States and supported territories",
+    status="standby", source_url="https://geocoding.geo.census.gov/geocoder/locations/onelineaddress",
+    freshness_target_hours=720, estimated_cost_class="free",
+    rights_note="One supplied address per lookup. Address-range coordinates do not prove parcel identity or ownership.",
+)
+SENTRAS["census_county_housing"] = SentraDefinition(
+    id="census_county_housing", name="Census ACS county housing context",
+    family="market_context", acquisition_mode="official_api",
+    capabilities=("county_housing_context", "aggregate_rent", "aggregate_value", "margin_of_error"),
+    jurisdiction="One US county per query", status="standby",
+    source_url="https://api.census.gov/data/2024/acs/acs5", freshness_target_hours=8760,
+    estimated_cost_class="free",
+    rights_note="2024 ACS five-year survey estimates with margins of error. County context only; never property-level comps or current pricing.",
+)
+_RENTCAST_COLLECTORS = (
+    ("rentcast_property_record", "RentCast single-property record", "/properties", "parcel_assessor", ("provider_property_attributes", "provider_tax_history", "provider_sale_history"), 24),
+    ("rentcast_rental_listings", "RentCast rental listings", "/listings/rental/long-term", "listing_market", ("active_rental_listing", "asking_rent", "property_attributes"), 6),
+    ("rentcast_value_estimate", "RentCast property value estimate", "/avm/value", "market_estimate", ("provider_value_estimate", "provider_estimate_range"), 24),
+    ("rentcast_rent_estimate", "RentCast long-term rent estimate", "/avm/rent/long-term", "market_estimate", ("provider_rent_estimate", "provider_estimate_range"), 24),
+    ("rentcast_market_statistics", "RentCast ZIP market statistics", "/markets", "market_context", ("zip_market_context", "sale_listing_statistics", "rental_listing_statistics"), 24),
+)
+for _id, _name, _path, _family, _capabilities, _hours in _RENTCAST_COLLECTORS:
+    SENTRAS[_id] = SentraDefinition(
+        id=_id, name=_name, family=_family, acquisition_mode="official_api",
+        capabilities=_capabilities, jurisdiction="United States where provider coverage applies",
+        status="standby", source_url="https://api.rentcast.io/v1" + _path,
+        freshness_target_hours=_hours, credential_env="RENTCAST_API_KEY",
+        estimated_cost_class="metered",
+        rights_note="Connected provider account and current terms required. Estimates and aggregates are provider-reported context, not accepted underwriting facts.",
+    )
+
+FIRST_25_SENTRA_IDS = (
+    "allen_county_accdc", "allen_county_north_campus", "allen_county_sheriff_sales",
+    "allen_county_imap_parcel", "rentcast_sale_listings", "realestateapi_inventory_preflight",
+    *(_row[0] for _row in _PUBLIC_MONITORS),
+    "census_address_geocoder", "census_county_housing",
+    *(_row[0] for _row in _RENTCAST_COLLECTORS),
+)
 
 
 def sentra_catalog() -> list[dict]:
