@@ -109,16 +109,33 @@ def apply_current_owner_evidence(memory, property_id, row_id, resolution):
             observed_at = observed_at.replace(tzinfo=timezone.utc)
     except ValueError:
         observed_at = utc_now()
+
+    pid = UUID(property_id)
+    current = [
+        fact for fact in memory.facts.values()
+        if fact.subject_type == "property"
+        and fact.subject_id == pid
+        and fact.attribute == "recorded_owner_name"
+        and fact.status == "active"
+    ]
+    check_day = observed_at.date().isoformat()
     digest = hashlib.sha256(
         json.dumps({
             "gis_id": resolution.get("gis_id"),
             "pin": resolution.get("pin"),
             "owner_of_record": owner,
-            "checked_at": observed_at.isoformat(),
+            "checked_on": check_day,
         }, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     raw_reference = f"official-owner-recheck:{row_id}:{digest}"
     source_id = uuid5(NAMESPACE_URL, raw_reference)
+    fact_id = uuid5(source_id, "recorded_owner_name")
+    if fact_id in memory.facts:
+        return {
+            "owner": owner, "fact_id": str(fact_id), "source_id": str(source_id),
+            "changed": False, "refreshed": False,
+        }
+
     if source_id not in memory.sources:
         memory.add_source(SourceRecord(
             id=source_id, source_type="official_gis_owner",
@@ -130,32 +147,18 @@ def apply_current_owner_evidence(memory, property_id, row_id, resolution):
             reliability_score=0.9,
         ))
 
-    pid = UUID(property_id)
-    current = [
-        fact for fact in memory.facts.values()
-        if fact.subject_type == "property"
-        and fact.subject_id == pid
-        and fact.attribute == "recorded_owner_name"
-        and fact.status == "active"
-    ]
-    same = next((fact for fact in current if str(fact.value).strip() == owner), None)
-    if same is not None:
-        return {
-            "owner": owner, "fact_id": str(same.id), "source_id": str(same.source_id),
-            "changed": False,
-        }
+    previous_values = {str(fact.value).strip() for fact in current}
     for fact in current:
         fact.status = "superseded"
-    fact_id = uuid5(source_id, "recorded_owner_name")
-    if fact_id not in memory.facts:
-        memory.add_fact(Fact(
-            id=fact_id, subject_type="property", subject_id=pid,
-            attribute="recorded_owner_name", value=owner, value_type="text",
-            source_id=source_id, observed_at=observed_at, confidence=0.9,
-        ))
+    memory.add_fact(Fact(
+        id=fact_id, subject_type="property", subject_id=pid,
+        attribute="recorded_owner_name", value=owner, value_type="text",
+        source_id=source_id, observed_at=observed_at, confidence=0.9,
+    ))
     return {
         "owner": owner, "fact_id": str(fact_id), "source_id": str(source_id),
-        "changed": bool(current),
+        "changed": bool(previous_values and previous_values != {owner}),
+        "refreshed": True,
     }
 
 def sale_snapshot(connection, property_id):
@@ -577,6 +580,7 @@ class SourcingMixin:
                 "recorded_owner_name": result["owner"],
                 "owner_fact_id": result["fact_id"],
                 "changed": result["changed"],
+                "refreshed": result["refreshed"],
                 "execution_authorized": False,
             }
 
