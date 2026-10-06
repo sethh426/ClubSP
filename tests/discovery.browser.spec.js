@@ -99,3 +99,46 @@ test("sheriff-sale candidates render as research-only without treating judgment 
   await expect(output.getByRole("button", {name:"Stage pending intake"})).toHaveCount(0);
   await expect(output.getByRole("link", {name:"Review official monthly sheriff-sale document"})).toHaveAttribute("rel","noopener noreferrer");
 });
+
+
+test("sheriff parcel resolution can unlock reviewed intake without inventing a price", async ({ page }) => {
+  let resolved = 0;
+  const unresolved = {
+    address:"10324 GREEN OAK BLVD", city:"Fort Wayne", state:"IN", zip:"46814",
+    cause_number:"02D03-2509-MF-000383", sale_date:"2026-10-21",
+    judgment_amount:415715.93, minimum_bid:null, intake_supported:false, parcel_ids:[],
+    availability:"Scheduled sheriff sale notice; verify current status.",
+    identity_note:"Sheriff notice does not provide parcel identity.",
+    review_gaps:["Confirm the exact parcel identity from Allen County records before intake."],
+    intake_blockers:["Sheriff notice does not provide parcel identity; confirm the parcel before intake."],
+    buyer_criteria:[],
+  };
+  const matched = {...unresolved, intake_supported:true,
+    parcel_ids:["02-11-10-327-015.000-075"],
+    identity_note:"Parcel identity resolved against Allen County GIS site-address and parcel services. Owner/title review is still required.",
+    parcel_resolution:{status:"resolved",official_address:"10324 GREENOAK BLVD",pin:"021110327015000075",
+      gis_id:"02-11-10-327-015.000-075",property_class:"1 Family Dwell - Platted Lot",year_built:1998},
+    intake_blockers:[],
+    review_gaps:["Parcel identity was resolved from Allen County GIS; independently confirm title, ownership and legal description before action."]
+  };
+  let current=unresolved;
+  await page.route("**/api/discovery", route => route.fulfill({json:{sources:[{
+    id:"sheriff-check",name:"Allen County Sheriff mortgage foreclosure sales",source_id:"sheriff_sales",
+    url:"https://www.allencountysheriff.org/2026-sheriff-sales/",status:"scheduled_sales",
+    candidates:[current],parcel_resolution_count:resolved
+  }]}}));
+  await page.route("**/api/discovery/resolve-parcels", async route => {
+    expect(route.request().postDataJSON()).toEqual({check_id:"sheriff-check"});
+    resolved=1; current=matched;
+    await route.fulfill({json:{id:"sheriff-check",status:"scheduled_sales",candidates:[matched],parcel_resolution_count:1}});
+  });
+  await page.goto("/");
+  await page.getByText("Official sale-notice discovery", {exact:true}).click();
+  const output=page.locator("#discovery-output");
+  await output.getByRole("button", {name:"Resolve parcel IDs from Allen County GIS"}).click();
+  await expect(output).toContainText("Official GIS match: 10324 GREENOAK BLVD");
+  await expect(output).toContainText("PIN 021110327015000075");
+  await expect(output).toContainText("Parcels: 02-11-10-327-015.000-075");
+  await expect(output).toContainText("Judgment amount (not a purchase price)");
+  await expect(output.getByText("Stage for identity review", {exact:true})).toHaveCount(1);
+});
