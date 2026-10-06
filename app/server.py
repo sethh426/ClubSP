@@ -138,6 +138,8 @@ def handler_for(application, gmail, auth=None):
                 return
             if path == "/api/discovery":
                 self.send_json(200, application.discovery_state())
+            elif path == "/api/sentras/meta":
+                self.send_json(200, application.meta_sentra_state())
             elif path == "/api/gmail/status":
                 self.send_json(200, gmail.status(self.gmail_origin()))
             elif path == "/api/gmail/inbox":
@@ -247,6 +249,31 @@ def handler_for(application, gmail, auth=None):
                     self.end_headers()
                     self.wfile.write(body)
                     return
+                elif path == "/api/sentras/meta/discover":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_discover(data)
+                elif path == "/api/sentras/meta/probe":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_probe(data)
+                elif path == "/api/sentras/meta/propose":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_propose(data)
+                elif path == "/api/sentras/meta/review":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_review(data)
+                elif path == "/api/sentras/meta/activate":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_activate(data)
                 elif path == "/api/discovery/snapshot":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
