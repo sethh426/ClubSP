@@ -10,7 +10,9 @@ The buyer-first guidance in user-supplied `pasted.txt` remains the business cont
 
 Section 1's kernel code and synthetic runtime validation are implemented on top of the Meta-Sentra lifecycle prerequisite. The combined local suite passed **584 tests** on October 6, 2026. This count includes the existing application suite, not 584 live-source validations.
 
-A bounded ArcGIS catalog attempt from the development environment failed and was durably recorded with no activation. The integrated live-check command also reported DNS lookup failures for both ArcGIS and Apify, and Data.gov reported that its key was required in this environment. Production deployment, a successful host-specific source canary, and owner-reviewed real evidence have not been established by this work. Those checks remain the operational gate. Sections 2–12 remain open.
+The [GitHub validation run](https://github.com/sethh426/ClubSP/actions/runs/37523701021) for implementation commit `e2cb11f2c25a67c1161d14e975d179efbad93384` passed Python 3.11–3.13, browser tests and the live public-catalog/ArcGIS-schema check. The live check established catalog/schema reachability on the GitHub runner; it did not activate sources or import property facts.
+
+The development environment's local live-check command reported DNS lookup failures for ArcGIS and Apify, and Data.gov reported that its configured key was required there. Deployment of the actual configured service, an approved source-observation canary on that deployment host, and the reviewed real-evidence handoff remain open. Sections 2–12 remain open.
 
 | # | Section | Current implementation basis | Required exit evidence |
 | --- | --- | --- | --- |
