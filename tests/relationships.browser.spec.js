@@ -71,3 +71,56 @@ test("property-independent relationship, reply schedule and stop request",async(
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
   expect(errors).toEqual([]);
 });
+
+
+test("unknown investor permission requires explicit owner review before criteria outreach", async ({page,request}) => {
+  const unique=`permission-${Date.now()}-${Math.random()}`;
+  const before=await (await request.get("/api/relationships")).json();
+  const created=await request.post("/api/relationships",{data:{
+    request_key:crypto.randomUUID(),
+    name:"Synthetic Permission Investor",
+    company:"Synthetic Permission Co",
+    email:`${unique}@example.test`,
+    kind:"investor",
+    status:"prospect",
+    needs:"Confirm criteria only after permission review",
+    source_reference:"https://example.test/public-contact",
+    permission:"unknown",
+    permission_reference:"",
+    owner:"Owner",
+    next_action:"Review contact permission",
+    markets:["Fort Wayne, IN"],
+    follow_up_on:before.today,
+    buyer_id:"",
+    relationship_id:"",
+    profile_id:"",
+    event_id:""
+  }});
+  expect(created.ok(),await created.text()).toBeTruthy();
+  const saved=await created.json();
+
+  await page.goto("/relationships");
+  const card=page.locator(`[data-relationship-id="${saved.relationship_id}"]`);
+  await expect(card).toContainText("No buyer linked");
+  await expect(card.getByText("Review contact permission",{exact:true})).toBeVisible();
+  await expect(card.getByText("Message text unavailable:",{exact:false})).toBeVisible();
+
+  await card.getByText("Review contact permission",{exact:true}).click();
+  const form=card.locator(".permission-review-form");
+  await expect(form.getByText("Open recorded public source",{exact:true})).toHaveAttribute("href","https://example.test/public-contact");
+  await form.locator('[name="decision"]').selectOption("allow_outreach");
+  await form.locator('[name="review_note"]').fill("Synthetic owner review of public business-contact source and recipient identity.");
+  await form.locator('input[type="checkbox"]').check();
+  await form.getByRole("button",{name:"Record permission review",exact:true}).click();
+
+  await expect(card.getByText("Review contact permission",{exact:true})).toHaveCount(0);
+  await expect(card).toContainText("Confirm the investor's current buy box, funding evidence and closing capacity");
+  await expect(card.getByText("Message text for owner review",{exact:true})).toBeVisible();
+
+  const state=await (await request.get("/api/relationships")).json();
+  const row=state.relationships.find(r=>r.id===saved.relationship_id);
+  expect(row.profile.permission).toBe("owner_reviewed");
+  expect(row.profile.permission_reference).toBe("https://example.test/public-contact");
+  expect(row.buyer).toBeNull();
+  expect(state.summary.qualified_buyers).toBe(0);
+});

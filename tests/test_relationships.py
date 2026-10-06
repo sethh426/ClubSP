@@ -378,3 +378,83 @@ def test_generated_investor_draft_collects_qualification_ready_buy_box_fields(tm
     assert "avoid sending you deals that do not fit" in body
     assert "no further contact" in body
     assert draft["sending_enabled"] is False
+
+
+def permission_review(row, **changes):
+    return {
+        "request_key": str(uuid4()),
+        "profile_id": row["profile"]["id"],
+        "event_id": row["event_id"] or "",
+        "decision": "allow_outreach",
+        "evidence_reference": row["profile"]["source_reference"],
+        "review_note": "Reviewed the public business-contact source and recipient identity.",
+        "owner_confirmed_review": True,
+        **changes,
+    }
+
+
+def test_permission_review_allows_outreach_and_advances_next_action(tmp_path):
+    _, book = setup(tmp_path)
+    book.save(profile(source_reference="https://example.test/contact"))
+    row = current(book)
+    data = permission_review(row)
+    saved = book.review_permission(row["id"], data)
+    retry = book.review_permission(row["id"], data)
+    assert retry["id"] == saved["id"]
+    latest = current(book)
+    assert latest["profile"]["permission"] == "owner_reviewed"
+    assert latest["profile"]["permission_reference"] == "https://example.test/contact"
+    assert latest["next_action"] == "Confirm the investor's current buy box, funding evidence and closing capacity"
+    assert len(latest["profile_history"]) == 2
+    assert latest["interactions"][0]["direction"] == "note"
+    assert latest["interactions"][0]["evidence_reference"] == "https://example.test/contact"
+
+
+def test_permission_review_block_pauses_and_removes_followup(tmp_path):
+    _, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    book.review_permission(row["id"], permission_review(
+        row, decision="block_outreach", review_note="Owner decided this contact should not be used."
+    ))
+    latest = current(book)
+    assert latest["profile"]["permission"] == "blocked"
+    assert latest["profile"]["status"] == "paused"
+    assert latest["follow_up_on"] == ""
+    assert latest["next_action"] == ""
+    assert latest["blocked"]
+
+
+def test_permission_review_requires_confirmation_and_fresh_context(tmp_path):
+    _, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    with pytest.raises(ValueError, match="Explicit owner confirmation"):
+        book.review_permission(row["id"], permission_review(row, owner_confirmed_review=False))
+    revise(book, row, request_key=str(uuid4()), needs="Updated before review")
+    with pytest.raises(ValueError, match="changed"):
+        book.review_permission(row["id"], permission_review(row))
+
+
+def test_permission_review_cannot_clear_recorded_stop(tmp_path):
+    _, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    book.interact(row["id"], interaction(
+        row, outcome="stop", direction="incoming", note="Please stop", evidence_reference="stop-message"
+    ))
+    latest = current(book)
+    with pytest.raises(ValueError, match="suppression"):
+        book.review_permission(latest["id"], permission_review(
+            latest, decision="allow_outreach", evidence_reference="public-contact-page"
+        ))
+
+
+def test_permission_review_request_key_cannot_change_decision(tmp_path):
+    _, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    data = permission_review(row)
+    book.review_permission(row["id"], data)
+    with pytest.raises(ValueError, match="different permission review"):
+        book.review_permission(row["id"], {**data, "decision": "block_outreach"})
