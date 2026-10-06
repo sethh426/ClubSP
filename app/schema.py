@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 COMPONENT_VERSIONS = {
     "core": 1,
-    "relationships": 1,
+    "relationships": 2,
     "gmail_inbox": 1,
     "discovery": 1,
     "funding": 1,
