@@ -19,6 +19,7 @@ from .relationships import RelationshipBook
 from .command_center import build_command_center
 from .auth import OwnerAuth, SESSION_COOKIE
 from .preflight import deployment_readiness
+from .meta_sentry_scheduler import MetaSentraScheduler, scheduler_config
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
@@ -561,12 +562,23 @@ def main():
     if os.environ.get("CLUBSP_ENV", "development").strip().lower() == "production" and not readiness["ready"]:
         raise SystemExit("ClubSP production preflight failed: " + dumps(readiness))
     server = create_server(args.db, args.port, application=application, gmail=gmail, auth=auth)
+    meta_scheduler = None
+    meta_config = scheduler_config()
+    if meta_config["enabled"]:
+        meta_scheduler = MetaSentraScheduler(
+            application,
+            interval_seconds=meta_config["interval_seconds"],
+            max_queries=meta_config["max_queries"],
+        )
+        meta_scheduler.start()
     print(f"ClubSP is running at http://127.0.0.1:{server.server_address[1]}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if meta_scheduler is not None:
+            meta_scheduler.stop()
         server.server_close()
 
 
