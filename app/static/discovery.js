@@ -104,7 +104,24 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         fallback.append(snapshot); card.append(fallback);
       }
-      for (const [index, candidate] of source.candidates.entries()) {
+      if (source.source_id === "sheriff_sales" && source.research_priority_summary) {
+        const summary = source.research_priority_summary;
+        card.append(node("p",
+          "Research queue · " + summary.review_now + " review now · "
+          + summary.research_next + " research next · "
+          + summary.needs_identity_or_data + " need identity/data",
+          "small"
+        ));
+        card.append(node("p", summary.score_scope, "muted small"));
+      }
+      const candidateRows = source.candidates.map((candidate,index)=>({candidate,index}));
+      if (source.source_id === "sheriff_sales") {
+        candidateRows.sort((a,b)=>
+          (a.candidate.research_priority?.rank || 9999) - (b.candidate.research_priority?.rank || 9999)
+          || a.index - b.index
+        );
+      }
+      for (const {candidate, index} of candidateRows) {
         card.append(node("h4", candidate.address), node("p", candidate.availability), node("p", candidate.identity_note));
         if (candidate.minimum_bid !== null && candidate.minimum_bid !== undefined) {
           card.append(node("p", "Advertised minimum bid: $" + Number(candidate.minimum_bid).toLocaleString("en-US")));
@@ -114,6 +131,19 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if (candidate.bid_start && candidate.bid_end) card.append(node("p", "Bid window: " + candidate.bid_start + " to " + candidate.bid_end));
         if (candidate.sale_date) card.append(node("p", "Scheduled sheriff sale date: " + candidate.sale_date));
+        if (candidate.research_priority) {
+          const priority = candidate.research_priority;
+          card.append(node("p",
+            "Research priority #" + priority.rank + " · " + priority.score + "/100 · "
+            + priority.label.replaceAll("_", " "),
+            "small"
+          ));
+          const details = node("details", "");
+          details.append(node("summary", "Why this research priority?"));
+          priority.reasons.forEach(reason=>details.append(node("p", reason, "small")));
+          priority.limitations.forEach(limit=>details.append(node("p", limit, "muted small")));
+          card.append(details);
+        }
         if (candidate.cause_number) card.append(node("p", "Foreclosure cause: " + candidate.cause_number));
         if (candidate.source_document_url) {
           const documentLink = node("a", "Review official monthly sheriff-sale document");
