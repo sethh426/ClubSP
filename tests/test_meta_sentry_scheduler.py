@@ -1,5 +1,7 @@
 import pytest
+import os
 
+from app.gmail import load_local_environment
 from app.meta_sentry_scheduler import MetaSentraScheduler, scheduler_config
 from app.service import Application
 
@@ -97,3 +99,21 @@ def test_scheduler_never_calls_review_or_activation(tmp_path, monkeypatch):
 def test_health_scheduler_cannot_be_configured_to_poll_aggressively():
     with pytest.raises(ValueError, match="one hour"):
         scheduler_config({"CLUBSP_META_HEALTH_INTERVAL_SECONDS": "60"})
+
+
+def test_server_dotenv_loads_meta_controls_without_overriding_environment(tmp_path, monkeypatch):
+    keys = ["CLUBSP_META_AUTODISCOVERY", "CLUBSP_META_DISCOVERY_INTERVAL_SECONDS", "CLUBSP_META_DISCOVERY_MAX_QUERIES",
+            "CLUBSP_META_HEALTH_MONITORING", "CLUBSP_META_HEALTH_INTERVAL_SECONDS", "CLUBSP_META_HEALTH_MAX_SOURCES",
+            "DATAGOV_API_KEY", "UNAPPROVED_META_SETTING"]
+    for key in keys:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("CLUBSP_META_DISCOVERY_MAX_QUERIES", "2")
+    settings = tmp_path / "settings.env"
+    settings.write_text("CLUBSP_META_AUTODISCOVERY=1\nCLUBSP_META_DISCOVERY_MAX_QUERIES=4\n"
+                        "CLUBSP_META_HEALTH_MONITORING=0\nDATAGOV_API_KEY=synthetic-key\nUNAPPROVED_META_SETTING=ignored\n")
+    load_local_environment(settings)
+    config = scheduler_config()
+    assert config["enabled"] is True and config["health_enabled"] is False
+    assert config["max_queries"] == 2
+    assert os.environ["DATAGOV_API_KEY"] == "synthetic-key"
+    assert "UNAPPROVED_META_SETTING" not in os.environ
