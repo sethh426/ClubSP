@@ -1,12 +1,12 @@
 """Property-independent relationships and owner-entered follow-ups; no transport."""
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 import json
 import re
 from uuid import UUID, uuid4
 
 from core.memory.models import utc_now
 from .operations import business_today
-from .validation import list_field, text_field
+from .validation import list_field, number_field, text_field
 from .schema import assert_component_compatible, ensure_component
 
 
@@ -42,6 +42,27 @@ def email_blocked(connection, email):
     return bool(exists and connection.execute("SELECT 1 FROM relationship_stops WHERE email=?", (email,)).fetchone())
 
 
+def _migrate_relationships_v1_to_v2(connection):
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS relationship_buyer_qualifications (
+            id TEXT PRIMARY KEY,
+            request_key TEXT NOT NULL UNIQUE,
+            relationship_id TEXT NOT NULL REFERENCES relationships(id),
+            source_profile_id TEXT NOT NULL REFERENCES relationship_profiles(id),
+            source_event_id TEXT NOT NULL REFERENCES relationship_interactions(id),
+            buyer_id TEXT NOT NULL REFERENCES buyers(id),
+            mandate_id TEXT NOT NULL REFERENCES buyer_mandates(id),
+            linked_profile_id TEXT NOT NULL REFERENCES relationship_profiles(id),
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS relationship_buyer_qualification_lookup "
+        "ON relationship_buyer_qualifications(relationship_id,created_at)"
+    )
+
+
 class RelationshipBook:
     def __init__(self, application):
         self.application = application
@@ -65,7 +86,11 @@ class RelationshipBook:
             ]
             for statement in statements:
                 connection.execute(statement)
-            ensure_component(connection, "relationships")
+            if ensure_component(connection, "relationships", target=1) == 1:
+                ensure_component(
+                    connection, "relationships",
+                    migrations={1: _migrate_relationships_v1_to_v2},
+                )
 
     @staticmethod
     def decode(row):
