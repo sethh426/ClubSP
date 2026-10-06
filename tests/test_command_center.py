@@ -98,3 +98,46 @@ def test_command_center_is_bounded_and_does_not_mutate_source_states():
     assert (workspace, funding, relationships) == originals
     with pytest.raises(ValueError):
         build_command_center(workspace, funding, relationships, limit=0)
+
+
+def test_command_center_distinguishes_unqualified_and_qualified_buyer_demand():
+    workspace, funding, relationships = fixtures()
+    relationships["daily_focus"] = ["prospect", "qualified"]
+    relationships["relationships"] = [
+        {
+            "id": "prospect", "blocked": False, "paused": False, "due": True, "overdue": False,
+            "follow_up_on": "2026-10-05", "next_action": "Generic old text",
+            "profile": {
+                "name": "Prospect Investor", "company": "Prospect Co", "buyer_id": None,
+                "kind": "investor",
+            },
+            "qualification": None, "saved_drafts": [],
+        },
+        {
+            "id": "qualified", "blocked": False, "paused": False, "due": True, "overdue": False,
+            "follow_up_on": "2026-10-05", "next_action": "Generic old text",
+            "profile": {
+                "name": "Qualified Buyer", "company": "Buyer Co", "buyer_id": "buyer-9",
+                "kind": "investor",
+            },
+            "qualification": {
+                "id": "qualification-9", "mandate_id": "mandate-9",
+                "buyer_id": "buyer-9",
+            },
+            "saved_drafts": [],
+        },
+    ]
+    result = build_command_center(workspace, funding, relationships)
+    rel_items = [item for item in result["items"] if item["id"].startswith("relationship:")]
+    assert [item["kind"] for item in rel_items] == [
+        "buyer_criteria_confirmation", "buyer_criteria_reconfirmation",
+    ]
+    assert "buy box" in rel_items[0]["next_action"]
+    assert rel_items[0]["buyer_id"] is None
+    assert rel_items[1]["buyer_id"] == "buyer-9"
+    assert rel_items[1]["qualification_id"] == "qualification-9"
+    assert rel_items[1]["mandate_id"] == "mandate-9"
+    assert "Reconfirm" in rel_items[1]["next_action"]
+    assert result["summary"]["buyer_criteria_confirmations"] == 1
+    assert result["summary"]["buyer_criteria_reconfirmations"] == 1
+    assert result["summary"]["due_relationships"] == 2
