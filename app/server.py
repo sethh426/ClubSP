@@ -247,6 +247,11 @@ def handler_for(application, gmail, auth=None):
                     self.end_headers()
                     self.wfile.write(body)
                     return
+                elif path == "/api/discovery/snapshot":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.record_discovery_snapshot(data)
                 elif path == "/api/discovery/intake":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
