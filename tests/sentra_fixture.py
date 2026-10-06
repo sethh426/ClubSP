@@ -15,6 +15,12 @@ def seed_sentras(app):
         return original(url,**kwargs)
     meta.fetch_source=acquire
     shadow.fetch_source=acquire
+    try:
+        app._active_source('browser_baseline')
+    except LookupError:
+        pass
+    else:
+        return  # The browser suites restart the server with the same fixture DB.
     sources=[]
     for name in ('baseline','challenger'):
         candidate=SourceCandidate('data_gov','browser-'+name,'Synthetic browser '+name,
