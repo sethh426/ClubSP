@@ -142,3 +142,144 @@ def test_preliminary_buyer_criteria_do_not_claim_funding_or_block_research(notic
     with app.database.session() as (connection, _):
         matches = intake.preliminary_notice_buyers(connection, notice['candidates'][0], 'land')
     assert next(m for m in matches if m['buyer_id'] == buyer['id'])['status'] == 'possible_fit_on_known_fields'
+
+
+def sheriff_resolved_notice():
+    return {
+        "id": "sheriff-resolved-check",
+        "source_id": "sheriff_sales",
+        "name": "Allen County Sheriff mortgage foreclosure sales",
+        "url": "https://www.allencountysheriff.org/2026-sheriff-sales/",
+        "fetched_at": NOW.isoformat(),
+        "status": "scheduled_sales",
+        "content_hash": "synthetic-sheriff-hash",
+        "candidates": [{
+            "address": "100 GIS REVIEW AVE",
+            "city": "Fort Wayne", "state": "IN", "zip": "46805",
+            "cause_number": "02D03-2601-MF-000001",
+            "sale_date": "2026-10-21",
+            "judgment_amount": 90000.0,
+            "minimum_bid": None,
+            "parcel_ids": ["02-00-00-000-001.000-000"],
+            "intake_supported": True,
+            "source_document_url": "https://www.allencountysheriff.org/example.pdf",
+            "identity_note": "Parcel identity resolved against Allen County GIS.",
+            "availability": "Synthetic scheduled sheriff notice.",
+            "parcel_resolution": {
+                "status": "resolved",
+                "pin": "020000000001000000",
+                "gis_id": "02-00-00-000-001.000-000",
+                "official_address": "100 GIS REVIEW AVE",
+                "zip": "46805",
+                "municipality": "FW",
+                "property_class": "1 Family Dwell - Platted Lot",
+                "assessed_total": 185000,
+                "prior_sale_price": 140000,
+                "prior_sale_date": 1640995200000,
+                "year_built": 1955,
+                "legal_acreage": 0.22,
+                "site_address_service": "https://gis.acimap.us/acfw/rest/services/Parcels/SiteAddresses_TrimbleUnity/FeatureServer/0",
+                "parcel_service": "https://gis.acimap.us/acfw/rest/services/Parcels/AC_Parcel_iMap_org/FeatureServer/20",
+                "checked_at": NOW.isoformat(),
+            },
+        }],
+    }
+
+
+def stage_resolved_sheriff(app):
+    notice = sheriff_resolved_notice()
+    with app.database.session(write=True) as (connection, _):
+        connection.execute(
+            "INSERT INTO discovery_checks VALUES(?,?,?,?)",
+            (notice["id"], notice["source_id"], notice["fetched_at"], json.dumps(notice)),
+        )
+    return app.stage_discovery_intake({
+        "check_id": notice["id"], "candidate_index": 0,
+        "parcel_id": notice["candidates"][0]["parcel_ids"][0],
+        "zip": "46805", "property_type": "single_family",
+        "reviewer": "Synthetic reviewer",
+        "note": "Synthetic official GIS identity reviewed",
+        "identity_confirmed": True,
+    })
+
+
+def test_accepted_discovery_property_preserves_saved_official_gis_evidence(tmp_path, monkeypatch):
+    monkeypatch.setattr(intake, "utc_now", lambda: NOW)
+    app = Application(tmp_path / "app.db")
+    staged = stage_resolved_sheriff(app)
+    accepted = app.review_candidate(staged["row_id"], REVIEW)
+    pid = accepted["property_id"]
+    state = app.state()
+    facts = {
+        f["attribute"]: f
+        for f in state["facts"]
+        if str(f["subject_id"]) == pid
+    }
+    assert facts["parcel_id"]["value"] == "02-00-00-000-001.000-000"
+    assert facts["property_type"]["value"] == "single_family"
+    assert facts["official_gis_address"]["value"] == "100 GIS REVIEW AVE"
+    assert facts["property_class"]["value"] == "1 Family Dwell - Platted Lot"
+    assert facts["assessed_total"]["value"] == 185000
+    assert facts["prior_sale_price"]["value"] == 140000
+    assert facts["prior_sale_date"]["value"] == "2022-01-01"
+    assert facts["year_built"]["value"] == 1955
+    assert facts["legal_acreage"]["value"] == 0.22
+    gis_source = next(
+        source for source in state["sources"]
+        if source["id"] == facts["assessed_total"]["source_id"]
+    )
+    assert gis_source["provider"] == "Allen County GIS"
+    assert gis_source["source_type"] == "official_gis"
+    assert "FeatureServer/20" in gis_source["url"]
+    assert not state["deals"]
+
+    before_fact_count = len(state["facts"])
+    before_source_count = len(state["sources"])
+    first = app.refresh_discovery_gis_evidence(staged["row_id"], {})
+    second = app.refresh_discovery_gis_evidence(staged["row_id"], {})
+    assert first["gis_evidence_attributes"] == second["gis_evidence_attributes"]
+    restarted = Application(app.database.path).state()
+    assert len(restarted["facts"]) == before_fact_count
+    assert len(restarted["sources"]) == before_source_count
+    assert not restarted["deals"]
+
+
+def test_gis_backfill_rejects_pending_or_non_discovery_rows(tmp_path, monkeypatch):
+    monkeypatch.setattr(intake, "utc_now", lambda: NOW)
+    app = Application(tmp_path / "app.db")
+    staged = stage_resolved_sheriff(app)
+    with pytest.raises(ValueError, match="accepted"):
+        app.refresh_discovery_gis_evidence(staged["row_id"], {})
+    app.review_candidate(staged["row_id"], REVIEW)
+    with pytest.raises(ValueError, match="editable fields"):
+        app.refresh_discovery_gis_evidence(staged["row_id"], {"forged": True})
+
+
+def test_gis_backfill_http_route_updates_accepted_discovery_row(tmp_path, monkeypatch):
+    from threading import Thread
+    from urllib.request import Request, urlopen
+    from app.server import create_server
+
+    monkeypatch.setattr(intake, "utc_now", lambda: NOW)
+    app = Application(tmp_path / "app.db")
+    staged = stage_resolved_sheriff(app)
+    app.review_candidate(staged["row_id"], REVIEW)
+
+    server = create_server(app.database.path, port=0, application=app)
+    origin = "http://127.0.0.1:" + str(server.server_address[1])
+    worker = Thread(target=server.serve_forever); worker.start()
+    try:
+        request = Request(
+            origin + "/api/sourcing/rows/" + staged["row_id"] + "/refresh-gis",
+            data=b"{}",
+            headers={"Content-Type": "application/json", "Origin": origin},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            saved = json.load(response)
+        assert saved["property_id"]
+        assert "assessed_total" in saved["gis_evidence_attributes"]
+        assert saved["execution_authorized"] is False
+        assert not app.state()["deals"]
+    finally:
+        server.shutdown(); server.server_close(); worker.join()
