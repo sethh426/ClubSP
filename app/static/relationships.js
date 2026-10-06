@@ -71,6 +71,18 @@ function relPermissionReviewForm(record) {
   if (p.permission !== "unknown" || record.blocked) return null;
   const form=relNode("form",undefined,"relationship-form permission-review-form");
   form.append(relNode("p","Review the public business-contact evidence before deciding whether outreach is appropriate. A published email is evidence to review, not automatic consent.","muted small wide"));
+  const evidence = (record.interactions || []).find(item => (item.note || "").startsWith("Public contact evidence packet:"));
+  if (evidence) {
+    const packet=relNode("section",undefined,"history-entry wide");
+    packet.append(
+      relNode("strong","Recorded public-contact evidence"),
+      relNode("p",evidence.note.replace(/^Public contact evidence packet:\s*/,""),"small"),
+      relNode("p","Evidence reference: "+evidence.evidence_reference,"muted small")
+    );
+    form.append(packet);
+  } else {
+    form.append(relNode("p","No recorded evidence packet yet; use the source link below and document what you reviewed.","relationship-blocked small wide"));
+  }
   const source=relNode("a","Open recorded public source");source.href=p.source_reference;source.target="_blank";source.rel="noopener noreferrer";form.append(source);
   relSelect(form,"decision","Permission decision",[["allow_outreach","Allow reviewed business outreach"],["block_outreach","Do not contact"]],"allow_outreach");
   relField(form,"evidence_reference","Permission evidence reference",p.source_reference || "","text",true,500);

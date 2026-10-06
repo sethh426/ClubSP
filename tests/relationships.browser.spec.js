@@ -98,6 +98,19 @@ test("unknown investor permission requires explicit owner review before criteria
   }});
   expect(created.ok(),await created.text()).toBeTruthy();
   const saved=await created.json();
+  const evidence=await request.post(`/api/relationships/${saved.relationship_id}/interactions`,{data:{
+    request_key:crypto.randomUUID(),
+    profile_id:saved.id,
+    event_id:"",
+    direction:"note",
+    outcome:"general",
+    occurred_on:before.today,
+    evidence_reference:"https://example.test/public-contact",
+    note:"Public contact evidence packet: Synthetic business-contact page publishes the reviewed business email. Evidence packet only; owner permission decision still required.",
+    follow_up_on:before.today,
+    next_action:"Review contact permission"
+  }});
+  expect(evidence.ok(),await evidence.text()).toBeTruthy();
 
   await page.goto("/relationships");
   const card=page.locator(`[data-relationship-id="${saved.relationship_id}"]`);
@@ -107,6 +120,9 @@ test("unknown investor permission requires explicit owner review before criteria
 
   await card.getByText("Review contact permission",{exact:true}).click();
   const form=card.locator(".permission-review-form");
+  await expect(form.getByText("Recorded public-contact evidence",{exact:true})).toBeVisible();
+  await expect(form).toContainText("Synthetic business-contact page publishes the reviewed business email.");
+  await expect(form).toContainText("Evidence reference: https://example.test/public-contact");
   await expect(form.getByText("Open recorded public source",{exact:true})).toHaveAttribute("href","https://example.test/public-contact");
   await form.locator('[name="decision"]').selectOption("allow_outreach");
   await form.locator('[name="review_note"]').fill("Synthetic owner review of public business-contact source and recipient identity.");
