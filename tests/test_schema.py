@@ -81,3 +81,42 @@ def test_unknown_component_rejected():
     connection = sqlite3.connect(":memory:")
     with pytest.raises(ValueError, match="Unknown"):
         assert_component_compatible(connection, "not-a-component")
+
+
+def test_relationships_v1_upgrades_to_v2_without_reinitializing_data(tmp_path):
+    path = tmp_path / "clubsp.db"
+    app = Application(path)
+    book = RelationshipBook(app)
+    book.save({
+        "request_key": "11111111-1111-4111-8111-111111111111",
+        "name": "Existing investor",
+        "company": "Existing Co",
+        "email": "existing@example.test",
+        "kind": "investor",
+        "status": "prospect",
+        "needs": "Preserve me",
+        "source_reference": "synthetic-v1",
+        "permission": "unknown",
+        "permission_reference": "",
+        "next_action": "Follow up",
+        "owner": "Owner",
+        "markets": ["Fort Wayne, IN"],
+        "buyer_id": "",
+        "follow_up_on": "",
+    })
+    with app.database.session(write=True) as (connection, _):
+        connection.execute("DROP TABLE relationship_buyer_qualifications")
+        connection.execute(
+            "UPDATE clubsp_schema_versions SET version=1 WHERE component='relationships'"
+        )
+
+    restarted = Application(path)
+    state = RelationshipBook(restarted).state()
+    assert state["summary"]["total"] == 1
+    assert state["relationships"][0]["profile"]["name"] == "Existing investor"
+    with restarted.database.session() as (connection, _):
+        assert component_version(connection, "relationships") == 2
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='relationship_buyer_qualifications'"
+        ).fetchone()
+        assert exists
