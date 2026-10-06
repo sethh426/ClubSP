@@ -179,6 +179,89 @@ def parse_sheriff_sales(body, now):
     return {'status': status, 'candidates': candidates, 'excerpt': excerpt}
 
 
+
+def sheriff_research_priority(candidate, now):
+    """Rank reviewability/urgency only; never estimate value, bid price or profit."""
+    score, reasons = 0, []
+    resolution = candidate.get("parcel_resolution") or {}
+    if resolution.get("status") == "resolved" and candidate.get("parcel_ids"):
+        score += 25; reasons.append("Official Allen County parcel identity is resolved")
+    if candidate.get("intake_supported") and not candidate.get("intake_blockers"):
+        score += 20; reasons.append("No current identity/intake blocker is recorded")
+    if resolution.get("property_class"):
+        score += 10; reasons.append("Official assessor property class is available")
+    if resolution.get("assessed_total") is not None:
+        score += 10; reasons.append("Official assessed-total field is available for research context")
+    if resolution.get("year_built"):
+        score += 5; reasons.append("Official year-built field is available")
+    if resolution.get("prior_sale_price") is not None or resolution.get("prior_sale_date") is not None:
+        score += 5; reasons.append("Official prior-sale history has at least one recorded field")
+    if candidate.get("source_document_url"):
+        score += 5; reasons.append("Official monthly sheriff-sale document is linked")
+
+    urgency = 0
+    sale_date = candidate.get("sale_date")
+    if sale_date:
+        try:
+            days = (datetime.fromisoformat(sale_date).date() - now.astimezone(
+                ZoneInfo("America/Indiana/Indianapolis")
+            ).date()).days
+        except ValueError:
+            days = None
+        if days is not None and days >= 0:
+            if days <= 7:
+                urgency = 20
+            elif days <= 14:
+                urgency = 15
+            elif days <= 30:
+                urgency = 10
+            else:
+                urgency = 5
+            score += urgency
+            reasons.append(f"Sheriff-sale review deadline is {days} day(s) away")
+
+    score = min(score, 100)
+    if score >= 75:
+        label = "review_now"
+    elif score >= 50:
+        label = "research_next"
+    else:
+        label = "needs_identity_or_data"
+    return {
+        "score": score,
+        "label": label,
+        "reasons": reasons,
+        "limitations": [
+            "This is a research-readiness and deadline score, not a deal-quality or profit score.",
+            "Judgment amount is not treated as purchase price or opening bid.",
+            "Assessed value and prior-sale history are context fields, not market value or ARV.",
+            "Title, occupancy, condition, repairs, sale status, actual bid terms and buyer demand still require review.",
+        ],
+        "economics_inferred": False,
+        "urgency_points": urgency,
+    }
+
+
+def rank_sheriff_research(candidates, now):
+    ranked = []
+    for index, candidate in enumerate(candidates):
+        priority = sheriff_research_priority(candidate, now)
+        candidate["research_priority"] = priority
+        ranked.append((priority["score"], candidate.get("sale_date") or "9999-12-31",
+                       candidate.get("address") or "", index))
+    ranked.sort(key=lambda item: (-item[0], item[1], item[2].casefold(), item[3]))
+    for rank, (_, _, _, index) in enumerate(ranked, start=1):
+        candidates[index]["research_priority"]["rank"] = rank
+    return {
+        "review_now": sum(c["research_priority"]["label"] == "review_now" for c in candidates),
+        "research_next": sum(c["research_priority"]["label"] == "research_next" for c in candidates),
+        "needs_identity_or_data": sum(
+            c["research_priority"]["label"] == "needs_identity_or_data" for c in candidates
+        ),
+        "candidate_count": len(candidates),
+        "score_scope": "Research readiness and deadline urgency only; no profit or acquisition-price inference.",
+    }
+
 def parse_notice(source_id, body, now):
     if source_id == 'sheriff_sales':
         return parse_sheriff_sales(body, now)
@@ -394,5 +477,7 @@ class DiscoveryMixin(DiscoveryIntakeMixin):
                         if candidate.get('bid_end') and now >= datetime.fromisoformat(candidate['bid_end']):
                             candidate['review_gaps'].append('Advertised bid period has ended; current availability is unverified.')
                     candidate['buyer_criteria'] = preliminary_notice_buyers(connection, candidate)
+                if item['source_id'] == 'sheriff_sales':
+                    item['research_priority_summary'] = rank_sheriff_research(item['candidates'], now)
                 checks.append(item)
             return {'sources': checks, 'automatic_checks': False, 'creates_deals': False}
