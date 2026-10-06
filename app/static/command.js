@@ -19,6 +19,8 @@ function renderSummary(summary) {
     ["Owner-review deals", summary.owner_review_deals],
     ["Deal actions", summary.deal_actions],
     ["Due relationships", summary.due_relationships],
+    ["Buyer criteria to confirm", summary.buyer_criteria_confirmations || 0],
+    ["Buyer criteria to reconfirm", summary.buyer_criteria_reconfirmations || 0],
     ["Buyer-matched candidates", summary.buyer_matched_candidates],
   ].forEach(([label,value]) => {
     const card=commandNode("article"); card.append(commandNode("span",label),commandNode("strong",String(value))); box.append(card);
