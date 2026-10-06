@@ -352,3 +352,29 @@ def test_buyer_qualification_request_key_cannot_change_payload(tmp_path):
     book.qualify_buyer(row["id"], data)
     with pytest.raises(ValueError, match="different buyer qualification"):
         book.qualify_buyer(row["id"], {**data, "max_total_price": 190000})
+
+
+def test_generated_investor_draft_collects_qualification_ready_buy_box_fields(tmp_path):
+    _, book = setup(tmp_path)
+    book.save(profile(
+        permission="owner_reviewed",
+        permission_reference="synthetic-owner-review",
+        markets=["Fort Wayne, IN", "Allen County, IN"],
+    ))
+    row = current(book)
+    draft = row["draft"]
+    assert draft["subject"] == "Your current buying priorities"
+    body = draft["body"].lower()
+    for phrase in (
+        "areas or neighborhoods",
+        "property types",
+        "assignment deals",
+        "maximum purchase price",
+        "repair tolerance",
+        "fund purchases",
+        "closing window",
+    ):
+        assert phrase in body
+    assert "avoid sending you deals that do not fit" in body
+    assert "no further contact" in body
+    assert draft["sending_enabled"] is False
