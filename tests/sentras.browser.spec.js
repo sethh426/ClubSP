@@ -1,4 +1,25 @@
 const { test, expect } = require('@playwright/test');
+test('representative handoff saves a draft and downloads a self-contained packet',async({page})=>{
+  await page.goto('/sentras');
+  await page.getByRole('button',{name:'Build acquisition shortlist',exact:true}).click();
+  await expect(page.locator('#brief-result')).toContainText('123 Example Rd');
+  await page.getByLabel('Intended client or buyer').fill('Browser Client LLC');
+  await page.getByLabel('Proposed representative company').fill('Browser Brokerage');
+  await page.getByLabel('Representative business contact (optional)').fill('office@example.test');
+  await page.getByRole('button',{name:'Prepare representative handoff',exact:true}).click();
+  await expect(page.locator('#handoff-result')).toContainText('Representation is not established');
+  await page.locator('#handoff-result summary').click();
+  await expect(page.locator('#handoff-result pre')).toContainText('$113,000.00');
+  await expect(page.locator('#handoff-result pre')).toContainText('not a representation agreement');
+  const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Download handoff packet',exact:true}).click()]);
+  expect(download.suggestedFilename()).toMatch(/^clubsp-handoff-.*\.txt$/);
+  const fs=require('fs'); const text=fs.readFileSync(await download.path(),'utf8');
+  expect(text).toContain('Browser Client LLC'); expect(text).toContain('Browser Brokerage'); expect(text).toContain('DRAFT / NOT SENT');
+  await page.reload();
+  await expect(page.locator('#handoff-result')).toContainText('Browser Brokerage');
+  const dimensions=await page.evaluate(()=>({width:innerWidth,content:document.documentElement.scrollWidth}));
+  expect(dimensions.content).toBeLessThanOrEqual(dimensions.width+1);
+});
 test('one-button acquisition brief persists real backend screening and evidence',async({page})=>{
   await page.goto('/sentras');
   await expect(page.getByLabel('Maximum asking price ($)')).not.toBeVisible();

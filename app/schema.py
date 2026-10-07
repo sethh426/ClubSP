@@ -18,6 +18,7 @@ COMPONENT_VERSIONS = {
     "shadow_intelligence": 1,
     "property_assistant": 1,
     "acquisition_briefs": 1,
+    "representative_handoffs": 1,
 }
 
 

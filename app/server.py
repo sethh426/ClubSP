@@ -147,6 +147,21 @@ def handler_for(application, gmail, auth=None):
                 self.send_json(200, application.property_watches())
             elif path == "/api/sentras/briefs":
                 self.send_json(200, application.acquisition_brief_history())
+            elif path == "/api/sentras/handoffs":
+                try:
+                    self.send_json(200, application.representative_handoff_history())
+                except ValueError as error:
+                    self.send_json(409, {"error": str(error)})
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path.startswith("/api/sentras/handoffs/"):
+                try:
+                    handoff_id = path.rsplit("/", 1)[-1]
+                    self.send_json(200, application.representative_handoff_export(handoff_id))
+                except LookupError as error:
+                    self.send_json(404, {"error": str(error)})
+                except ValueError as error:
+                    self.send_json(409, {"error": str(error)})
             elif path == "/api/sentras/evidence":
                 try:
                     self.send_json(200, application.evidence_state())
@@ -299,6 +314,11 @@ def handler_for(application, gmail, auth=None):
                         self.send_json(403, {"error": "A matching Origin is required"})
                         return
                     result = application.build_acquisition_brief(data)
+                elif path == "/api/sentras/handoffs/prepare":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.prepare_representative_handoff(data)
                 elif path in {"/api/sentras/shadow/experiment", "/api/sentras/shadow/trial", "/api/sentras/shadow/review"}:
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})

@@ -12,6 +12,7 @@ function briefLine(parent, text, tag='p') {
   const element = document.createElement(tag); element.textContent = text; parent.append(element); return element;
 }
 function renderBrief(brief) {
+  prepareHandoffForm(brief);
   const target = $('brief-result'); target.replaceChildren();
   const result = brief.result, assumptions = brief.criteria;
   if (brief.status === 'running') {briefLine(target, 'Build in progress. Reload saved briefs shortly.'); return;}
@@ -68,6 +69,61 @@ $('brief-build').addEventListener('submit', async event => {
   finally {briefBusy=false; $('brief-button').disabled=false;}
 });
 loadBriefs(true).catch(error=>{$('brief-status').textContent=error.message;});
+let handoffBriefId=null, handoffBusy=false, handoffKey=null, handoffBody=null;
+function prepareHandoffForm(brief) {
+  handoffBriefId=brief.id; $('handoff-properties').replaceChildren();
+  const cards=brief.result.cards || []; $('handoff-form').hidden=!cards.length;
+  $('handoff-help').textContent=cards.length ? `Choose properties from the displayed brief saved ${new Date(brief.completed_at).toLocaleString()}. Client identity and representative engagement remain unverified.` : 'A completed brief with property cards is needed for a handoff.';
+  cards.forEach((card,index)=>{
+    const label=document.createElement('label'), input=document.createElement('input');
+    input.type='checkbox'; input.name='card_index'; input.value=String(index); input.checked=card.screen==='meets_assumed_yield';
+    label.append(input,document.createTextNode(`${card.listing.address} · ${card.screen==='meets_assumed_yield' ? 'Meets assumed yield' : card.screen==='below_assumed_yield' ? 'Below assumed yield — review only' : 'Missing rent evidence'}`));
+    $('handoff-properties').append(label);
+  });
+}
+async function showHandoff(handoff) {
+  const exported=await api(`/api/sentras/handoffs/${encodeURIComponent(handoff.id)}`);
+  const target=$('handoff-result'); target.replaceChildren();
+  briefLine(target, 'Draft saved — not sent. Representation is not established.', 'h3');
+  briefLine(target, `${handoff.snapshot.client_name} → ${handoff.snapshot.representative_company}`);
+  const details=document.createElement('details'); briefLine(details,'Preview handoff packet','summary');
+  const pre=document.createElement('pre'); pre.textContent=exported.text; details.append(pre); target.append(details);
+  const download=document.createElement('button'); download.type='button'; download.className='button'; download.textContent='Download handoff packet';
+  download.addEventListener('click',()=>{
+    const url=URL.createObjectURL(new Blob([exported.text],{type:'text/plain;charset=utf-8'}));
+    const anchor=document.createElement('a'); anchor.href=url; anchor.download=exported.filename;
+    document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }); target.append(download);
+}
+async function loadHandoffs(restore=false) {
+  const state=await api('/api/sentras/handoffs'); $('handoff-history').replaceChildren();
+  for(const handoff of state.handoffs) {
+    const button=document.createElement('button'); button.type='button'; button.className='button';
+    button.textContent=`${handoff.snapshot.representative_company} · ${new Date(handoff.created_at).toLocaleString()} · Draft not sent`;
+    button.addEventListener('click',()=>showHandoff(handoff).catch(error=>{$('handoff-status').textContent=error.message;}));
+    $('handoff-history').append(button);
+  }
+  if(restore && state.handoffs.length) {
+    await showHandoff(state.handoffs[0]);
+    for(const key of ['client_name','representative_company','representative_contact','notes']) {
+      const field=$('handoff-form').elements.namedItem(key); if(!field.value) field.value=state.handoffs[0].snapshot[key];
+    }
+  }
+}
+$('handoff-form').addEventListener('submit',async event=>{
+  event.preventDefault(); if(handoffBusy || !handoffBriefId)return;
+  handoffBusy=true; $('handoff-button').disabled=true; $('handoff-status').textContent='Preparing the saved research handoff…';
+  try {
+    const form=new FormData(event.target);
+    const data={brief_id:handoffBriefId,client_name:form.get('client_name'),representative_company:form.get('representative_company'),representative_contact:form.get('representative_contact'),notes:form.get('notes'),card_indices:form.getAll('card_index').map(Number)};
+    const body=JSON.stringify(data); if(!handoffKey || handoffBody!==body){handoffKey=crypto.randomUUID();handoffBody=body;}
+    const handoff=await api('/api/sentras/handoffs/prepare',{...data,request_key:handoffKey});
+    await showHandoff(handoff); await loadHandoffs();
+    $('handoff-status').textContent='Private draft ready. Download or review it; no message or offer was sent.';
+  } catch(error){$('handoff-status').textContent=error.message;}
+  finally {handoffBusy=false; $('handoff-button').disabled=false;}
+});
+loadHandoffs(true).catch(error=>{$('handoff-status').textContent=error.message;});
 async function reload() {
   const [state, meta, temporal, shadow] = await Promise.all([api('/api/sentras/evidence'), api('/api/sentras/meta?limit=100'), api('/api/sentras/temporal'), api('/api/sentras/shadow')]);
   $('readiness').textContent = `Data.gov: ${meta.provider_readiness.data_gov}. Active sources: ${meta.summary.active}. Awaiting review: ${meta.summary.quarantined + meta.summary.proposed}.`;
