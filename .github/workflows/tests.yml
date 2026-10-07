@@ -53,6 +53,7 @@ jobs:
       - run: node --check app/static/command.js
       - run: node --check app/static/funding.js
       - run: node --check app/static/relationships.js
+      - run: node --check app/static/sentras.js
       - run: npx playwright test
       - run: npx playwright test -c playwright.funding.config.js
       - run: npx playwright test -c playwright.economics.config.js
@@ -63,3 +64,18 @@ jobs:
           name: browser-results
           path: test-results/
           retention-days: 7
+  meta-live:
+    if: github.head_ref == 'sentras-foundation-20261006' || github.head_ref == 'operation-spike-1-20261006'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Check live public catalogs and ArcGIS schema
+        run: python -m app.meta_sentry_check --live
+      - name: Check live evidence compiler in disposable storage
+        if: github.head_ref == 'operation-spike-1-20261006'
+        run: python -m app.evidence_check
