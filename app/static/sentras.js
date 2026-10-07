@@ -67,12 +67,25 @@ function renderBrief(brief) {
   const result = brief.result, assumptions = brief.criteria;
   if (brief.status === 'running') {briefLine(target, 'Build in progress. Reload saved briefs shortly.'); return;}
   briefLine(target, `Saved ${new Date(brief.completed_at).toLocaleString()} · ${result.cards.length} candidates · ${brief.status}`);
+  const reviewCount = result.cards.filter(card => card.decision?.status === 'review_candidate').length;
+  briefLine(target, `${reviewCount} of ${result.cards.length} properties fit the assumed price and yield target for representative review. Buyer demand and representation still need confirmation.`, 'h3');
   briefLine(target, `Assumptions: price ≤ ${briefMoney(assumptions.max_price)}, ${assumptions.min_beds}+ bedrooms; ${briefMoney(assumptions.repair_reserve)} repairs; closing ${assumptions.closing_pct}%, vacancy ${assumptions.vacancy_pct}%, expenses ${assumptions.expense_pct}%, yield target ${assumptions.min_yield_pct}%.`);
   for (const card of result.cards) {
     const article = document.createElement('article'); article.className = 'property-card';
     const listing = card.listing, rent = card.rent_estimate, model = card.economics;
     briefLine(article, `${listing.address}, ${listing.city}, ${listing.state} ${listing.zip}`, 'h3');
     briefLine(article, `Asking ${briefMoney(listing.asking_price)} · ${listing.bedrooms} beds · ${listing.bathrooms ?? 'Unknown'} baths · ${listing.squareFootage ?? 'Unknown'} sq ft`);
+    if (card.decision) {
+      const decision = card.decision, panel = document.createElement('div'); panel.className='decision-panel';
+      briefLine(panel, decision.label, 'h4');
+      if (decision.price_ceiling !== null) {
+        briefLine(panel, `Assumption-based asking-price ceiling: ${briefMoney(decision.price_ceiling)}`);
+        briefLine(panel, `Required price reduction: ${briefMoney(decision.required_price_reduction)}`);
+      }
+      if (decision.monthly_operating_income !== null) briefLine(panel, `Assumed monthly operating income: ${briefMoney(decision.monthly_operating_income)} before debt and income tax.`);
+      briefLine(panel, decision.next_step);
+      briefLine(panel, decision.basis).className='muted small'; article.append(panel);
+    }
     briefLine(article, rent ? `Provider rent estimate ${briefMoney(rent.estimate)}/month; range ${briefMoney(rent.range_low)}–${briefMoney(rent.range_high)}. Screening uses the lower range.` : 'Rent evidence unavailable. Economics cannot be calculated.');
     briefLine(article, model ? `Assumed cash basis ${briefMoney(model.cash_basis)} · annual operating income ${briefMoney(model.annual_operating_income)} · operating yield ${model.yield_pct}% · ${card.screen === 'meets_assumed_yield' ? 'Meets assumed yield target' : 'Below assumed yield target'}` : 'Needs rent evidence');
     briefLine(article, 'Operator checks before an offer', 'h4');
@@ -126,8 +139,8 @@ function prepareHandoffForm(brief) {
   $('handoff-help').textContent=cards.length ? `Choose properties from the displayed brief saved ${new Date(brief.completed_at).toLocaleString()}. Client identity and representative engagement remain unverified.` : 'A completed brief with property cards is needed for a handoff.';
   cards.forEach((card,index)=>{
     const label=document.createElement('label'), input=document.createElement('input');
-    input.type='checkbox'; input.name='card_index'; input.value=String(index); input.checked=card.screen==='meets_assumed_yield';
-    label.append(input,document.createTextNode(`${card.listing.address} · ${card.screen==='meets_assumed_yield' ? 'Meets assumed yield' : card.screen==='below_assumed_yield' ? 'Below assumed yield — review only' : 'Missing rent evidence'}`));
+    input.type='checkbox'; input.name='card_index'; input.value=String(index); input.checked=card.decision?.status==='review_candidate';
+    label.append(input,document.createTextNode(`${card.listing.address} · ${card.decision?.label || 'Review evidence'}`));
     $('handoff-properties').append(label);
   });
 }

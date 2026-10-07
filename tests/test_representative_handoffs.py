@@ -34,7 +34,8 @@ def test_saved_draft_exports_known_economics_and_preserves_limits(app, brief):
     assert handoff["representation_established"] is handoff["external_actions"] is False
     exported = app.representative_handoff_export(handoff["id"])
     for text in ("DRAFT / NOT SENT", "Example Client LLC", "Example Brokerage", "$113,000.00",
-                 "6.84%", "not a representation agreement", "SOURCE REFERENCES", "Debt, income tax"):
+                 "6.84%", "not a representation agreement", "SOURCE REFERENCES", "Debt, income tax",
+                 "asking-price ceiling: $140,349", "required price reduction: $0", "Not an offer"):
         assert text in exported["text"]
     assert "/api/" not in exported["text"] and "synthetic-test-key" not in exported["text"]
     assert app.acquisition_brief_history()["briefs"][0]["id"] == brief["id"]
