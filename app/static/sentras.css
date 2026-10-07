@@ -1,0 +1,15 @@
+main {max-width: 1100px;}
+.property-card {border-top:1px solid var(--border);padding:18px 0;overflow-wrap:anywhere;}
+.property-card a {display:inline-block;margin-bottom:12px;}
+.property-card textarea {width:100%;min-height:180px;margin-top:12px;}
+#quick-find {font-size:18px;padding:16px 24px;}
+pre {white-space: pre-wrap; overflow-wrap: anywhere; max-height: 450px; overflow: auto; font-size: 12px; background: #101622; padding: 16px; border-radius: 8px;}
+summary {cursor: pointer; overflow-wrap: anywhere; padding: 8px 0;}
+details {margin-bottom: 16px; min-width: 0;}
+form {margin: 16px 0;}
+fieldset {min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 16px;}
+select {max-width: 100%;}
+label:has(input[type=checkbox]) {display: flex; gap: 8px; align-items: flex-start;}
+input[type=checkbox] {width: auto; flex: none; margin-top: 5px;}
+#source-candidates > details {border-top: 1px solid var(--border); padding-top: 12px;}
+@media (max-width: 700px) {.two-columns {grid-template-columns: minmax(0, 1fr);} .button {max-width: 100%; white-space: normal;}}
