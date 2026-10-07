@@ -50,10 +50,19 @@ test('representative handoff saves a draft and downloads a self-contained packet
 test('one-button acquisition brief persists real backend screening and evidence',async({page})=>{
   await page.goto('/sentras');
   await expect(page.getByLabel('Maximum asking price ($)')).not.toBeVisible();
+  await expect(page.locator('#automation-status')).not.toContainText('Loading');
+  await page.getByText('Buying criteria and cost assumptions',{exact:true}).click();
+  await page.getByLabel('Maximum asking price ($)').fill('150000');
+  await page.getByLabel('Minimum operating yield (%)').fill('5');
+  await page.getByText('Buying criteria and cost assumptions',{exact:true}).click();
   await page.getByRole('button',{name:'Build acquisition shortlist',exact:true}).click();
   await expect(page.locator('#brief-result')).toContainText('123 Example Rd');
   await expect(page.locator('#brief-result')).toContainText('$113,000');
   await expect(page.locator('#brief-result')).toContainText('6.84%');
+  await expect(page.locator('#brief-result')).toContainText('Candidate for representative review');
+  await expect(page.locator('#brief-result')).toContainText('asking-price ceiling: $140,349');
+  await expect(page.locator('#brief-result')).toContainText('Required price reduction: $0');
+  await expect(page.locator('#brief-result')).toContainText('1 of 1 properties fit');
   await expect(page.locator('#brief-result')).toContainText('not verified buyer demand');
   await expect(page.locator('#brief-result a').first()).toHaveAttribute('href',/\/api\/sentras\/runs\//);
   await expect(page.getByRole('button',{name:'Copy operator brief'})).toBeVisible();
@@ -61,6 +70,13 @@ test('one-button acquisition brief persists real backend screening and evidence'
   await expect(page.locator('#brief-result')).toContainText('123 Example Rd');
   await page.getByRole('button',{name:'Build acquisition shortlist',exact:true}).click();
   await expect(page.locator('#brief-status')).toContainText('no new provider requests');
+  await page.getByText('Buying criteria and cost assumptions',{exact:true}).click();
+  await page.getByLabel('Minimum operating yield (%)').fill('8');
+  await page.getByRole('button',{name:'Build acquisition shortlist',exact:true}).click();
+  await expect(page.locator('#brief-result')).toContainText('Needs a lower price');
+  await expect(page.locator('#brief-result')).toContainText('asking-price ceiling: $84,077');
+  await expect(page.locator('#brief-result')).toContainText('Required price reduction: $15,923');
+  await expect(page.locator('#handoff-properties input')).not.toBeChecked();
   const dimensions=await page.evaluate(()=>({width:innerWidth,content:document.documentElement.scrollWidth}));
   expect(dimensions.content).toBeLessThanOrEqual(dimensions.width+1);
 });

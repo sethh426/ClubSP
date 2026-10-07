@@ -35,6 +35,34 @@ def economics(price, rent, assumptions):
             "yield_pct": round(operating / basis * 100, 2)}
 
 
+def decision(card, assumptions):
+    """Explain an existing screen without treating it as demand or an offer."""
+    model = card.get("economics")
+    price = card["listing"]["asking_price"]
+    target = assumptions["min_yield_pct"]
+    result = {"price_ceiling": None, "required_price_reduction": None,
+              "monthly_operating_income": None,
+              "basis": "Assumption-based asking-price ceiling, rounded down to whole dollars and capped by your budget. Not an offer, market valuation or verified buyer match."}
+    if model is None:
+        return {**result, "status": "needs_evidence", "label": "Rent evidence needed",
+                "next_step": "Obtain rent evidence before deciding whether this property fits the target."}
+    result["monthly_operating_income"] = round(model["annual_operating_income"] / 12, 2)
+    if target == 0:
+        return {**result, "status": "needs_target", "label": "Set a positive yield target",
+                "next_step": "Choose a positive operating yield target to calculate a price ceiling."}
+    ceiling = (model["annual_operating_income"] / (target / 100) - assumptions["repair_reserve"]) / (1 + assumptions["closing_pct"] / 100)
+    result["price_ceiling"] = max(0, math.floor(min(ceiling, assumptions["max_price"])))
+    result["required_price_reduction"] = max(0, math.ceil(price - result["price_ceiling"]))
+    if ceiling <= 0:
+        return {**result, "status": "does_not_fit", "label": "Does not fit these assumptions",
+                "next_step": "The repair reserve alone consumes the supported cash basis. Recheck costs and rent or skip this property."}
+    if result["required_price_reduction"]:
+        return {**result, "status": "needs_lower_price", "label": "Needs a lower price",
+                "next_step": "Have the representative verify rent and repair costs, then assess whether the price gap is realistic."}
+    return {**result, "status": "review_candidate", "label": "Candidate for representative review",
+            "next_step": "Include in a representative review draft; confirm the buyer's criteria, availability and actual costs before any offer."}
+
+
 class AcquisitionBriefMixin:
     def _initialize_acquisition_briefs(self):
         with self.database.session(write=True) as (connection, _):
@@ -48,9 +76,14 @@ class AcquisitionBriefMixin:
 
     @staticmethod
     def _brief_record(row):
+        assumptions = json.loads(row["criteria_json"])
+        result = json.loads(row["result_json"])
+        # Enrich saved briefs too, without another provider request or a schema migration.
+        for card in result.get("cards", []):
+            card["decision"] = decision(card, assumptions)
         return {"id": row["id"], "status": row["status"], "criteria": json.loads(row["criteria_json"]),
                 "started_at": row["started_at"], "completed_at": row["completed_at"],
-                "result": json.loads(row["result_json"])}
+                "result": result}
 
     def acquisition_brief_history(self):
         with self.database.session() as (connection, _):

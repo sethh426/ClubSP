@@ -103,9 +103,10 @@ def test_cached_evidence_can_prepare_draft_at_monthly_limit(app, monkeypatch):
     assert app.acquisition_automation_cycle()["result"]["handoff_status"] == "draft_not_sent"
 
 
-def test_no_qualifying_cards_never_packet(app):
+@pytest.mark.parametrize("target", [50, 6.84, 0])
+def test_no_qualifying_cards_never_packet(app, target):
     app._sentra_transport = transport([])
-    app.save_acquisition_automation(settings(criteria={"min_yield_pct": 50}))
+    app.save_acquisition_automation(settings(criteria={"min_yield_pct": target}))
     assert app.acquisition_automation_cycle()["result"]["handoff_status"] == "no_qualifying_cards"
     assert not app.representative_handoff_history()["handoffs"]
 

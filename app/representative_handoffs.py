@@ -103,6 +103,8 @@ class RepresentativeHandoffMixin:
                     gaps.append(f"{card['listing']['address']}: missing rent evidence; economics remain unscored.")
                 elif card.get("screen") == "below_assumed_yield":
                     gaps.append(f"{card['listing']['address']}: below the assumed yield target; included for review, not as a qualifying match.")
+                if card["decision"]["status"] != "review_candidate":
+                    gaps.append(f"{card['listing']['address']}: {card['decision']['label']}. {card['decision']['next_step']}")
             snapshot = {"client_name": body["client_name"], "representative_company": body["representative_company"],
                         "representative_contact": body["representative_contact"], "notes": body["notes"],
                         "brief_completed_at": brief["completed_at"], "criteria": brief["criteria"], "cards": selected,
@@ -145,6 +147,12 @@ class RepresentativeHandoffMixin:
             lines.append(f"Provider monthly rent estimate: ${rent['estimate']:,.2f}; range ${rent['range_low']:,.2f}–${rent['range_high']:,.2f}" if rent else "Rent estimate unavailable; economics unscored.")
             if model:
                 lines.append(f"Assumed cash basis: ${model['cash_basis']:,.2f}; annual operating income: ${model['annual_operating_income']:,.2f}; operating yield: {model['yield_pct']}%")
+            decision = card.get("decision")
+            if decision:
+                lines.append(f"Decision: {decision['label']}")
+                if decision["price_ceiling"] is not None:
+                    lines.append(f"Assumption-based asking-price ceiling: ${decision['price_ceiling']:,.0f}; required price reduction: ${decision['required_price_reduction']:,.0f}")
+                lines.extend([decision["next_step"], decision["basis"]])
             lines.extend(card.get("next_actions", []))
         lines.extend(["", "REQUESTED WORK AFTER REPRESENTATION IS AGREED", *snap["requested_tasks"],
                       "", "OPEN ITEMS", *snap["open_items"], *snap["warnings"], "", "RESEARCH LIMITS",

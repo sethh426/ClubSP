@@ -8,7 +8,7 @@ from urllib.request import Request, urlopen
 import httpx
 import pytest
 
-from app.acquisition_briefs import DEFAULTS, criteria, economics
+from app.acquisition_briefs import DEFAULTS, criteria, decision, economics
 from app.service import Application
 from app.server import create_server
 
@@ -41,6 +41,51 @@ def transport(calls, *, listing=None, bad_identity=False, fail_rent=False):
 def test_math_has_known_cash_basis_and_lower_range_yield():
     assert economics(100000, 1000, DEFAULTS) == {"cash_basis": 113000, "annual_operating_income": 7728,
                                                 "yield_pct": 6.84}
+
+
+@pytest.mark.parametrize("target,status,ceiling,reduction", [
+    (5, "review_candidate", 140349, 0),
+    (8, "needs_lower_price", 84077, 15923),
+    (6.84, "needs_lower_price", 99982, 18),
+    (0, "needs_target", None, None),
+])
+def test_decision_solves_target_price_without_using_rounded_display_yield(target, status, ceiling, reduction):
+    assumptions = criteria({"min_yield_pct": target})
+    card = {"listing": {"asking_price": 100000}, "economics": economics(100000, 1000, assumptions)}
+    result = decision(card, assumptions)
+    assert result["status"] == status
+    assert result["price_ceiling"] == ceiling
+    assert result["required_price_reduction"] == reduction
+    assert result["monthly_operating_income"] == 644
+    if ceiling:
+        basis = ceiling * 1.03 + 10000
+        assert 7728 / basis * 100 >= target
+
+
+def test_price_ceiling_is_budget_capped_and_impossible_costs_are_explicit():
+    card = {"listing": {"asking_price": 100000}, "economics": economics(100000, 1000, DEFAULTS)}
+    result = decision(card, criteria({"max_price": 120000}))
+    assert result["price_ceiling"] == 120000
+    result = decision(card, criteria({"repair_reserve": 200000}))
+    assert result["status"] == "does_not_fit" and result["price_ceiling"] == 0
+    card["economics"] = None
+    result = decision(card, DEFAULTS)
+    assert result["status"] == "needs_evidence" and result["price_ceiling"] is None
+
+
+def test_saved_legacy_brief_gets_decisions_without_another_provider_call(app):
+    calls = []
+    app._sentra_transport = transport(calls)
+    brief = app.build_acquisition_brief({})
+    assert brief["result"]["cards"][0]["decision"]["price_ceiling"] == 140349
+    with app.database.session() as (connection, _):
+        stored = json.loads(connection.execute("SELECT result_json FROM acquisition_briefs WHERE id=?", (brief["id"],)).fetchone()[0])
+    assert "decision" not in stored["cards"][0]
+    restarted = Application(app.database.path)
+    restored = restarted.build_acquisition_brief({})
+    assert restored["reused"] is True
+    assert restored["result"]["cards"][0]["decision"] == brief["result"]["cards"][0]["decision"]
+    assert len(calls) == 2
 
 
 @pytest.mark.parametrize("data", [{"max_price": True}, {"min_beds": 2.5}, {"expense_pct": float("nan")},

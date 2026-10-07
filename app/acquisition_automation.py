@@ -146,7 +146,8 @@ class AcquisitionAutomationMixin:
                     if not policy["client_name"] or not policy["representative_company"]:
                         result["handoff_status"] = "needs_client_and_representative"
                     else:
-                        indices = [i for i, c in enumerate(brief["result"]["cards"]) if c["screen"] == "meets_assumed_yield"]
+                        indices = [i for i, c in enumerate(brief["result"]["cards"])
+                                   if c["decision"]["status"] == "review_candidate"]
                         if not indices:
                             result["handoff_status"] = "no_qualifying_cards"
                         else:

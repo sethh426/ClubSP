@@ -25,3 +25,10 @@ Each card includes asking price, property attributes, rent estimate/range, assum
 - Desktop/mobile browser tests use the actual HTTP application with an explicitly injected offline provider fixture.
 
 The feature does not create verified buyer demand, contact agents, make offers, create deals or close transactions. Commercial validation still requires a real operator to confirm that the brief meets their criteria and saves useful underwriting time. Operator distribution and paid billing are separate work after this feature is operational.
+## Decision guidance
+
+Each card explains whether it needs rent evidence, a positive yield target, a lower price, or representative review. The asking-price ceiling solves `(annual operating income / target yield - repair reserve) / (1 + closing-cost rate)`, caps it at the configured budget, and rounds down to whole dollars. Required price reduction rounds up. It uses income rather than the rounded display yield. Monthly operating income excludes debt and income tax.
+
+Saved briefs receive the same calculations when read; this requires no new provider calls or schema changes. New representative drafts retain the calculation in their immutable snapshot and export. Existing packets retain their original snapshot. Daily automation and default property selections use the decision classification, so a rounded yield or zero target cannot automatically qualify a property.
+
+These calculations apply to the saved assumptions and provider estimates. They are not buyer demand, a market valuation, an offer, or transaction profit.
