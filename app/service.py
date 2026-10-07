@@ -32,6 +32,7 @@ from .sentra_runtime import SentraRuntimeMixin
 from .evidence_compiler import EvidenceCompilerMixin
 from .temporal_intelligence import TemporalIntelligenceMixin
 from .shadow_intelligence import ShadowIntelligenceMixin
+from .property_assistant import PropertyAssistantMixin
 
 
 DEAL_STAGES = (
@@ -100,7 +101,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(ShadowIntelligenceMixin, TemporalIntelligenceMixin, EvidenceCompilerMixin, EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, MetaSentraMixin, SentraRuntimeMixin, GmailInboxMixin, TransactionMixin):
+class Application(PropertyAssistantMixin, ShadowIntelligenceMixin, TemporalIntelligenceMixin, EvidenceCompilerMixin, EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, MetaSentraMixin, SentraRuntimeMixin, GmailInboxMixin, TransactionMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
@@ -111,6 +112,7 @@ class Application(ShadowIntelligenceMixin, TemporalIntelligenceMixin, EvidenceCo
         self._initialize_evidence_compiler()
         self._initialize_temporal()
         self._initialize_shadow()
+        self._initialize_property_assistant()
         with self.database.session(write=True) as (connection, _):
             self._recover_knowledge_runs(connection)
             for deal in connection.execute("SELECT id FROM deals").fetchall():

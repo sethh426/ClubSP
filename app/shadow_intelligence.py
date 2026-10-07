@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from .evidence_compiler import canonical, digest, integer, label, normalize, records, score
 from .meta_sentry_service import _compatible_schema, _fingerprint
-from .meta_source_transport import fetch_source
+from .meta_source_transport import fetch_source, arcgis_sample
 from .schema import assert_component_compatible, ensure_component
 
 
@@ -149,14 +149,7 @@ class ShadowIntelligenceMixin:
         schema,payload = self._sample_candidate(row)
         if not _compatible_schema(expected_schema,schema): raise ValueError('shadow source schema drifted')
         if schema['shape']=='arcgis_layer':
-            response = fetch_source(row['source_url'].rstrip('/')+'/query',params={
-                'f':'json','where':'1=1','outFields':'*','returnGeometry':'false','resultRecordCount':25})
-            payload = response.json()
-            if not isinstance(payload,dict) or 'error' in payload or not isinstance(payload.get('features'),list):
-                raise ValueError('shadow ArcGIS query contract failed')
-            expected = set(schema['fields'])
-            if any(not isinstance(f,dict) or not isinstance(f.get('attributes'),dict) or set(f['attributes'])!=expected for f in payload['features']):
-                raise ValueError('shadow ArcGIS row schema drifted')
+            response,payload = arcgis_sample(row['source_url'],schema,payload,fetch=fetch_source)
             schema['payload_hash']=response.payload_hash
         return {'payload':payload,'payload_hash':digest(payload),'raw_hash':schema['payload_hash'],
                 'source_url':row['source_url'],'duration_ms':max(0,int((time.time()-started)*1000))}

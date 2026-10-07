@@ -127,6 +127,24 @@ def cheapest_sequence(profiles, requirements, threshold, initial, budget, max_ca
 
 
 class EvidenceCompilerMixin:
+    def _evidence_acquire(self, policy, subject):
+        row = self._active_source(policy['sentra_id'])
+        if row['acquisition_mode'] != 'arcgis':
+            return self.meta_execute({'sentra_id':policy['sentra_id']})
+        field = policy['identity_field']
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*', field):
+            raise ValueError('identity field is not safe for a bounded ArcGIS query')
+        types = json.loads(row['probe_json'])['field_types'][field]
+        if types == ['esriFieldTypeString']:
+            literal = "'" + subject.replace("'", "''") + "'"
+        elif types in (['esriFieldTypeOID'], ['esriFieldTypeInteger'], ['esriFieldTypeSmallInteger']):
+            if not re.fullmatch(r'[0-9]{1,18}', subject):
+                raise ValueError('source requires a numeric record identity')
+            literal = str(int(subject))
+        else:
+            raise ValueError('source identity type is not supported for a targeted query')
+        return self._execute_source(row, where=field + ' = ' + literal)
+
     def _initialize_evidence_compiler(self):
         with self.database.session(write=True) as (c, _):
             assert_component_compatible(c, "evidence_compiler")
@@ -299,7 +317,7 @@ class EvidenceCompilerMixin:
                 spent += policy["cost_cents"]
                 attempts += 1
                 try:
-                    result = self.meta_execute({"sentra_id": sentra_id})
+                    result = self._evidence_acquire(policy, request['subject'])
                     normalized = normalize(result["payload"], policy, request["subject"])
                     snapshot_id = str(uuid4())
                     with self.database.session(write=True) as (c, _):

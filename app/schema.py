@@ -16,6 +16,7 @@ COMPONENT_VERSIONS = {
     "evidence_compiler": 1,
     "temporal_intelligence": 1,
     "shadow_intelligence": 1,
+    "property_assistant": 1,
 }
 
 

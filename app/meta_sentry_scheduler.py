@@ -118,6 +118,10 @@ class MetaSentraScheduler:
             finally:
                 self._finish(name, interval, error)
         temporal = self.application.temporal_cycle()
+        if hasattr(self.application, 'property_watch_cycle'):
+            watch = self.application.property_watch_cycle()
+            if watch['checked']:
+                results['property_watches'] = watch
         if temporal["checked"] or temporal["blocked"]:
             results["temporal"] = temporal
         return results
