@@ -1,4 +1,27 @@
 const { test, expect } = require('@playwright/test');
+test('daily automation saves real backend settings and survives reload and stop',async({page})=>{
+  await page.goto('/sentras');
+  await expect(page.locator('#automation-status')).not.toContainText('Loading');
+  await page.getByRole('button',{name:'Build acquisition shortlist',exact:true}).click();
+  await expect(page.locator('#brief-result')).toContainText('123 Example Rd');
+  await page.getByLabel('Intended client or buyer').fill('Automation Client LLC');
+  await page.getByLabel('Proposed representative company').fill('Automation Brokerage');
+  await page.locator('#automation-save').click();
+  await expect(page.locator('#automation-status')).toContainText('Daily updates enabled');
+  const state=await (await page.request.get('/api/sentras/automation')).json();
+  expect(state.policy.client_name).toBe('Automation Client LLC');
+  expect(state.policy.generate_handoffs).toBe(true);
+  expect(state.external_actions).toBe(false);
+  await page.reload();
+  await expect(page.getByLabel('Intended client or buyer')).toHaveValue('Automation Client LLC');
+  await expect(page.getByLabel('Proposed representative company')).toHaveValue('Automation Brokerage');
+  await page.locator('#automation-stop').click();
+  await expect(page.locator('#automation-status')).toContainText('Daily updates stopped');
+  await page.reload();
+  await expect(page.locator('#automation-stop')).toBeDisabled();
+  const dimensions=await page.evaluate(()=>({width:innerWidth,content:document.documentElement.scrollWidth}));
+  expect(dimensions.content).toBeLessThanOrEqual(dimensions.width+1);
+});
 test('representative handoff saves a draft and downloads a self-contained packet',async({page})=>{
   await page.goto('/sentras');
   await page.getByRole('button',{name:'Build acquisition shortlist',exact:true}).click();

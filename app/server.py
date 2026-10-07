@@ -21,6 +21,7 @@ from .auth import OwnerAuth, SESSION_COOKIE
 from .preflight import deployment_readiness
 from .meta_sentry_scheduler import MetaSentraScheduler, scheduler_config
 from .sentra_runtime import load_sentra_environment
+from .acquisition_automation import AcquisitionAutomationScheduler
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
@@ -147,6 +148,8 @@ def handler_for(application, gmail, auth=None):
                 self.send_json(200, application.property_watches())
             elif path == "/api/sentras/briefs":
                 self.send_json(200, application.acquisition_brief_history())
+            elif path == "/api/sentras/automation":
+                self.send_json(200, application.acquisition_automation_state())
             elif path == "/api/sentras/handoffs":
                 try:
                     self.send_json(200, application.representative_handoff_history())
@@ -319,6 +322,11 @@ def handler_for(application, gmail, auth=None):
                         self.send_json(403, {"error": "A matching Origin is required"})
                         return
                     result = application.prepare_representative_handoff(data)
+                elif path == "/api/sentras/automation":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.save_acquisition_automation(data)
                 elif path in {"/api/sentras/shadow/experiment", "/api/sentras/shadow/trial", "/api/sentras/shadow/review"}:
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
@@ -670,6 +678,8 @@ def main():
         raise SystemExit("ClubSP production preflight failed: " + dumps(readiness))
     server = create_server(args.db, args.port, application=application, gmail=gmail, auth=auth)
     meta_scheduler = None
+    acquisition_scheduler = AcquisitionAutomationScheduler(application)
+    acquisition_scheduler.start()
     meta_config = scheduler_config()
     if meta_config["enabled"] or meta_config["health_enabled"]:
         meta_scheduler = MetaSentraScheduler(
@@ -688,6 +698,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        acquisition_scheduler.stop()
         if meta_scheduler is not None:
             meta_scheduler.stop()
         server.server_close()

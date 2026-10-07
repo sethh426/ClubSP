@@ -19,6 +19,7 @@ COMPONENT_VERSIONS = {
     "property_assistant": 1,
     "acquisition_briefs": 1,
     "representative_handoffs": 1,
+    "acquisition_automation": 1,
 }
 
 

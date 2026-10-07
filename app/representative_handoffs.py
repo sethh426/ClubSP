@@ -55,7 +55,7 @@ class RepresentativeHandoffMixin:
             return {"handoffs": [self._handoff_record(row) for row in connection.execute(
                 "SELECT * FROM representative_handoffs ORDER BY created_at DESC,id DESC LIMIT 20")]}
 
-    def prepare_representative_handoff(self, data):
+    def prepare_representative_handoff(self, data, *, automation_revision=None):
         fields = {"request_key", "brief_id", "card_indices", "client_name", "representative_company", "representative_contact", "notes"}
         if not isinstance(data, dict) or set(data) - fields:
             raise ValueError("Unsupported handoff fields")
@@ -74,6 +74,10 @@ class RepresentativeHandoffMixin:
         request_hash = sha256(_encoded(body).encode()).hexdigest()
         now = datetime.now(timezone.utc)
         with self.database.session(write=True) as (connection, _):
+            if automation_revision is not None:
+                setting = connection.execute("SELECT enabled,revision FROM acquisition_automation WHERE id=1").fetchone()
+                if not setting["enabled"] or setting["revision"] != automation_revision:
+                    return None
             prior = connection.execute("SELECT * FROM representative_handoffs WHERE request_key=?", (body["request_key"],)).fetchone()
             if prior:
                 if prior["request_hash"] != request_hash:

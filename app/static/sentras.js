@@ -7,6 +7,55 @@ async function api(path, data) {
   return result;
 }
 function show(container, value) { container.textContent = JSON.stringify(value, null, 2); }
+const automationLabels = {completed:'Completed',paused_budget:'Paused: fewer than 4 data requests remain this month',paused_credentials:'Paused: data connection needs setup',paused_sources:'Paused: data sources are disabled',retry_needed:'Needs retry; will check next morning',settings_changed:'Stopped or settings changed during update',running:'Updating'};
+let automationBusy = false;
+async function loadAutomation(restore=false) {
+  const state = await api('/api/sentras/automation');
+  const latest = state.runs[0];
+  $('automation-status').textContent = `${state.enabled ? 'Daily updates enabled' : 'Daily updates stopped'} · ${state.budget.used}/${state.budget.cap} monthly data requests used.${state.enabled ? ` Next check: ${new Date(state.next_due).toLocaleString('en-US',{timeZone:'America/Indiana/Indianapolis'})} Indianapolis time.` : ''}${state.enabled && state.policy.generate_handoffs && !state.handoff_ready ? ' Drafts waiting for a client and representative company.' : ''}${latest ? ` Last cycle: ${automationLabels[latest.status] || latest.status}.` : ''}`;
+  $('automation-stop').disabled = automationBusy || !state.enabled;
+  if (restore && state.policy.generate_handoffs !== undefined) {
+    $('automation-handoffs').checked = state.policy.generate_handoffs;
+    for (const key of ['client_name','representative_company','representative_contact','notes']) {
+      const field = $('handoff-form').elements.namedItem(key);
+      field.value = state.policy[key] || '';
+    }
+  }
+  const target = $('automation-history'); target.replaceChildren();
+  for (const run of state.runs.slice(0,5)) {
+    const result = run.result;
+    const line = document.createElement('p');
+    const draft = result.handoff_status === 'draft_not_sent' ? 'Private draft saved; not sent.' : result.handoff_status === 'no_qualifying_cards' ? 'No properties meet the saved yield target.' : result.handoff_status === 'needs_client_and_representative' ? 'Draft waiting for client and representative details.' : '';
+    line.textContent = `${new Date(run.started_at).toLocaleString()} · ${automationLabels[run.status] || run.status}. ${result.reused ? 'Reused evidence under 24 hours old.' : ''} ${draft}`;
+    target.append(line);
+    for (const change of result.changes || []) {
+      const item = document.createElement('p'); item.className='muted small';
+      const labels = {new_in_sample:'new in this sample',absent_from_sample:'absent from this sample; availability unverified',asking_price:'asking price',lower_rent:'lower rent estimate',assumed_yield:'assumed yield'};
+      item.textContent=`${change.address}: ${labels[change.kind] || change.kind}${Object.hasOwn(change,'before') ? ` changed from ${change.before ?? 'unavailable'} to ${change.after ?? 'unavailable'}` : ''}.`;
+      target.append(item);
+    }
+  }
+}
+async function saveAutomation(enabled) {
+  if (automationBusy) return;
+  if (enabled && !$('brief-build').reportValidity()) return;
+  automationBusy=true; $('automation-save').disabled=true; $('automation-stop').disabled=true;
+  try {
+    const data={enabled};
+    if (enabled) {
+      data.criteria=Object.fromEntries([...new FormData($('brief-build'))].map(([k,v])=>[k,Number(v)]));
+      data.generate_handoffs=$('automation-handoffs').checked;
+      for (const key of ['client_name','representative_company','representative_contact','notes']) data[key]=$('handoff-form').elements.namedItem(key).value;
+      data.confirm_external_request=true;
+    }
+    await api('/api/sentras/automation',data);
+    await loadAutomation();
+  } catch(error) {$('automation-status').textContent=error.message;}
+  finally {automationBusy=false; $('automation-save').disabled=false; loadAutomation().catch(()=>{});}
+}
+$('automation-save').addEventListener('click',()=>saveAutomation(true));
+$('automation-stop').addEventListener('click',()=>saveAutomation(false));
+setInterval(()=>loadAutomation().catch(()=>{}),30000);
 const briefMoney = value => typeof value === 'number' ? new Intl.NumberFormat('en-US', {style:'currency',currency:'USD',maximumFractionDigits:0}).format(value) : 'Not available';
 function briefLine(parent, text, tag='p') {
   const element = document.createElement(tag); element.textContent = text; parent.append(element); return element;
@@ -123,7 +172,7 @@ $('handoff-form').addEventListener('submit',async event=>{
   } catch(error){$('handoff-status').textContent=error.message;}
   finally {handoffBusy=false; $('handoff-button').disabled=false;}
 });
-loadHandoffs(true).catch(error=>{$('handoff-status').textContent=error.message;});
+loadHandoffs(true).catch(error=>{$('handoff-status').textContent=error.message;}).finally(()=>loadAutomation(true).catch(error=>{$('automation-status').textContent=error.message;}));
 async function reload() {
   const [state, meta, temporal, shadow] = await Promise.all([api('/api/sentras/evidence'), api('/api/sentras/meta?limit=100'), api('/api/sentras/temporal'), api('/api/sentras/shadow')]);
   $('readiness').textContent = `Data.gov: ${meta.provider_readiness.data_gov}. Active sources: ${meta.summary.active}. Awaiting review: ${meta.summary.quarantined + meta.summary.proposed}.`;
