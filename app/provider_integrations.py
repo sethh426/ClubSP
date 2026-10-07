@@ -402,6 +402,11 @@ class ProviderIntegrationMixin:
             "SELECT COUNT(*) FROM provider_search_runs WHERE provider_id=? AND substr(created_at,1,7)=?",
             (provider_id, month),
         ).fetchone()[0]
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sentra_runs'").fetchone():
+            attempted += connection.execute(
+                "SELECT COALESCE(SUM(reserved_requests),0) FROM sentra_runs WHERE budget_group=? AND substr(created_at,1,7)=?",
+                (provider_id, month),
+            ).fetchone()[0]
         succeeded = connection.execute(
             "SELECT COUNT(*) FROM provider_search_runs WHERE provider_id=? AND status='success' AND substr(created_at,1,7)=?",
             (provider_id, month),

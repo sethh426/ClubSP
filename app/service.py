@@ -27,6 +27,15 @@ from .sourcing import SourcingMixin, sale_snapshot
 from .commitment_graph import CommitmentGraphMixin
 from .provider_integrations import ProviderIntegrationMixin
 from .transactions import TransactionMixin
+from .meta_sentry_service import MetaSentraMixin
+from .sentra_runtime import SentraRuntimeMixin
+from .acquisition_briefs import AcquisitionBriefMixin
+from .representative_handoffs import RepresentativeHandoffMixin
+from .acquisition_automation import AcquisitionAutomationMixin
+from .evidence_compiler import EvidenceCompilerMixin
+from .temporal_intelligence import TemporalIntelligenceMixin
+from .shadow_intelligence import ShadowIntelligenceMixin
+from .property_assistant import PropertyAssistantMixin
 
 
 DEAL_STAGES = (
@@ -95,12 +104,21 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, GmailInboxMixin, TransactionMixin):
+class Application(AcquisitionAutomationMixin, RepresentativeHandoffMixin, AcquisitionBriefMixin, PropertyAssistantMixin, ShadowIntelligenceMixin, TemporalIntelligenceMixin, EvidenceCompilerMixin, EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, MetaSentraMixin, SentraRuntimeMixin, GmailInboxMixin, TransactionMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
         self._initialize_gmail_inbox()
         self._initialize_transactions()
+        self._initialize_meta_sentras()
+        self._initialize_sentra_runtime()
+        self._initialize_acquisition_briefs()
+        self._initialize_representative_handoffs()
+        self._initialize_acquisition_automation()
+        self._initialize_evidence_compiler()
+        self._initialize_temporal()
+        self._initialize_shadow()
+        self._initialize_property_assistant()
         with self.database.session(write=True) as (connection, _):
             self._recover_knowledge_runs(connection)
             for deal in connection.execute("SELECT id FROM deals").fetchall():
