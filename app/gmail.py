@@ -25,13 +25,18 @@ def scope_set(value):
 
 
 def load_local_environment(path):
-    """Read only explicit Google settings; never execute a dotenv file."""
+    """Read approved application settings; never execute a dotenv file."""
     path = Path(path)
     if not path.exists():
         return
     for line in path.read_text().splitlines():
         key, sep, value = line.partition("=")
-        if sep and key in {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL", "GOOGLE_REDIRECT_URI", "CLUBSP_OWNER_SECRET", "CLUBSP_ENV"}:
+        if sep and key in {
+            "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_MAILBOX_EMAIL", "GOOGLE_REDIRECT_URI",
+            "CLUBSP_OWNER_SECRET", "CLUBSP_ENV", "DATAGOV_API_KEY",
+            "CLUBSP_META_AUTODISCOVERY", "CLUBSP_META_DISCOVERY_INTERVAL_SECONDS", "CLUBSP_META_DISCOVERY_MAX_QUERIES",
+            "CLUBSP_META_HEALTH_MONITORING", "CLUBSP_META_HEALTH_INTERVAL_SECONDS", "CLUBSP_META_HEALTH_MAX_SOURCES",
+        }:
             os.environ.setdefault(key, value.strip())
 
 

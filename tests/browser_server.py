@@ -5,6 +5,7 @@ from app.server import create_server
 from app.service import Application
 from tests.research_fixture import SyntheticParcelAdapter
 from tests.knowledge_fixture import SyntheticKnowledgeAdapter
+from tests.sentra_fixture import seed_sentras
 
 
 def main():
@@ -13,6 +14,7 @@ def main():
     parser.add_argument("--db", default="data/browser-test.db")
     args = parser.parse_args()
     app = Application(args.db)
+    seed_sentras(app)
     app.research_adapter = SyntheticParcelAdapter()
     app.knowledge_adapter = SyntheticKnowledgeAdapter()
     app.knowledge_adapter.failures = {"email_rules"}

@@ -11,6 +11,12 @@ COMPONENT_VERSIONS = {
     "discovery": 1,
     "funding": 1,
     "transactions": 1,
+    "meta_sentras": 2,
+    "sentra_runtime": 1,
+    "evidence_compiler": 1,
+    "temporal_intelligence": 1,
+    "shadow_intelligence": 1,
+    "property_assistant": 1,
 }
 
 
