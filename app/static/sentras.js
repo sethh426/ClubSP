@@ -98,6 +98,66 @@ $('temporal-policy').addEventListener('submit', async event => {
 });
 reload().catch(error => {$('status').textContent = error.message;});
 
+let quickPool = [], quickOffset = 0, quickActivation = '', quickVersion = '', quickAt = 0, quickSource = '';
+const quickFields = {
+  id:'AssessorParcel.dbo.ParcelInfo.UnformattedStateKey',address:'AssessorParcel.dbo.ParcelInfo.LocationAddress',
+  value:'AssessorParcel.dbo.ParcelInfo.TotalAV',type:'AssessorParcel.dbo.ParcelInfo.PropertyClassDescription',
+  sale:'AssessorParcel.dbo.ParcelInfo.SaleAmount',date:'AssessorParcel.dbo.ParcelInfo.SaleDate'
+};
+function quickMoney(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ?
+    new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(value) : 'Not reported';
+}
+function quickDate(value) {
+  return typeof value === 'number' && value > -2208988800000 && value <= Date.now() && value !== 0 ?
+    new Date(value).toLocaleDateString() : 'Not reported';
+}
+function renderQuick(items) {
+  $('quick-results').replaceChildren();
+  for(const item of items) {
+    const address=String(item[quickFields.address]), card=document.createElement('article');card.className='property-card';
+    const heading=document.createElement('h3');heading.textContent=address;
+    const facts=document.createElement('p');facts.textContent=`${item[quickFields.type] || 'Property type not reported'} · County assessed value: ${quickMoney(item[quickFields.value])}`;
+    const history=document.createElement('p');history.textContent=`County-reported sale: ${item[quickFields.sale] > 0 ? quickMoney(item[quickFields.sale]) : 'Not reported'} · ${quickDate(item[quickFields.date])}. This is not an asking price.`;
+    const params=new URLSearchParams({f:'pjson',where:`${quickFields.id} = '${String(item[quickFields.id]).replaceAll("'","''")}'`,outFields:'*',returnGeometry:'false'});
+    const record=document.createElement('a');record.href=quickSource.replace(/\/$/,'')+'/query?'+params;record.textContent='Open official county record';record.target='_blank';record.rel='noopener noreferrer';
+    const steps=document.createElement('p');steps.textContent='Next: verify the current property record, confirm a buyer wants this location and property type, then check listing status and condition. Do not make an offer from tax assessment alone.';
+    const copy=document.createElement('button');copy.className='button';copy.textContent='Copy research summary';
+    const brief=[address,facts.textContent,history.textContent,`Source: ${record.href}`,`Retrieved: ${new Date(quickAt).toLocaleString()}`,steps.textContent,'Unverified research starting point—not a confirmed deal or motivated-seller lead.'].join('\n');
+    copy.addEventListener('click',async()=>{
+      try {await navigator.clipboard.writeText(brief);copy.textContent='Summary copied';}
+      catch {const area=document.createElement('textarea');area.readOnly=true;area.value=brief;area.setAttribute('aria-label','Research summary to copy');card.append(area);area.focus();area.select();copy.textContent='Select and copy summary below';}
+    });
+    card.append(heading,facts,history,record,steps,copy);$('quick-results').append(card);
+  }
+}
+$('quick-find').addEventListener('click',async()=>{
+  if(busy)return;busy=true;$('quick-find').disabled=true;$('status').textContent='Checking the approved county source…';
+  try {
+    const [meta,state]=await Promise.all([api('/api/sentras/meta?limit=1'),api('/api/sentras/evidence')]);
+    const source=meta.active_registry.find(s=>s.id==='allen_comparable_parcels');
+    const profile=state.profiles.find(p=>p.sentra_id==='allen_comparable_parcels');
+    if(!source || !profile || source.activated_at!==profile.activation || profile.cost_cents!==0 || profile.identity_field!==quickFields.id ||
+       JSON.stringify(profile.field_map.parcel_identity)!==JSON.stringify([quickFields.id]) || JSON.stringify(profile.field_map.assessment)!==JSON.stringify([quickFields.value])) {
+      throw new Error('The approved county connection is unavailable. No paid search or unapproved source was used.');
+    }
+    if(!quickPool.length || quickActivation!==source.activated_at || quickVersion!==profile.version || Date.now()-quickAt>900000) {
+      const result=await api('/api/sentras/meta/execute',{sentra_id:source.id});
+      const rows=(result.payload.features || []).map(f=>f.attributes || {}), unique=new Map();
+      for(const row of rows) if(row[quickFields.id] && row[quickFields.address]) unique.set(String(row[quickFields.id]),row);
+      quickPool=[...unique.values()];quickOffset=0;quickAt=Date.now();quickSource=result.source_url;
+      quickActivation=source.activated_at;quickVersion=profile.version;
+    }
+    if(!quickPool.length)throw new Error('The connected sample returned no usable addresses. No properties were invented.');
+    if(quickOffset>=quickPool.length)quickOffset=0;
+    const selection=quickPool.slice(quickOffset,quickOffset+3);renderQuick(selection);quickOffset+=selection.length;
+    $('quick-note').textContent=`${selection.length} properties to review from ${quickPool.length} usable records in the county sample. Retrieved ${new Date(quickAt).toLocaleString()}. These are not ranked by profit or seller motivation.`;
+    $('status').textContent='Your research list is ready. Open a county record or copy a summary below.';
+    $('quick-find').textContent=quickOffset>=quickPool.length ? 'Start this list again' : 'Show 3 more properties';
+  }catch(error){$('quick-results').replaceChildren();$('quick-note').textContent='';$('status').textContent=error.message;}
+  finally{busy=false;$('quick-find').disabled=false;}
+});
+
 function parseMapping(text) {
   const mapping = Object.create(null);
   for (const line of text.split('\n').filter(x => x.trim())) {
