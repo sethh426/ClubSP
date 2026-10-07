@@ -19,11 +19,16 @@ from .relationships import RelationshipBook
 from .command_center import build_command_center
 from .auth import OwnerAuth, SESSION_COOKIE
 from .preflight import deployment_readiness
+from .meta_sentry_scheduler import MetaSentraScheduler, scheduler_config
+from .sentra_runtime import load_sentra_environment
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
     "/login": ("login.html", "text/html; charset=utf-8"),
     "/login.js": ("login.js", "text/javascript; charset=utf-8"),
+    "/sentras": ("sentras.html", "text/html; charset=utf-8"),
+    "/sentras.js": ("sentras.js", "text/javascript; charset=utf-8"),
+    "/sentras.css": ("sentras.css", "text/css; charset=utf-8"),
     "/relationships": ("relationships.html", "text/html; charset=utf-8"),
     "/relationships.js": ("relationships.js", "text/javascript; charset=utf-8"),
     "/relationships.css": ("relationships.css", "text/css; charset=utf-8"),
@@ -138,6 +143,43 @@ def handler_for(application, gmail, auth=None):
                 return
             if path == "/api/discovery":
                 self.send_json(200, application.discovery_state())
+            elif path == "/api/sentras/property/watches":
+                self.send_json(200, application.property_watches())
+            elif path == "/api/sentras/briefs":
+                self.send_json(200, application.acquisition_brief_history())
+            elif path == "/api/sentras/evidence":
+                try:
+                    self.send_json(200, application.evidence_state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/sentras/temporal":
+                try:
+                    self.send_json(200, application.temporal_state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/sentras/shadow":
+                try:
+                    self.send_json(200, application.shadow_state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/sentras/meta":
+                try:
+                    query = parse_qs(urlsplit(self.path).query, max_num_fields=4)
+                    self.send_json(200, application.meta_sentra_state(
+                        limit=int(query.get("limit", ["100"])[0]),
+                        offset=int(query.get("offset", ["0"])[0]),
+                    ))
+                except (ValueError, TypeError) as error:
+                    self.send_json(400, {"error": str(error)})
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/sentras":
+                self.send_json(200, application.sentra_state())
+            elif path.startswith("/api/sentras/runs/"):
+                try:
+                    self.send_json(200, application.sentra_evidence(path.rsplit("/", 1)[-1]))
+                except LookupError as exc:
+                    self.send_json(404, {"error": str(exc)})
             elif path == "/api/gmail/status":
                 self.send_json(200, gmail.status(self.gmail_origin()))
             elif path == "/api/gmail/inbox":
@@ -247,6 +289,83 @@ def handler_for(application, gmail, auth=None):
                     self.end_headers()
                     self.wfile.write(body)
                     return
+                elif path == "/api/sentras/run":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.run_sentra(data)
+                elif path == "/api/sentras/briefs/build":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.build_acquisition_brief(data)
+                elif path in {"/api/sentras/shadow/experiment", "/api/sentras/shadow/trial", "/api/sentras/shadow/review"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    action = path.rsplit("/", 1)[-1]
+                    result = {"experiment": application.shadow_experiment, "trial": application.shadow_trial,
+                              "review": application.shadow_review}[action](data)
+                elif path in {"/api/sentras/temporal/policy", "/api/sentras/temporal/cycle"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.temporal_policy(data) if path.endswith("/policy") else application.temporal_cycle(data)
+                elif path in {"/api/sentras/property/search", "/api/sentras/property/research", "/api/sentras/property/stop"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    action = path.rsplit("/",1)[-1]
+                    result = {"search":application.property_search,"research":application.property_research,"stop":application.property_watch_stop}[action](data)
+                elif path in {"/api/sentras/evidence/profile", "/api/sentras/evidence/plan", "/api/sentras/evidence/run"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    action = path.rsplit("/", 1)[-1]
+                    result = {"profile": application.evidence_profile, "plan": application.evidence_plan,
+                              "run": application.evidence_run}[action](data)
+                elif path == "/api/sentras/meta/cycle":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_discovery_cycle(data)
+                elif path == "/api/sentras/meta/discover":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_discover(data)
+                elif path == "/api/sentras/meta/probe":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_probe(data)
+                elif path == "/api/sentras/meta/propose":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_propose(data)
+                elif path == "/api/sentras/meta/review":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_review(data)
+                elif path == "/api/sentras/meta/activate":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.meta_activate(data)
+                elif path in {"/api/sentras/meta/health", "/api/sentras/meta/execute", "/api/sentras/meta/history", "/api/sentras/meta/requarantine"}:
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    if path.endswith("/health"):
+                        result = application.meta_health_check(data)
+                    elif path.endswith("/execute"):
+                        result = application.meta_execute(data)
+                    elif path.endswith("/history"):
+                        result = application.meta_candidate_history(data)
+                    else:
+                        result = application.meta_requarantine(data.get("fingerprint"), data.get("reason"))
                 elif path == "/api/discovery/snapshot":
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})
@@ -522,6 +641,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     load_local_environment(Path(__file__).resolve().parent.parent / ".env")
+    load_sentra_environment(Path(__file__).resolve().parent.parent / ".env")
     application = Application(args.db)
     gmail = GmailConnection(Path(args.db).parent / "private")
     auth = OwnerAuth()
@@ -529,12 +649,27 @@ def main():
     if os.environ.get("CLUBSP_ENV", "development").strip().lower() == "production" and not readiness["ready"]:
         raise SystemExit("ClubSP production preflight failed: " + dumps(readiness))
     server = create_server(args.db, args.port, application=application, gmail=gmail, auth=auth)
+    meta_scheduler = None
+    meta_config = scheduler_config()
+    if meta_config["enabled"] or meta_config["health_enabled"]:
+        meta_scheduler = MetaSentraScheduler(
+            application,
+            interval_seconds=meta_config["interval_seconds"],
+            max_queries=meta_config["max_queries"],
+            discovery_enabled=meta_config["enabled"],
+            health_enabled=meta_config["health_enabled"],
+            health_interval_seconds=meta_config["health_interval_seconds"],
+            max_health_sources=meta_config["max_health_sources"],
+        )
+        meta_scheduler.start()
     print(f"ClubSP is running at http://127.0.0.1:{server.server_address[1]}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if meta_scheduler is not None:
+            meta_scheduler.stop()
         server.server_close()
 
 
