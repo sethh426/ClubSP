@@ -29,6 +29,7 @@ from .provider_integrations import ProviderIntegrationMixin
 from .transactions import TransactionMixin
 from .meta_sentry_service import MetaSentraMixin
 from .sentra_runtime import SentraRuntimeMixin
+from .acquisition_briefs import AcquisitionBriefMixin
 from .evidence_compiler import EvidenceCompilerMixin
 from .temporal_intelligence import TemporalIntelligenceMixin
 from .shadow_intelligence import ShadowIntelligenceMixin
@@ -101,7 +102,7 @@ def calculate_scenario(strategy, values):
     }
 
 
-class Application(PropertyAssistantMixin, ShadowIntelligenceMixin, TemporalIntelligenceMixin, EvidenceCompilerMixin, EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, MetaSentraMixin, SentraRuntimeMixin, GmailInboxMixin, TransactionMixin):
+class Application(AcquisitionBriefMixin, PropertyAssistantMixin, ShadowIntelligenceMixin, TemporalIntelligenceMixin, EvidenceCompilerMixin, EconomicReviewsMixin, FinanceMixin, OperationsMixin, ResearchMixin, CommunicationsMixin, TrainingMixin, KnowledgeMixin, OpportunitiesMixin, SourcingMixin, DiscoveryMixin, CommitmentGraphMixin, ProviderIntegrationMixin, MetaSentraMixin, SentraRuntimeMixin, GmailInboxMixin, TransactionMixin):
     def __init__(self, path):
         self.database = Database(path)
         self._initialize_discovery()
@@ -109,6 +110,7 @@ class Application(PropertyAssistantMixin, ShadowIntelligenceMixin, TemporalIntel
         self._initialize_transactions()
         self._initialize_meta_sentras()
         self._initialize_sentra_runtime()
+        self._initialize_acquisition_briefs()
         self._initialize_evidence_compiler()
         self._initialize_temporal()
         self._initialize_shadow()

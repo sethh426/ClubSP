@@ -145,6 +145,8 @@ def handler_for(application, gmail, auth=None):
                 self.send_json(200, application.discovery_state())
             elif path == "/api/sentras/property/watches":
                 self.send_json(200, application.property_watches())
+            elif path == "/api/sentras/briefs":
+                self.send_json(200, application.acquisition_brief_history())
             elif path == "/api/sentras/evidence":
                 try:
                     self.send_json(200, application.evidence_state())
@@ -292,6 +294,11 @@ def handler_for(application, gmail, auth=None):
                         self.send_json(403, {"error": "A matching Origin is required"})
                         return
                     result = application.run_sentra(data)
+                elif path == "/api/sentras/briefs/build":
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "A matching Origin is required"})
+                        return
+                    result = application.build_acquisition_brief(data)
                 elif path in {"/api/sentras/shadow/experiment", "/api/sentras/shadow/trial", "/api/sentras/shadow/review"}:
                     if origin != self.gmail_origin():
                         self.send_json(403, {"error": "A matching Origin is required"})

@@ -7,6 +7,67 @@ async function api(path, data) {
   return result;
 }
 function show(container, value) { container.textContent = JSON.stringify(value, null, 2); }
+const briefMoney = value => typeof value === 'number' ? new Intl.NumberFormat('en-US', {style:'currency',currency:'USD',maximumFractionDigits:0}).format(value) : 'Not available';
+function briefLine(parent, text, tag='p') {
+  const element = document.createElement(tag); element.textContent = text; parent.append(element); return element;
+}
+function renderBrief(brief) {
+  const target = $('brief-result'); target.replaceChildren();
+  const result = brief.result, assumptions = brief.criteria;
+  if (brief.status === 'running') {briefLine(target, 'Build in progress. Reload saved briefs shortly.'); return;}
+  briefLine(target, `Saved ${new Date(brief.completed_at).toLocaleString()} · ${result.cards.length} candidates · ${brief.status}`);
+  briefLine(target, `Assumptions: price ≤ ${briefMoney(assumptions.max_price)}, ${assumptions.min_beds}+ bedrooms; ${briefMoney(assumptions.repair_reserve)} repairs; closing ${assumptions.closing_pct}%, vacancy ${assumptions.vacancy_pct}%, expenses ${assumptions.expense_pct}%, yield target ${assumptions.min_yield_pct}%.`);
+  for (const card of result.cards) {
+    const article = document.createElement('article'); article.className = 'property-card';
+    const listing = card.listing, rent = card.rent_estimate, model = card.economics;
+    briefLine(article, `${listing.address}, ${listing.city}, ${listing.state} ${listing.zip}`, 'h3');
+    briefLine(article, `Asking ${briefMoney(listing.asking_price)} · ${listing.bedrooms} beds · ${listing.bathrooms ?? 'Unknown'} baths · ${listing.squareFootage ?? 'Unknown'} sq ft`);
+    briefLine(article, rent ? `Provider rent estimate ${briefMoney(rent.estimate)}/month; range ${briefMoney(rent.range_low)}–${briefMoney(rent.range_high)}. Screening uses the lower range.` : 'Rent evidence unavailable. Economics cannot be calculated.');
+    briefLine(article, model ? `Assumed cash basis ${briefMoney(model.cash_basis)} · annual operating income ${briefMoney(model.annual_operating_income)} · operating yield ${model.yield_pct}% · ${card.screen === 'meets_assumed_yield' ? 'Meets assumed yield target' : 'Below assumed yield target'}` : 'Needs rent evidence');
+    briefLine(article, 'Operator checks before an offer', 'h4');
+    const list = document.createElement('ol'); for (const action of card.next_actions) briefLine(list, action, 'li'); article.append(list); target.append(article);
+  }
+  if (!result.cards.length) briefLine(target, 'No candidates passed the basic listing criteria in this sample.');
+  for (const warning of result.warnings) briefLine(target, warning);
+  if (result.excluded_count) briefLine(target, `${result.excluded_count} records excluded for missing or mismatched listing criteria.`);
+  briefLine(target, result.coverage); briefLine(target, result.basis); briefLine(target, result.limitations);
+  for (const evidence of result.evidence) {
+    const link = document.createElement('a'); link.href = `/api/sentras/runs/${encodeURIComponent(evidence.run_id)}`;
+    link.textContent = `${evidence.source}: ${evidence.status} · ${evidence.retrieved_at || 'Time unavailable'}`;
+    link.target = '_blank'; link.rel = 'noopener'; const paragraph = document.createElement('p'); paragraph.append(link); target.append(paragraph);
+  }
+  const summary = `ClubSP acquisition screen ${brief.id}\n` + target.innerText;
+  const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'button'; copy.textContent = 'Copy operator brief';
+  copy.addEventListener('click', async () => {
+    try {await navigator.clipboard.writeText(summary); copy.textContent = 'Brief copied';}
+    catch {const area=document.createElement('textarea'); area.readOnly=true; area.value=summary; area.setAttribute('aria-label','Operator brief to copy'); target.append(area); area.focus(); area.select();}
+  }); target.append(copy);
+}
+async function loadBriefs(restore=false) {
+  const state = await api('/api/sentras/briefs'); $('brief-history').replaceChildren();
+  for (const brief of state.briefs) {
+    const button = document.createElement('button'); button.type='button'; button.className='button';
+    button.textContent=`${new Date(brief.started_at).toLocaleString()} · ${brief.status} · ${briefMoney(brief.criteria.max_price)} ceiling`;
+    button.addEventListener('click',()=>renderBrief(brief)); $('brief-history').append(button);
+  }
+  if (restore && state.briefs.length) {
+    renderBrief(state.briefs[0]);
+    for (const [key,value] of Object.entries(state.briefs[0].criteria)) $('brief-build').elements.namedItem(key).value=value;
+  }
+}
+let briefBusy=false;
+$('brief-build').addEventListener('submit', async event => {
+  event.preventDefault(); if(briefBusy)return; briefBusy=true; $('brief-button').disabled=true;
+  $('brief-status').textContent='Checking listings and rental evidence…';
+  try {
+    const data=Object.fromEntries([...new FormData(event.target)].map(([key,value])=>[key,Number(value)]));
+    const brief=await api('/api/sentras/briefs/build',data); renderBrief(brief);
+    $('brief-status').textContent=brief.reused ? 'Saved brief reused; no new provider requests.' : `Shortlist ${brief.status}. Review assumptions and operator checks below.`;
+    await loadBriefs();
+  } catch(error) {$('brief-status').textContent=error.message;}
+  finally {briefBusy=false; $('brief-button').disabled=false;}
+});
+loadBriefs(true).catch(error=>{$('brief-status').textContent=error.message;});
 async function reload() {
   const [state, meta, temporal, shadow] = await Promise.all([api('/api/sentras/evidence'), api('/api/sentras/meta?limit=100'), api('/api/sentras/temporal'), api('/api/sentras/shadow')]);
   $('readiness').textContent = `Data.gov: ${meta.provider_readiness.data_gov}. Active sources: ${meta.summary.active}. Awaiting review: ${meta.summary.quarantined + meta.summary.proposed}.`;

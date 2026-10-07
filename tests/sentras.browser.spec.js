@@ -1,4 +1,21 @@
 const { test, expect } = require('@playwright/test');
+test('one-button acquisition brief persists real backend screening and evidence',async({page})=>{
+  await page.goto('/sentras');
+  await expect(page.getByLabel('Maximum asking price ($)')).not.toBeVisible();
+  await page.getByRole('button',{name:'Build acquisition shortlist',exact:true}).click();
+  await expect(page.locator('#brief-result')).toContainText('123 Example Rd');
+  await expect(page.locator('#brief-result')).toContainText('$113,000');
+  await expect(page.locator('#brief-result')).toContainText('6.84%');
+  await expect(page.locator('#brief-result')).toContainText('not verified buyer demand');
+  await expect(page.locator('#brief-result a').first()).toHaveAttribute('href',/\/api\/sentras\/runs\//);
+  await expect(page.getByRole('button',{name:'Copy operator brief'})).toBeVisible();
+  await page.reload();
+  await expect(page.locator('#brief-result')).toContainText('123 Example Rd');
+  await page.getByRole('button',{name:'Build acquisition shortlist',exact:true}).click();
+  await expect(page.locator('#brief-status')).toContainText('no new provider requests');
+  const dimensions=await page.evaluate(()=>({width:innerWidth,content:document.documentElement.scrollWidth}));
+  expect(dimensions.content).toBeLessThanOrEqual(dimensions.width+1);
+});
 test('address-first research hides jargon and enables clear daily watches',async({page})=>{
   let watched=false;
   await page.route('**/api/sentras/property/watches',route=>route.fulfill({json:{watches:watched?[{id:'test-watch',address:'123 MAIN ST',enabled:true,next_due:1791500000,result:{status:'sufficient',message:'County evidence collected.',assessed_value:150000,note:'Tax assessment, not market value.'}}]:[]}}));

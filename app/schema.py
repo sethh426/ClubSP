@@ -17,6 +17,7 @@ COMPONENT_VERSIONS = {
     "temporal_intelligence": 1,
     "shadow_intelligence": 1,
     "property_assistant": 1,
+    "acquisition_briefs": 1,
 }
 
 
