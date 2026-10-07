@@ -16,6 +16,7 @@ async function loadAutomation(restore=false) {
   $('automation-stop').disabled = automationBusy || !state.enabled;
   if (restore && state.policy.generate_handoffs !== undefined) {
     $('automation-handoffs').checked = state.policy.generate_handoffs;
+    for (const [key,value] of Object.entries(state.policy.criteria)) $('brief-build').elements.namedItem(key).value=value;
     for (const key of ['client_name','representative_company','representative_contact','notes']) {
       const field = $('handoff-form').elements.namedItem(key);
       field.value = state.policy[key] || '';
@@ -117,7 +118,7 @@ $('brief-build').addEventListener('submit', async event => {
   } catch(error) {$('brief-status').textContent=error.message;}
   finally {briefBusy=false; $('brief-button').disabled=false;}
 });
-loadBriefs(true).catch(error=>{$('brief-status').textContent=error.message;});
+const briefBoot=loadBriefs(true).catch(error=>{$('brief-status').textContent=error.message;});
 let handoffBriefId=null, handoffBusy=false, handoffKey=null, handoffBody=null;
 function prepareHandoffForm(brief) {
   handoffBriefId=brief.id; $('handoff-properties').replaceChildren();
@@ -172,7 +173,7 @@ $('handoff-form').addEventListener('submit',async event=>{
   } catch(error){$('handoff-status').textContent=error.message;}
   finally {handoffBusy=false; $('handoff-button').disabled=false;}
 });
-loadHandoffs(true).catch(error=>{$('handoff-status').textContent=error.message;}).finally(()=>loadAutomation(true).catch(error=>{$('automation-status').textContent=error.message;}));
+Promise.all([briefBoot,loadHandoffs(true).catch(error=>{$('handoff-status').textContent=error.message;})]).then(()=>loadAutomation(true).catch(error=>{$('automation-status').textContent=error.message;}));
 async function reload() {
   const [state, meta, temporal, shadow] = await Promise.all([api('/api/sentras/evidence'), api('/api/sentras/meta?limit=100'), api('/api/sentras/temporal'), api('/api/sentras/shadow')]);
   $('readiness').textContent = `Data.gov: ${meta.provider_readiness.data_gov}. Active sources: ${meta.summary.active}. Awaiting review: ${meta.summary.quarantined + meta.summary.proposed}.`;
