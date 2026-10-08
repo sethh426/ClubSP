@@ -15,7 +15,9 @@ from app.service import Application
 @pytest.fixture
 def book(tmp_path):
     app = Application(tmp_path / 'app.db')
-    return BuyerIntentBook(app, RelationshipBook(app))
+    book = BuyerIntentBook(app, RelationshipBook(app))
+    book.fetch_posts = lambda source: []  # All tests are offline, including the new feed.
+    return book
 
 
 def finding(**extra):
@@ -75,6 +77,7 @@ def test_monitor_persists_due_attempts_dedupes_and_retains_failure(book):
     with book.database.session(write=True) as (c, _):
         c.execute('UPDATE buyer_intent_sources SET attempted_at=?', (old,))
     book.fetch = lambda s: (_ for _ in ()).throw(ValueError('bad remote data'))
+    book.fetch_posts = book.fetch
     book.refresh()
     assert all(s['error'] and s['checked_at'] for s in book.state()['sources'])
     assert all(len(s['history']) == 1 for s in book.state()['signals'])
@@ -87,7 +90,7 @@ def test_monitor_paused_changed_claim_and_concurrency(book):
     assert book.refresh()['status'] == 'paused'
     book.settings({'enabled':True})
     book.fetch = lambda s: 'Looking for cash buyers in Fort Wayne; join our buyer list.'
-    assert all(s['status'] == 'failed' for s in book.refresh()['sources'])
+    assert all(s['status'] == 'failed' for s in book.refresh()['sources'] if s['id'] in {x['id'] for x in SOURCES})
     assert not book.state()['signals']
     book.lock.acquire()
     try:
