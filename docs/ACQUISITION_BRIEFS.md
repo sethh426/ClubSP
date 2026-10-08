@@ -32,3 +32,9 @@ Each card explains whether it needs rent evidence, a positive yield target, a lo
 Saved briefs receive the same calculations when read; this requires no new provider calls or schema changes. New representative drafts retain the calculation in their immutable snapshot and export. Existing packets retain their original snapshot. Daily automation and default property selections use the decision classification, so a rounded yield or zero target cannot automatically qualify a property.
 
 These calculations apply to the saved assumptions and provider estimates. They are not buyer demand, a market valuation, an offer, or transaction profit.
+
+## Guided workspace
+
+The Sentra landing view explains the buyer → research → representative workflow in plain language. It shows one next step, saved intended parties (explicitly unverified), the displayed brief's review count and freshness, and daily research status. Existing research/settings controls live in a collapsed secondary workspace. The next-step button opens and focuses the relevant control; it never submits a form or triggers a provider request.
+
+Client and representative details can be entered before any brief exists, then explicitly saved using the existing daily automation settings. Editing a form is not a saved profile or verified engagement. Unsaved edits, paused cycles and unavailable settings remain explicit. Scheduled research does not require a daily button press; draft packets still do not send themselves or establish representation. This UI change adds no database tables, schedules, permissions or external actions.

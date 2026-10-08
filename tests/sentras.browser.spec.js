@@ -1,4 +1,48 @@
 const { test, expect } = require('@playwright/test');
+// Legacy workspace checks explicitly open the secondary research/setup surface.
+test.beforeEach(async({page},testInfo)=>{
+  if (testInfo.title.startsWith('guided overview') || testInfo.title.startsWith('overview does not')) return;
+  page.on('domcontentloaded',()=>page.locator('#workflow-workspace').evaluate(element=>{element.open=true;}).catch(()=>{}));
+});
+test('guided overview gives one next step without starting research',async({page},testInfo)=>{
+  let builds=0;
+  await page.route('**/api/sentras/automation',route=>route.fulfill({json:{enabled:true,policy:{criteria:{max_price:150000,min_beds:2,repair_reserve:10000,closing_pct:3,vacancy_pct:8,expense_pct:30,min_yield_pct:5},generate_handoffs:true,client_name:'',representative_company:'',representative_contact:'',notes:''},schedule:'Daily at 9 AM America/Indiana/Indianapolis',next_due:'2026-10-09T13:00:00+00:00',runs:[],handoff_ready:false,budget:{used:16,cap:40},external_actions:false}}));
+  await page.route('**/api/sentras/briefs',route=>route.fulfill({json:{briefs:[]}}));
+  await page.route('**/api/sentras/handoffs',route=>route.fulfill({json:{handoffs:[]}}));
+  await page.route('**/api/sentras/briefs/build',route=>{builds++;return route.fulfill({status:500,json:{error:'No build expected'}});});
+  await page.goto('/sentras');
+  await expect(page.locator('#workflow-next')).toContainText('Research only');
+  await page.locator('#workflow-workspace').evaluate(element=>{element.open=false;});
+  await expect(page.getByLabel('Street address',{exact:true})).not.toBeVisible();
+  await expect(page.locator('#workflow-automatic')).toContainText('16/40');
+  const dimensions=await page.evaluate(()=>({width:innerWidth,content:document.documentElement.scrollWidth}));
+  expect(dimensions.content).toBeLessThanOrEqual(dimensions.width+1);
+  await page.screenshot({path:`/tmp/clubsp-guided-${testInfo.project.name}.png`,fullPage:true});
+  await page.locator('#workflow-action').click();
+  await expect(page.getByLabel('Intended client or buyer')).toBeVisible();
+  await expect(page.locator('#handoff-button')).toBeDisabled();
+  await page.getByLabel('Intended client or buyer').fill('Actual Client LLC');
+  await page.getByLabel('Proposed representative company').fill('Proposed Brokerage');
+  await expect(page.locator('#workflow-next')).toContainText('not saved');
+  await expect(page.locator('#workflow-parties')).toContainText('Not saved');
+  expect(builds).toBe(0);
+});
+test('overview does not claim automation is working when settings cannot load',async({page})=>{
+  await page.route('**/api/sentras/automation',route=>route.fulfill({status:503,json:{error:'Unavailable'}}));
+  await page.goto('/sentras');
+  await expect(page.locator('#workflow-next')).toContainText('Could not check');
+  await expect(page.locator('#workflow-action')).toBeDisabled();
+});
+test('guided overview explains paused research and keeps saved identities unverified',async({page})=>{
+  await page.route('**/api/sentras/automation',route=>route.fulfill({json:{enabled:true,policy:{generate_handoffs:true,client_name:'Saved Client',representative_company:'Proposed Firm',representative_contact:'',notes:''},schedule:'Daily at 9 AM America/Indiana/Indianapolis',next_due:'2026-10-09T13:00:00+00:00',runs:[{status:'paused_budget',started_at:'2026-10-08T13:00:00+00:00',result:{}}],handoff_ready:true,budget:{used:39,cap:40},external_actions:false}}));
+  await page.route('**/api/sentras/briefs',route=>route.fulfill({json:{briefs:[]}}));
+  await page.route('**/api/sentras/handoffs',route=>route.fulfill({json:{handoffs:[]}}));
+  await page.goto('/sentras');
+  await expect(page.locator('#workflow-next')).toContainText('Daily research needs attention');
+  await expect(page.locator('#workflow-next')).toContainText('Do not keep rebuilding');
+  await expect(page.locator('#workflow-parties')).toContainText('Names do not verify buyer demand');
+  await expect(page.locator('#workflow-action')).toHaveText('Review update status');
+});
 test('daily automation saves real backend settings and survives reload and stop',async({page})=>{
   await page.goto('/sentras');
   await expect(page.locator('#automation-status')).not.toContainText('Loading');
