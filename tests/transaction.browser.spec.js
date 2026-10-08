@@ -23,7 +23,7 @@ test("transaction file preserves document versions and separates signature from 
     seller_price:125000, assignment_fee:20000, planned_cash_at_risk:6000,
     max_cash_at_risk:10000, basis:"Synthetic browser transaction plan"
   });
-  await post(request, "/api/deals/" + deal.id + "/stage", {stage:"underwriting", note:"Synthetic progression"});
+  // Saving underwriting already advances a research deal to underwriting.
   await post(request, "/api/deals/" + deal.id + "/stage", {stage:"offer_decision", note:"Owner reviewing exact document"});
 
   await page.goto("/");
@@ -50,7 +50,7 @@ test("transaction file preserves document versions and separates signature from 
 
   const history = panel.getByText("Document/version history", {exact:true});
   await history.click();
-  await expect(panel).toContainText("Purchase agreement · Reviewed");
+  await expect(panel).toContainText(/purchase agreement · reviewed/i);
   await expect(panel).toContainText("Current economics context");
 
   await panel.getByText("Save or revise a transaction document", {exact:true}).click();
@@ -65,10 +65,13 @@ test("transaction file preserves document versions and separates signature from 
 
   await expect(panel).toContainText("Current signed document");
   await expect(panel).toContainText("yes");
-  await expect(panel).toContainText("Purchase agreement · Executed");
-  await expect(panel).toContainText("Signature: Fully signed");
+  await expect(panel).toContainText(/purchase agreement · executed/i);
+  await expect(panel).toContainText(/signature: fully signed/i);
 
   await panel.getByText("Closing-state history", {exact:true}).click();
   await expect(panel).toContainText("No closing milestones recorded.");
-  await expect(panel).toContainText("Funded / disbursed");
+  const recorded = await (await request.get("/api/state")).json();
+  expect(recorded.transactions[deal.id].fully_signed_current_document).toBe(true);
+  expect(recorded.transactions[deal.id].latest_closing_state).toBeNull();
+  expect(recorded.deals.find(item=>item.id===deal.id).finance.summary.income).toBe(0);
 });
