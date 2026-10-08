@@ -8,6 +8,41 @@ async function api(path, data) {
 }
 function show(container, value) { container.textContent = JSON.stringify(value, null, 2); }
 let workflowAutomation=null, workflowBrief=null, workflowDestination=null, workflowLoadFailed=false;
+let savedContactRecords=[];
+function usableContacts(kind) {
+  return savedContactRecords.filter(record=>record.profile.kind===kind && !record.blocked && !record.paused && record.profile.name);
+}
+async function loadSavedContacts() {
+  try {
+    const state=await api('/api/relationships'); savedContactRecords=state.relationships;
+    const investors=usableContacts('investor'), agents=usableContacts('agent');
+    $('saved-contact-status').textContent=`${investors.length} available investor contacts and ${agents.length} available agent contacts. ${state.buyers.length} buyer records exist. A contact is not verified buyer demand or an engaged representative. Blocked and paused contacts are excluded.`;
+    for (const [id,records] of [['saved-investor',investors],['saved-agent',agents]]) {
+      const select=$(id); select.replaceChildren(new Option(id==='saved-investor' ? 'Choose a saved investor' : 'Choose a saved agent',''));
+      for (const record of records) select.add(new Option(`${record.profile.name}${record.profile.company ? ` · ${record.profile.company}` : ''}${record.buyer ? ' · linked buyer record' : ' · unverified contact'}`,record.id));
+      select.disabled=!records.length;
+    }
+  } catch(error) {
+    $('saved-contact-status').textContent='Saved contacts could not be loaded. You can enter details manually or open the relationship desk; no contacts were substituted.';
+    $('saved-investor').disabled=true; $('saved-agent').disabled=true;
+  }
+  renderWorkflow();
+}
+function reuseContact(kind,id) {
+  const record=usableContacts(kind).find(item=>item.id===id);
+  if (!record) return;
+  const profile=record.profile, form=$('handoff-form');
+  if (kind==='investor') form.elements.namedItem('client_name').value=profile.company || profile.name;
+  else {
+    form.elements.namedItem('representative_company').value=profile.company || profile.name;
+    form.elements.namedItem('representative_contact').value=profile.email || '';
+  }
+  $('saved-contact-review').href=`/relationships#relationship-${encodeURIComponent(record.id)}`;
+  $('saved-contact-preview').textContent=`${profile.name}: ${profile.needs || 'No buying or service requirements recorded.'} Next recorded action: ${record.next_action || 'Review requirements and engagement.'} Details copied into the draft form, not saved. Buying assumptions remain unchanged; confirm fit and authority separately.`;
+  renderWorkflow();
+}
+$('saved-investor').addEventListener('change',event=>reuseContact('investor',event.target.value));
+$('saved-agent').addEventListener('change',event=>reuseContact('agent',event.target.value));
 function renderWorkflow() {
   const button=$('workflow-action');
   if (!workflowAutomation || workflowLoadFailed) {
@@ -28,7 +63,9 @@ function renderWorkflow() {
   if (partiesChanged || criteriaChanged || (policy.generate_handoffs!==undefined && $('automation-handoffs').checked!==policy.generate_handoffs)) {
     message='Your edits are not saved for daily automation. Review them, then save once; future cycles will reuse that setup.'; label='Review and save setup'; destination='automation-save';
   } else if (!policy.client_name || !policy.representative_company) {
-    message='Research only — we are not ready to pursue properties. First identify a real buyer or research client and a proposed representative. Save their details once; their demand and engagement still need confirmation.'; label='Enter client and representative details'; destination='handoff-form';
+    const available=usableContacts('investor').length+usableContacts('agent').length;
+    message=available ? `Research only — we are not ready to pursue properties. You already have ${available} available investor or agent contacts. Review their requirements, reuse the intended parties, and save once. A saved contact does not establish buyer demand or representation.` : 'Research only — we are not ready to pursue properties. First identify a real buyer or research client and a proposed representative. Save their details once; their demand and engagement still need confirmation.';
+    label=available ? 'Review and reuse saved contacts' : 'Enter client and representative details'; destination=available ? 'saved-contact-setup' : 'handoff-form';
   } else if (latest && ['paused_budget','paused_credentials','paused_sources','retry_needed'].includes(latest.status) && state.enabled) {
     message=`Daily research needs attention: ${automationLabels[latest.status]}. Do not keep rebuilding the same shortlist; inspect the update status first.`; label='Review update status'; destination='automation-panel';
   } else if (!state.enabled) {
@@ -237,6 +274,7 @@ $('handoff-form').addEventListener('submit',async event=>{
   finally {handoffBusy=false; $('handoff-button').disabled=false;}
 });
 Promise.all([briefBoot,loadHandoffs(true).catch(error=>{$('handoff-status').textContent=error.message;})]).then(()=>loadAutomation(true).catch(error=>{$('automation-status').textContent=error.message;}));
+loadSavedContacts();
 async function reload() {
   const [state, meta, temporal, shadow] = await Promise.all([api('/api/sentras/evidence'), api('/api/sentras/meta?limit=100'), api('/api/sentras/temporal'), api('/api/sentras/shadow')]);
   $('readiness').textContent = `Data.gov: ${meta.provider_readiness.data_gov}. Active sources: ${meta.summary.active}. Awaiting review: ${meta.summary.quarantined + meta.summary.proposed}.`;

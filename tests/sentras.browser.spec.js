@@ -1,4 +1,27 @@
 const { test, expect } = require('@playwright/test');
+test('saved contacts fill draft identities without changing criteria or sending requests',async({page})=>{
+  let writes=0; page.on('request',request=>{if(request.method()==='POST')writes++;});
+  const contact=(id,kind,name,company,extra={})=>({id,profile:{kind,name,company,email:'office@example.test',needs:'Confirm current requirements'},blocked:false,paused:false,buyer:null,next_action:'Review buying needs',...extra});
+  await page.route('**/api/relationships',route=>route.fulfill({json:{buyers:[],relationships:[contact('investor-1','investor','Example Investor','Example Client LLC'),contact('agent-1','agent','Example Agent','Example Brokerage'),contact('blocked','investor','Blocked Contact','',{blocked:true}),contact('paused','agent','Paused Contact','',{paused:true})]}}));
+  await page.route('**/api/sentras/automation',route=>route.fulfill({json:{enabled:true,policy:{criteria:{max_price:150000,min_beds:2,repair_reserve:10000,closing_pct:3,vacancy_pct:8,expense_pct:30,min_yield_pct:5},generate_handoffs:true,client_name:'',representative_company:'',representative_contact:'',notes:''},schedule:'Daily at 9 AM America/Indiana/Indianapolis',next_due:'2026-10-09T13:00:00+00:00',runs:[],handoff_ready:false,budget:{used:16,cap:40},external_actions:false}}));
+  await page.route('**/api/sentras/briefs',route=>route.fulfill({json:{briefs:[]}}));
+  await page.route('**/api/sentras/handoffs',route=>route.fulfill({json:{handoffs:[]}}));
+  await page.goto('/sentras');
+  await expect(page.locator('#saved-contact-status')).toContainText('1 available investor contacts and 1 available agent');
+  await expect(page.locator('#workflow-action')).toHaveText('Review and reuse saved contacts');
+  await page.locator('#workflow-action').click();
+  await expect(page.locator('#saved-investor option')).toHaveCount(2);
+  await expect(page.locator('#saved-agent option')).toHaveCount(2);
+  await page.locator('#saved-investor').selectOption('investor-1');
+  await page.locator('#saved-agent').selectOption('agent-1');
+  await expect(page.getByLabel('Intended client or buyer')).toHaveValue('Example Client LLC');
+  await expect(page.getByLabel('Proposed representative company')).toHaveValue('Example Brokerage');
+  await expect(page.getByLabel('Representative business contact (optional)')).toHaveValue('office@example.test');
+  await expect(page.getByLabel('Maximum asking price ($)')).toHaveValue('150000');
+  await expect(page.locator('#workflow-next')).toContainText('not saved');
+  await expect(page.locator('#saved-contact-review')).toHaveAttribute('href','/relationships#relationship-agent-1');
+  expect(writes).toBe(0);
+});
 // Legacy workspace checks explicitly open the secondary research/setup surface.
 test.beforeEach(async({page},testInfo)=>{
   if (testInfo.title.startsWith('guided overview') || testInfo.title.startsWith('overview does not')) return;
