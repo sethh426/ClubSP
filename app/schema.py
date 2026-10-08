@@ -20,6 +20,7 @@ COMPONENT_VERSIONS = {
     "acquisition_briefs": 1,
     "representative_handoffs": 1,
     "acquisition_automation": 1,
+    "buyer_intent": 1,
 }
 
 

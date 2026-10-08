@@ -3,6 +3,7 @@ import sqlite3
 import pytest
 
 from app.funding import FundingBook
+from app.buyer_intent import BuyerIntentBook
 from app.relationships import RelationshipBook
 from app.schema import (
     COMPONENT_VERSIONS,
@@ -17,14 +18,14 @@ from app.service import Application
 def test_all_runtime_schema_components_register_and_survive_restart(tmp_path):
     path = tmp_path / "clubsp.db"
     app = Application(path)
-    RelationshipBook(app)
+    BuyerIntentBook(app, RelationshipBook(app))
     FundingBook(app.database)
     with app.database.session() as (connection, _):
         state = schema_state(connection)
     assert {name: item["version"] for name, item in state.items()} == COMPONENT_VERSIONS
 
     restarted = Application(path)
-    RelationshipBook(restarted)
+    BuyerIntentBook(restarted, RelationshipBook(restarted))
     FundingBook(restarted.database)
     with restarted.database.session() as (connection, _):
         again = schema_state(connection)
