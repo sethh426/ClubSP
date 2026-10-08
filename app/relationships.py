@@ -475,9 +475,15 @@ class RelationshipBook:
             if not event["evidence_reference"]:
                 raise ValueError("Incoming criteria conversation requires evidence")
 
+            # The confirmation window starts with the actual conversation, not
+            # the day an owner finally enters or qualifies it. Preserve only
+            # the remaining window; expired evidence requires a new reply.
+            criteria_age = (business_today() - date.fromisoformat(event["occurred_on"])).days
+            if criteria_age < 0 or criteria_age >= refresh_days:
+                raise ValueError("Incoming buying criteria have expired; reconfirm with the buyer before qualifying demand")
             now_dt = utc_now()
             now = now_dt.isoformat()
-            expires_at = (now_dt + timedelta(days=refresh_days)).isoformat()
+            expires_at = (now_dt + timedelta(days=refresh_days - criteria_age)).isoformat()
             buyer_id, mandate_id, linked_profile_id, qualification_id = (
                 str(uuid4()), str(uuid4()), str(uuid4()), str(uuid4())
             )

@@ -458,3 +458,33 @@ def test_permission_review_request_key_cannot_change_decision(tmp_path):
     book.review_permission(row["id"], data)
     with pytest.raises(ValueError, match="different permission review"):
         book.review_permission(row["id"], {**data, "decision": "block_outreach"})
+
+
+@pytest.mark.parametrize("age,refresh", [(30, 30), (31, 30), (365, 90)])
+def test_old_incoming_criteria_cannot_become_fresh_demand(tmp_path, age, refresh):
+    from datetime import timedelta
+    app, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    book.interact(row["id"], interaction(row, outcome="interested",
+        occurred_on=(business_today() - timedelta(days=age)).isoformat()))
+    row = current(book)
+    with pytest.raises(ValueError, match="expired.*reconfirm"):
+        book.qualify_buyer(row["id"], qualification(row, refresh_days=refresh))
+    with app.database.session() as (connection, _):
+        for table in ("buyers", "buyer_mandates", "relationship_buyer_qualifications"):
+            assert connection.execute("SELECT COUNT(*) FROM " + table).fetchone()[0] == 0
+
+
+def test_delayed_qualification_preserves_remaining_confirmation_window(tmp_path):
+    from datetime import datetime, timedelta
+    app, book = setup(tmp_path)
+    book.save(profile())
+    row = current(book)
+    book.interact(row["id"], interaction(row, outcome="interested",
+        occurred_on=(business_today() - timedelta(days=29)).isoformat()))
+    row = current(book)
+    saved = book.qualify_buyer(row["id"], qualification(row))
+    mandate = current(book)["qualification"]["mandate"]
+    remaining = datetime.fromisoformat(mandate["expires_at"]) - datetime.fromisoformat(mandate["verified_at"])
+    assert timedelta(0) < remaining <= timedelta(days=1)
