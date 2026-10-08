@@ -7,16 +7,63 @@ async function api(path, data) {
   return result;
 }
 function show(container, value) { container.textContent = JSON.stringify(value, null, 2); }
+let workflowAutomation=null, workflowBrief=null, workflowDestination=null, workflowLoadFailed=false;
+function renderWorkflow() {
+  const button=$('workflow-action');
+  if (!workflowAutomation || workflowLoadFailed) {
+    $('workflow-next').textContent=workflowLoadFailed ? 'Could not check saved automation. Reload the page before changing setup.' : 'Checking your saved setup…';
+    button.disabled=true; button.textContent=workflowLoadFailed ? 'Setup unavailable' : 'Checking setup…'; return;
+  }
+  const state=workflowAutomation, policy=state.policy;
+  const cards=workflowBrief?.result?.cards || [];
+  const count=cards.filter(card=>card.decision?.status==='review_candidate').length;
+  const stale=workflowBrief?.completed_at && Date.now()-new Date(workflowBrief.completed_at).getTime()>24*60*60*1000;
+  $('workflow-parties').textContent=`Intended client / buyer: ${policy.client_name || 'Not saved'}. Proposed representative: ${policy.representative_company || 'Not saved'}. Names do not verify buyer demand or establish representation.`;
+  const latest=state.runs[0];
+  $('workflow-automatic').textContent=state.enabled ? `Daily research is enabled: ${state.schedule}. ${state.budget.used}/${state.budget.cap} monthly data requests used. ${policy.generate_handoffs ? 'Private draft preparation is enabled; it needs saved client and representative names and qualifying properties.' : 'Private draft preparation is off.'}${latest ? ` Last cycle: ${automationLabels[latest.status] || latest.status}.` : ''}` : 'Daily research is stopped. Nothing runs until you enable it. Opening this page does not trigger paid property searches.';
+  $('workflow-results').textContent=workflowBrief ? `${cards.length} properties in the displayed research sample; ${count} fit the saved brief assumptions for review. ${stale ? 'This brief is over 24 hours old; do not rely on it without refreshing.' : 'This is a bounded sample, not the full market.'}` : 'No property brief is displayed yet. You can enter client and representative details without researching a property first.';
+  const partiesChanged=['client_name','representative_company','representative_contact','notes'].some(key=>$('handoff-form').elements.namedItem(key).value.trim()!==(policy[key] || ''));
+  const criteriaChanged=policy.criteria && Object.entries(policy.criteria).some(([key,value])=>Number($('brief-build').elements.namedItem(key).value)!==value);
+  let message, label, destination;
+  if (partiesChanged || criteriaChanged || (policy.generate_handoffs!==undefined && $('automation-handoffs').checked!==policy.generate_handoffs)) {
+    message='Your edits are not saved for daily automation. Review them, then save once; future cycles will reuse that setup.'; label='Review and save setup'; destination='automation-save';
+  } else if (!policy.client_name || !policy.representative_company) {
+    message='Research only — we are not ready to pursue properties. First identify a real buyer or research client and a proposed representative. Save their details once; their demand and engagement still need confirmation.'; label='Enter client and representative details'; destination='handoff-form';
+  } else if (latest && ['paused_budget','paused_credentials','paused_sources','retry_needed'].includes(latest.status) && state.enabled) {
+    message=`Daily research needs attention: ${automationLabels[latest.status]}. Do not keep rebuilding the same shortlist; inspect the update status first.`; label='Review update status'; destination='automation-panel';
+  } else if (!state.enabled) {
+    message='Your parties are saved, but daily research is stopped. Review the buying criteria and data-request cap, then enable it once.'; label='Review daily update settings'; destination='automation-panel';
+  } else if (!workflowBrief || stale) {
+    message='Daily research is scheduled. You do not need to press a button every day. You can inspect the schedule or manually build a fresh brief within the request cap.'; label='Review research schedule'; destination='automation-panel';
+  } else if (!count) {
+    message='No displayed properties qualify under these assumptions. You do not need to make an offer. Review the evidence gaps or wait for the next daily check.'; label='See why properties did not qualify'; destination='brief-result';
+  } else {
+    message=`${count} research candidate${count===1 ? '' : 's'} fit the assumptions. Confirm the buyer requirements and representative engagement before any transaction work. Handoffs are private drafts, not sent requests.`; label='Review candidates and handoff'; destination='handoff-form';
+  }
+  $('workflow-next').textContent=message; button.textContent=label; button.disabled=false; workflowDestination=destination;
+}
+$('workflow-action').addEventListener('click',()=>{
+  if (!workflowDestination) return;
+  $('workflow-workspace').open=true;
+  const target=$(workflowDestination); target.scrollIntoView({behavior:'smooth',block:'center'});
+  if (workflowDestination==='handoff-form') target.elements.namedItem('client_name').focus({preventScroll:true});
+  else if (target.matches('button')) target.focus({preventScroll:true});
+});
+$('handoff-form').hidden=false; $('handoff-button').disabled=true;
+for (const id of ['handoff-form','brief-build','automation-handoffs']) $(id).addEventListener('input',renderWorkflow);
 const automationLabels = {completed:'Completed',paused_budget:'Paused: fewer than 4 data requests remain this month',paused_credentials:'Paused: data connection needs setup',paused_sources:'Paused: data sources are disabled',retry_needed:'Needs retry; will check next morning',settings_changed:'Stopped or settings changed during update',running:'Updating'};
 let automationBusy = false;
 async function loadAutomation(restore=false) {
-  const state = await api('/api/sentras/automation');
+  let state;
+  try {state=await api('/api/sentras/automation'); workflowLoadFailed=false;}
+  catch(error) {workflowLoadFailed=true; renderWorkflow(); throw error;}
+  workflowAutomation=state;
   const latest = state.runs[0];
   $('automation-status').textContent = `${state.enabled ? 'Daily updates enabled' : 'Daily updates stopped'} · ${state.budget.used}/${state.budget.cap} monthly data requests used.${state.enabled ? ` Next check: ${new Date(state.next_due).toLocaleString('en-US',{timeZone:'America/Indiana/Indianapolis'})} Indianapolis time.` : ''}${state.enabled && state.policy.generate_handoffs && !state.handoff_ready ? ' Drafts waiting for a client and representative company.' : ''}${latest ? ` Last cycle: ${automationLabels[latest.status] || latest.status}.` : ''}`;
   $('automation-stop').disabled = automationBusy || !state.enabled;
   if (restore && state.policy.generate_handoffs !== undefined) {
     $('automation-handoffs').checked = state.policy.generate_handoffs;
-    for (const [key,value] of Object.entries(state.policy.criteria)) $('brief-build').elements.namedItem(key).value=value;
+    for (const [key,value] of Object.entries(state.policy.criteria || {})) $('brief-build').elements.namedItem(key).value=value;
     for (const key of ['client_name','representative_company','representative_contact','notes']) {
       const field = $('handoff-form').elements.namedItem(key);
       field.value = state.policy[key] || '';
@@ -36,6 +83,7 @@ async function loadAutomation(restore=false) {
       target.append(item);
     }
   }
+  renderWorkflow();
 }
 async function saveAutomation(enabled) {
   if (automationBusy) return;
@@ -62,7 +110,9 @@ function briefLine(parent, text, tag='p') {
   const element = document.createElement(tag); element.textContent = text; parent.append(element); return element;
 }
 function renderBrief(brief) {
+  workflowBrief=brief;
   prepareHandoffForm(brief);
+  renderWorkflow();
   const target = $('brief-result'); target.replaceChildren();
   const result = brief.result, assumptions = brief.criteria;
   if (brief.status === 'running') {briefLine(target, 'Build in progress. Reload saved briefs shortly.'); return;}
@@ -135,8 +185,8 @@ const briefBoot=loadBriefs(true).catch(error=>{$('brief-status').textContent=err
 let handoffBriefId=null, handoffBusy=false, handoffKey=null, handoffBody=null;
 function prepareHandoffForm(brief) {
   handoffBriefId=brief.id; $('handoff-properties').replaceChildren();
-  const cards=brief.result.cards || []; $('handoff-form').hidden=!cards.length;
-  $('handoff-help').textContent=cards.length ? `Choose properties from the displayed brief saved ${new Date(brief.completed_at).toLocaleString()}. Client identity and representative engagement remain unverified.` : 'A completed brief with property cards is needed for a handoff.';
+  const cards=brief.result.cards || []; $('handoff-form').hidden=false; $('handoff-button').disabled=!cards.length || brief.status==='running';
+  $('handoff-help').textContent=cards.length ? `Choose properties from the displayed brief saved ${new Date(brief.completed_at).toLocaleString()}. Client identity and representative engagement remain unverified.` : 'Enter your client and representative details now and save them in daily automation. A completed brief with property cards is needed to prepare a handoff.';
   cards.forEach((card,index)=>{
     const label=document.createElement('label'), input=document.createElement('input');
     input.type='checkbox'; input.name='card_index'; input.value=String(index); input.checked=card.decision?.status==='review_candidate';
