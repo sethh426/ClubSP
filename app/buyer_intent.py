@@ -12,6 +12,7 @@ import httpx
 
 from .schema import assert_component_compatible, ensure_component
 from .validation import text_field
+from .buyer_posts import FEEDS, fetch_posts
 
 # Only these independently reviewed public pages are fetched by the server.
 SOURCES = (
@@ -100,6 +101,7 @@ class BuyerIntentBook:
         self.relationships = relationships
         self.lock = threading.Lock()
         self.fetch = fetch_page
+        self.fetch_posts = fetch_posts
         with self.database.session(write=True) as (c, _):
             assert_component_compatible(c, "buyer_intent")
             c.execute("CREATE TABLE IF NOT EXISTS buyer_intent_signals (id TEXT PRIMARY KEY, url TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, status TEXT NOT NULL, relationship_id TEXT)")
@@ -108,12 +110,22 @@ class BuyerIntentBook:
             c.execute("CREATE TABLE IF NOT EXISTS buyer_intent_settings (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL)")
             c.execute("INSERT OR IGNORE INTO buyer_intent_settings VALUES(1,1)")
             ensure_component(c, "buyer_intent")
+            assert_component_compatible(c, "buyer_post_discovery")
+            c.execute("CREATE TABLE IF NOT EXISTS buyer_post_runs (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, attempted_at TEXT NOT NULL, status TEXT NOT NULL, scanned INTEGER NOT NULL, imported INTEGER NOT NULL, skipped INTEGER NOT NULL)")
+            ensure_component(c, "buyer_post_discovery")
 
     def capture(self, data, observed=None):
         timestamp = (observed or now_utc()).isoformat()
         url = source_url(text_field(data, "url", 500))
         payload = {"name": text_field(data, "name", 160), "text": text_field(data, "text", 4000),
                    "kind": text_field(data, "kind", 20), "published_on": text_field(data, "published_on", 10, required=False)}
+        # Optional provenance belongs to this source observation, not to a buyer mandate.
+        for field, limit in (("title", 300), ("discovered_via", 500)):
+            value = text_field(data, field, limit, required=False)
+            if value:
+                payload[field] = value
+        if payload.get("discovered_via"):
+            source_url(payload["discovered_via"])  # Validate while preserving the publisher's exact feed URL.
         if payload["kind"] not in {"post", "company", "acquisition"}:
             raise ValueError("Source kind must be post, company, or acquisition")
         if payload["published_on"]:
@@ -145,7 +157,7 @@ class BuyerIntentBook:
             return {"status": "already_running"}
         try:
             result = []
-            for source in SOURCES:
+            for source in (*SOURCES, *FEEDS):
                 stamp = now_utc()
                 with self.database.session(write=True) as (c, _):
                     if not c.execute("SELECT enabled FROM buyer_intent_settings WHERE id=1").fetchone()[0]:
@@ -157,6 +169,12 @@ class BuyerIntentBook:
                         continue
                     c.execute("INSERT INTO buyer_intent_sources VALUES(?,?,NULL,NULL) ON CONFLICT(id) DO UPDATE SET attempted_at=excluded.attempted_at", (source["id"], stamp.isoformat()))
                 try:
+                    if source.get("type") == "publisher_feed":
+                        stats = self.collect_posts(source, stamp)
+                        with self.database.session(write=True) as (c, _):
+                            c.execute("UPDATE buyer_intent_sources SET checked_at=?,error=NULL WHERE id=?", (stamp.isoformat(), source["id"]))
+                        result.append({"id": source["id"], "status": "checked", **stats})
+                        continue
                     page = self.fetch(source)
                     category = classify(page, "company")
                     if category != "company_claim":
@@ -171,6 +189,9 @@ class BuyerIntentBook:
                 except Exception:
                     # Do not expose fetched text, sensitive environment, or remote error material.
                     error = "Public page could not be checked or its buying claim could not be recognized. Previous evidence retained."
+                    if source.get("type") == "publisher_feed":
+                        error = "Publisher feed could not be checked. Saved findings retained; no social-platform access was attempted."
+                        self.record_post_run(source, stamp, "failed", 0, 0, 0)
                 with self.database.session(write=True) as (c, _):
                     c.execute("UPDATE buyer_intent_sources SET checked_at=CASE WHEN ? IS NULL THEN ? ELSE checked_at END,error=? WHERE id=?",
                               (error, stamp.isoformat(), error, source["id"]))
@@ -178,6 +199,39 @@ class BuyerIntentBook:
             return {"status": "completed", "sources": result}
         finally:
             self.lock.release()
+
+    def record_post_run(self, source, stamp, status, scanned, imported, skipped):
+        with self.database.session(write=True) as (c, _):
+            c.execute("INSERT INTO buyer_post_runs VALUES(?,?,?,?,?,?,?)", (str(uuid4()), source["id"], stamp.isoformat(), status, scanned, imported, skipped))
+
+    def collect_posts(self, source, stamp):
+        posts = self.fetch_posts(source)
+        imported = 0
+        for post in posts:
+            parser = PageText()
+            parser.feed(post["html"])
+            text = " ".join(" ".join(parser.parts).split())
+            # Generic education and third-party buying references are not new demand.
+            if classify(text, "company") != "company_claim":
+                continue
+            markets = [m for m in ("Fort Wayne", "Indiana", "Indianapolis", "New Haven") if m.casefold() in text.casefold()]
+            if not markets:
+                continue
+            match = re.search(r"\b(?:we|i)\b.{0,35}(?:buy houses|buy homes|cash offers|buying.{0,20}home)", text, re.I)
+            excerpt = " ".join(text[match.start():].split()[:24])
+            try:
+                self.capture({"name": source["name"], "url": post["url"], "kind": "company",
+                              "text": excerpt + "\nMarkets mentioned in post: " + ", ".join(markets),
+                              "title": post["title"], "discovered_via": source["url"],
+                              "published_on": post["published_on"]}, stamp)
+            except ValueError:
+                # Invalid metadata or a conflicting author must not overwrite evidence
+                # or prevent the rest of a valid feed from being reviewed.
+                continue
+            imported += 1
+        stats = {"scanned": len(posts), "imported": imported, "skipped": len(posts) - imported}
+        self.record_post_run(source, stamp, "completed", **stats)
+        return stats
 
     def settings(self, data):
         if set(data) != {"enabled"} or type(data["enabled"]) is not bool:
@@ -243,15 +297,16 @@ class BuyerIntentBook:
                                 "recent_check": recent_check, "priority": priority, "next_action": action,
                                 "history": [{"observed_at": h["observed_at"], **json.loads(h["payload"])} for h in history]})
             sources = []
-            for s in SOURCES:
+            for s in (*SOURCES, *FEEDS):
                 row = c.execute("SELECT * FROM buyer_intent_sources WHERE id=?", (s["id"],)).fetchone()
                 state = dict(row) if row else {"attempted_at": None, "checked_at": None, "error": None}
                 sources.append({**s, **state, "next_check": (datetime.fromisoformat(state["attempted_at"]) + timedelta(hours=24)).isoformat() if state["attempted_at"] else None})
+            post_runs = [dict(r) for r in c.execute("SELECT * FROM buyer_post_runs ORDER BY rowid DESC LIMIT 10").fetchall()]
         signals.sort(key=lambda s: (s["status"] == "dismissed", s["priority"]))
-        return {"enabled": enabled, "signals": signals, "sources": sources,
+        return {"enabled": enabled, "signals": signals, "sources": sources, "post_runs": post_runs,
                 "summary": {"total": len(signals), "shortlisted": sum(s["status"] == "shortlisted" for s in signals),
                             "buying_requests": sum(s["category"] == "buying_request" and s["status"] != "dismissed" for s in signals)},
-                "coverage": "Three selected company websites checked at most once per 24 hours. Posts and outside findings can be saved below; social networks are not automatically searched."}
+                "coverage": "Three company pages and one selected publisher post feed checked at most once per 24 hours. Posts with a local buying claim enter the evidence queue; generic education is skipped. Social platforms are not automatically searched."}
 
 
 class BuyerIntentScheduler:

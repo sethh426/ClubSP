@@ -35,6 +35,16 @@ def main():
     app.knowledge_adapter.failures = {"email_rules"}
     app.knowledge_inline = True
     server = create_server(args.db, args.port, application=app)
+    # Buyer discovery browser checks use publisher fixtures, never external sites.
+    app.buyer_intent.fetch = lambda source: 'We buy houses in Fort Wayne, Indiana.'
+    app.buyer_intent.fetch_posts = lambda source: [
+        {"url": "https://buysasis.com/blog/synthetic-browser-buying-post/",
+         "title": "Synthetic publisher buying post", "published_on": "2026-09-30",
+         "html": "<p>We buy houses in Fort Wayne, Indiana.</p>"},
+        {"url": "https://buysasis.com/blog/synthetic-browser-education/",
+         "title": "Synthetic education", "published_on": "2026-09-30",
+         "html": "<p>Tips for homeowners in Indiana.</p>"},
+    ]
     try:
         server.serve_forever()
     finally:

@@ -57,3 +57,26 @@ test('possible existing buyer contact has a visible review link without duplicat
   await expect(second.getByRole('link',{name:'Review saved contact'})).toBeVisible();
   await expect(page).toHaveURL(/\/buyer-intent$/);
 });
+
+test('automatic publisher discovery shows provenance, filtered counts and no verified buyer claim', async ({page}) => {
+  await page.goto('/buyer-intent');
+  const sourceState = await (await page.request.get('/api/buyer-intent')).json();
+  if(!sourceState.enabled) await page.getByRole('button',{name:'Resume checks'}).click();
+  await page.getByRole('button',{name:'Check sources due now'}).click();
+  await expect(page.locator('#post-discovery')).toContainText('2 posts scanned');
+  await expect(page.locator('#post-discovery')).toContainText('1 buying-claim posts retained');
+  await expect(page.locator('#post-discovery')).toContainText('1 posts skipped');
+  const card = page.locator('.signal').filter({hasText:'Publisher post: Synthetic publisher buying post'});
+  await expect(card).toContainText('Company buying claim');
+  await expect(card).toContainText('2026-09-30');
+  await expect(card.getByRole('link',{name:'publisher feed'})).toHaveAttribute('href','https://buysasis.com/feed/');
+  await expect(card).toContainText('not a confirmed buyer request');
+  await page.reload();
+  await expect(card).toHaveCount(1);
+  await expect(page.locator('#post-discovery')).toContainText('2 posts scanned');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  if(test.info().project.name === 'mobile') {
+    await card.screenshot({path:'/tmp/buyer-post-card.png'});
+    await page.locator('#post-discovery').locator('..').screenshot({path:'/tmp/buyer-post-monitor.png'});
+  }
+});

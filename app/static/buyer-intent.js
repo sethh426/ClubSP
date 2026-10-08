@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const stamp = value => value ? new Date(value).toLocaleString() : 'Not checked yet';
+const postEvidence = s => s.title ? `<p class="small">Publisher post: ${esc(s.title)}</p>${s.discovered_via ? `<p class="small">Discovered automatically from <a href="${esc(s.discovered_via)}" target="_blank" rel="noopener noreferrer">publisher feed</a>. This supports a company claim, not a confirmed buyer request.</p>` : ''}` : '';
 let state;
 let busy = false;
 async function api(path, data) {
@@ -14,13 +15,16 @@ function render() {
   const next = state.signals.find(s => s.status !== 'dismissed' && ['buying_request','company_claim'].includes(s.category));
   $('next-step').textContent = next ? `Start with ${next.name}. ${next.next_action}` : 'Automatic checks will collect company claims. Add any buying posts you find, then review the evidence before creating a prospect.';
   $('coverage').textContent = state.coverage;
+  const run = state.post_runs?.[0];
+  $('post-discovery').textContent = !run ? 'Publisher discovery starts automatically when its feed is due.' : run.status === 'failed' ? 'The last publisher discovery failed. Existing findings are retained; check the source status below.' : `Last publisher discovery: ${run.scanned} posts scanned · ${run.imported} buying-claim posts retained · ${run.skipped} posts skipped. Retained posts are supporting company evidence, not confirmed buyer requests.`;
   $('monitor-status').textContent = state.enabled ? 'Daily public checks are on. Findings are saved here without using property-provider requests.' : 'Public checks are paused. Your saved evidence remains available.';
   $('toggle').textContent = state.enabled ? 'Pause checks' : 'Resume checks';
   $('refresh').disabled = !state.enabled || busy;
-  $('sources').innerHTML = state.sources.map(s => `<div class="source"><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)}</a><p class="small">Last successful check: ${esc(stamp(s.checked_at))}<br>Next eligible check: ${esc(stamp(s.next_check))}</p>${s.error ? `<p class="warning">${esc(s.error)}</p>` : ''}</div>`).join('');
+  $('sources').innerHTML = state.sources.map(s => `<div class="source"><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)}${s.type === 'publisher_feed' ? ' · Public post feed' : ' · Company page'}</a><p class="small">Last successful check: ${esc(stamp(s.checked_at))}<br>Next eligible check: ${esc(stamp(s.next_check))}</p>${s.error ? `<p class="warning">${esc(s.error)}</p>` : ''}</div>`).join('');
   const filter = $('filter').value;
   const signals = state.signals.filter(s => filter === 'all' || (filter === 'active' ? s.status !== 'dismissed' : ['dismissed','shortlisted'].includes(filter) ? s.status === filter : s.category === filter));
   $('signals').innerHTML = signals.map(s => `<article class="signal" data-id="${esc(s.id)}"><span class="badge">${esc(s.label)}</span><span class="badge">${esc(s.status)}</span><h3>${esc(s.name)}</h3><p class="small">${esc(s.freshness)}${s.published_on ? ` (${esc(s.published_on)})` : ''} · Last observed: ${esc(stamp(s.last_seen))}${s.recent_check ? '' : ' · Needs a fresh source check'}</p><blockquote>${esc(s.text)}</blockquote><p>Markets mentioned: ${esc(s.markets.join(', ') || 'Not established')}</p><p><strong>Next:</strong> ${esc(s.next_action)}</p><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">Read original source</a><details><summary>Evidence history (${s.history.length} most recent versions)</summary>${s.history.map(h=>`<p class="small">Observed ${esc(stamp(h.observed_at))} · ${esc(h.published_on || 'Publication date unknown')}</p><blockquote>${esc(h.text)}</blockquote>`).join('')}</details><div class="actions">${s.relationship_id ? `<a class="button primary" href="/relationships#relationship-${esc(s.relationship_id)}">Continue buyer qualification</a>` : s.status !== 'dismissed' && ['buying_request','company_claim'].includes(s.category) ? '<button class="button primary" data-action="relationship">Prepare buyer prospect</button>' : ''}<button class="button" data-action="review" data-value="${s.status === 'shortlisted' ? 'new' : 'shortlisted'}">${s.status === 'shortlisted' ? 'Remove from shortlist' : 'Shortlist'}</button><button class="button" data-action="review" data-value="${s.status === 'dismissed' ? 'new' : 'dismissed'}">${s.status === 'dismissed' ? 'Restore' : 'Dismiss'}</button></div><div class="prospect-result" aria-live="polite"></div></article>`).join('') || '<p>No findings in this view.</p>';
+  signals.forEach(s => { const card = document.querySelector(`[data-id="${s.id}"]`); if(card && s.title) card.querySelector('h3').insertAdjacentHTML('afterend', postEvidence(s)); });
 }
 async function load() { state = await api('/api/buyer-intent'); render(); }
 async function action(work) {

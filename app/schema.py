@@ -21,6 +21,7 @@ COMPONENT_VERSIONS = {
     "representative_handoffs": 1,
     "acquisition_automation": 1,
     "buyer_intent": 1,
+    "buyer_post_discovery": 1,
 }
 
 
