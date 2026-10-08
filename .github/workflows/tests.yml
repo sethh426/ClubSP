@@ -54,10 +54,8 @@ jobs:
       - run: node --check app/static/funding.js
       - run: node --check app/static/relationships.js
       - run: node --check app/static/sentras.js
-      - run: npx playwright test
-      - run: npx playwright test -c playwright.funding.config.js
-      - run: npx playwright test -c playwright.economics.config.js
-      - run: npx playwright test -c playwright.relationships.config.js
+      - name: Validate every browser workflow in an isolated database
+        run: python scripts/validate_browser_workflows.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
