@@ -16,6 +16,7 @@ from .gmail_inbox import sync_previews
 from .gmail_send import send_approved_draft
 from .funding import FundingBook
 from .relationships import RelationshipBook
+from .buyer_intent import BuyerIntentBook, BuyerIntentScheduler
 from .command_center import build_command_center
 from .auth import OwnerAuth, SESSION_COOKIE
 from .preflight import deployment_readiness
@@ -25,6 +26,9 @@ from .acquisition_automation import AcquisitionAutomationScheduler
 
 STATIC = Path(__file__).with_name("static")
 ASSETS = {
+    "/buyer-intent": ("buyer-intent.html", "text/html; charset=utf-8"),
+    "/buyer-intent.js": ("buyer-intent.js", "text/javascript; charset=utf-8"),
+    "/buyer-intent.css": ("buyer-intent.css", "text/css; charset=utf-8"),
     "/login": ("login.html", "text/html; charset=utf-8"),
     "/login.js": ("login.js", "text/javascript; charset=utf-8"),
     "/sentras": ("sentras.html", "text/html; charset=utf-8"),
@@ -60,6 +64,8 @@ def reject_constant(value):
 def handler_for(application, gmail, auth=None):
     funding = FundingBook(application.database)
     relationships = RelationshipBook(application)
+    buyer_intent = BuyerIntentBook(application, relationships)
+    application.buyer_intent = buyer_intent
     auth = auth or OwnerAuth()
     class Handler(BaseHTTPRequestHandler):
         def send_content(self, code, body, content_type="application/json; charset=utf-8"):
@@ -233,6 +239,11 @@ def handler_for(application, gmail, auth=None):
             elif path == "/api/state":
                 try:
                     self.send_json(200, application.state())
+                except sqlite3.Error:
+                    self.send_json(503, {"error": "Database temporarily unavailable"})
+            elif path == "/api/buyer-intent":
+                try:
+                    self.send_json(200, buyer_intent.state())
                 except sqlite3.Error:
                     self.send_json(503, {"error": "Database temporarily unavailable"})
             elif path == "/api/relationships":
@@ -478,6 +489,23 @@ def handler_for(application, gmail, auth=None):
                         raise ValueError("Disconnect request must be empty")
                     gmail.disconnect()
                     result = {"connected": False, "google_permission_revoked": False}
+                elif path.startswith("/api/buyer-intent"):
+                    if origin != self.gmail_origin():
+                        self.send_json(403, {"error": "Review buyer research from the ClubSP workspace"})
+                        return
+                    if path == "/api/buyer-intent":
+                        result = buyer_intent.capture(data)
+                    elif path == "/api/buyer-intent/refresh":
+                        if data:
+                            raise ValueError("Refresh request must be empty")
+                        result = buyer_intent.refresh()
+                    elif path == "/api/buyer-intent/settings":
+                        result = buyer_intent.settings(data)
+                    else:
+                        parts = path.strip("/").split("/")
+                        if len(parts) != 4 or parts[3] not in {"review", "relationship"}:
+                            raise LookupError("Route not found")
+                        result = (buyer_intent.review if parts[3] == "review" else buyer_intent.relationship)(parts[2], data)
                 elif path == "/api/relationships":
                     result = relationships.save(data)
                 elif path.startswith("/api/relationships/"):
@@ -677,6 +705,8 @@ def main():
     if os.environ.get("CLUBSP_ENV", "development").strip().lower() == "production" and not readiness["ready"]:
         raise SystemExit("ClubSP production preflight failed: " + dumps(readiness))
     server = create_server(args.db, args.port, application=application, gmail=gmail, auth=auth)
+    buyer_scheduler = BuyerIntentScheduler(application.buyer_intent)
+    buyer_scheduler.start()
     meta_scheduler = None
     acquisition_scheduler = AcquisitionAutomationScheduler(application)
     acquisition_scheduler.start()
@@ -698,6 +728,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        buyer_scheduler.stop()
         acquisition_scheduler.stop()
         if meta_scheduler is not None:
             meta_scheduler.stop()

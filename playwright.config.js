@@ -2,7 +2,7 @@ const { defineConfig } = require("@playwright/test");
 
 module.exports = defineConfig({
   testDir: "./tests",
-  testMatch: ["browser.spec.js", "communications.browser.spec.js", "knowledge.browser.spec.js", "gmail.browser.spec.js", "opportunities.browser.spec.js", "sourcing.browser.spec.js", "discovery.browser.spec.js", "sentras.browser.spec.js"],
+  testMatch: ["buyer-intent.browser.spec.js", "browser.spec.js", "communications.browser.spec.js", "knowledge.browser.spec.js", "gmail.browser.spec.js", "opportunities.browser.spec.js", "sourcing.browser.spec.js", "discovery.browser.spec.js", "sentras.browser.spec.js"],
   workers: 1,
   timeout: 45000,
   use: { baseURL: "http://127.0.0.1:8765", trace: "retain-on-failure" },
