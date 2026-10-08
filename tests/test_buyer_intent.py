@@ -156,6 +156,7 @@ def test_http_origin_and_capture_never_fetch_submitted_url(tmp_path):
 def test_negative_claims_and_distinct_authors_not_merged(book):
     assert classify("We don't buy houses anymore.", "company") == 'unclear'
     assert classify("We are no longer buying homes.", "post") == 'unclear'
+    assert classify("We buy houses. What if I don’t need a fast closing? At Buy My House, we close on your schedule.", "company") == 'company_claim'
     book.capture(finding())
     with pytest.raises(ValueError, match='another author'):
         book.capture(finding(name='Someone else'))
@@ -167,7 +168,7 @@ def test_page_reader_rejects_redirects_and_large_responses_and_ignores_scripts(m
     from app import buyer_intent
     original = httpx.Client
     responses = [httpx.Response(302, headers={'location':'http://127.0.0.1/private'}),
-                 httpx.Response(200, headers={'content-type':'text/html'}, text='<script>We buy houses</script><p>Public text only</p>'),
+                 httpx.Response(200, headers={'content-type':'text/html'}, text='<head><title>Marketing title</title></head><script>We buy houses</script><p>Public text only</p>'),
                  httpx.Response(200, headers={'content-type':'text/html'}, content=b'a' * 1_000_001)]
     calls = []
     def respond(request):

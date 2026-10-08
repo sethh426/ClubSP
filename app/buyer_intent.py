@@ -44,7 +44,7 @@ def classify(text, kind):
     # Soliciting end buyers is not evidence that the author buys.
     if re.search(r"(?:looking for|seeking|need|wanted|building).{0,35}(?:cash buyers|buyer network|buyers list|buyer list)", value):
         return "buyer_solicitation"
-    if re.search(r"\b(?:we|i)\b.{0,15}(?:do not|don't|don’t|not currently|no longer|stopped).{0,25}(?:buy|acquir)", value):
+    if re.search(r"\b(?:we|i)\b\s+(?:(?:are|am|have)\s+)?(?:do not|don't|don’t|not currently|no longer|stopped)\s+(?:(?:currently|actively|now)\s+)?(?:buy(?:ing)?|acquir(?:ing|e))\b", value):
         return "unclear"
     if kind == "acquisition":
         return "acquisition_history"
@@ -62,11 +62,11 @@ class PageText(HTMLParser):
         self.parts = []
 
     def handle_starttag(self, tag, attrs):
-        if tag in {"script", "style", "noscript"}:
+        if tag in {"head", "script", "style", "noscript"}:
             self.hidden += 1
 
     def handle_endtag(self, tag):
-        if tag in {"script", "style", "noscript"}:
+        if tag in {"head", "script", "style", "noscript"}:
             self.hidden = max(0, self.hidden - 1)
         elif tag in {"p", "div", "h1", "h2", "li", "br"}:
             self.parts.append("\n")
