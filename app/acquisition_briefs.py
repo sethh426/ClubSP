@@ -63,6 +63,16 @@ def decision(card, assumptions):
             "next_step": "Include in a representative review draft; confirm the buyer's criteria, availability and actual costs before any offer."}
 
 
+def enrich_card(card, assumptions):
+    """Keep qualification consistent with the price decision, not display rounding."""
+    card["decision"] = decision(card, assumptions)
+    card["screen"] = {"needs_evidence": "needs_rent_evidence",
+                      "needs_target": "needs_yield_target",
+                      "review_candidate": "meets_assumed_yield"}.get(
+                          card["decision"]["status"], "below_assumed_yield")
+    return card
+
+
 class AcquisitionBriefMixin:
     def _initialize_acquisition_briefs(self):
         with self.database.session(write=True) as (connection, _):
@@ -80,7 +90,7 @@ class AcquisitionBriefMixin:
         result = json.loads(row["result_json"])
         # Enrich saved briefs too, without another provider request or a schema migration.
         for card in result.get("cards", []):
-            card["decision"] = decision(card, assumptions)
+            enrich_card(card, assumptions)
         return {"id": row["id"], "status": row["status"], "criteria": json.loads(row["criteria_json"]),
                 "started_at": row["started_at"], "completed_at": row["completed_at"],
                 "result": result}
@@ -161,6 +171,9 @@ class AcquisitionBriefMixin:
                               "Have the operator verify title, financing and their actual buying criteria before an offer."]})
         cards.sort(key=lambda card: (card["economics"] is not None,
                    card["economics"]["yield_pct"] if card["economics"] else 0), reverse=True)
+        for card in cards:
+            enrich_card(card, assumptions)
+            card.pop("decision")  # Decisions are derived when reading, including legacy briefs.
         result = {"cards": cards, "evidence": evidence, "warnings": warnings, "excluded_count": excluded,
                   "coverage": "Up to 3 provider listings; a bounded sample, not the full market or direct MLS access.",
                   "basis": "Lower provider rent range; vacancy deducted first, then expenses as a share of collected rent. Cash basis includes asking price, assumed closing costs and repair reserve.",

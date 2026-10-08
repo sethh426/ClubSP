@@ -25,7 +25,7 @@ test('saved contacts fill draft identities without changing criteria or sending 
 // Legacy workspace checks explicitly open the secondary research/setup surface.
 test.beforeEach(async({page},testInfo)=>{
   if (testInfo.title.startsWith('guided overview') || testInfo.title.startsWith('overview does not')) return;
-  page.on('domcontentloaded',()=>page.locator('#workflow-workspace').evaluate(element=>{element.open=true;}).catch(()=>{}));
+  await page.addInitScript(()=>document.addEventListener('DOMContentLoaded',()=>{const element=document.querySelector('#workflow-workspace');if(element)element.open=true;}));
 });
 test('guided overview gives one next step without starting research',async({page},testInfo)=>{
   let builds=0;

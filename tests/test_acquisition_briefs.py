@@ -218,3 +218,20 @@ def test_http_build_requires_matching_origin_and_persists(app):
         server.shutdown()
         server.server_close()
         thread.join(5)
+
+
+def test_display_rounding_cannot_mark_a_below_target_card_as_qualifying(app):
+    app._sentra_transport = transport([])
+    brief = app.build_acquisition_brief({"min_yield_pct": 6.84})
+    card = brief["result"]["cards"][0]
+    assert card["economics"]["yield_pct"] == 6.84  # Actual yield is 6.838938... .
+    assert card["screen"] == "below_assumed_yield"
+    assert card["decision"]["status"] == "needs_lower_price"
+    assert app.acquisition_brief_history()["briefs"][0]["result"]["cards"][0]["screen"] == "below_assumed_yield"
+
+
+def test_zero_target_is_not_a_qualified_match(app):
+    app._sentra_transport = transport([])
+    card = app.build_acquisition_brief({"min_yield_pct": 0})["result"]["cards"][0]
+    assert card["screen"] == "needs_yield_target"
+    assert card["decision"]["status"] == "needs_target"
