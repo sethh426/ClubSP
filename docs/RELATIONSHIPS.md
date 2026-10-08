@@ -26,6 +26,16 @@ Email connections and Gmail scopes are unchanged. No network calls, email sendin
 
 ## Verification and operation
 
+### Current buying requests
+
+Promote only a reviewed, incoming criteria reply to confirmed demand. Public posts and company claims stay findings until that reply exists. The confirmation expires from the conversation date; delayed entry preserves only the remaining window. Funding remains unverified unless separate evidence is recorded.
+
+A new incoming reply enables **Renew from a new buyer reply**. Renewal updates the same buyer, creates a new time-bounded request, and pauses prior requests from this relationship. Prior criteria and confirmation evidence remain in history. The same reply cannot renew itself, and stale forms or changed retry payloads are rejected.
+
+Use the incoming outcome **Buyer paused / withdrew buying request** when the buyer actually stops buying. This pauses the relationship's confirmed requests. A rejection of one conversation does not withdraw all buying demand. A fresh criteria reply can reactivate demand; an enduring contact stop cannot. Paused/closed profiles, blocked permission, and stop/wrong-person records also pause confirmed requests. Unrelated requests belonging to other relationships are preserved.
+
+Each saved request displays current, expired, paused, or blocked. **Current confirmed requests** counts only active, unexpired demand. Expired or paused requests require fresh evidence before renewal; their saved history is never counted as a new confirmation. This does not establish interest in a specific property or an accepted operator handoff.
+
 Run `python -m pytest -q` and `npx playwright test -c playwright.relationships.config.js`. Synthetic tests cover no-property onboarding, retries, stale forms, invalid dates, buyer links, queue ordering, shared suppression, restarts, HTTP origin guards, DOM injection, and desktop/mobile workflows.
 
 The new tables live in the existing SQLite database and therefore follow its backup process. Initializing the book uses transactional `execute` calls, avoiding an implicit commit during memory reload. No existing schema is rewritten. Back up the database before deployment; older backups cannot contain newer relationship history. Production's private Gmail/HTTPS patches must be retained when integrating the additive server routes.

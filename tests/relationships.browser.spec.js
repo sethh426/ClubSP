@@ -1,5 +1,59 @@
 const {test,expect} = require("@playwright/test");
 
+test("confirmed request withdrawal and fresh reply renewal preserve one buyer",async({page,request})=>{
+  const state=await (await request.get("/api/relationships")).json();
+  const created=await request.post("/api/relationships",{data:{
+    request_key:crypto.randomUUID(),name:"Synthetic Lifecycle Investor",company:"Synthetic only",
+    email:`lifecycle-${crypto.randomUUID()}@example.test`,kind:"investor",status:"prospect",
+    needs:"Confirm current criteria",source_reference:"synthetic-introduction",permission:"unknown",
+    permission_reference:"",owner:"Owner",next_action:"Review criteria",markets:["Fort Wayne, IN"],
+    follow_up_on:state.today,buyer_id:""
+  }});
+  expect(created.ok(),await created.text()).toBeTruthy();
+  const rid=(await created.json()).relationship_id;
+  const record=async()=> (await (await request.get("/api/relationships")).json()).relationships.find(r=>r.id===rid);
+  const reply=async()=>{
+    const row=await record();
+    const result=await request.post(`/api/relationships/${rid}/interactions`,{data:{
+      request_key:crypto.randomUUID(),profile_id:row.profile.id,event_id:row.event_id||"",
+      direction:"incoming",outcome:"interested",note:"Synthetic actual reply: Fort Wayne single family assignments up to 150k, 30k repairs.",
+      evidence_reference:"synthetic-reply",occurred_on:state.today,follow_up_on:"",next_action:"Review criteria"
+    }});
+    expect(result.ok(),await result.text()).toBeTruthy();
+  };
+  await reply();
+  await page.goto("/relationships");
+  const card=page.locator(`[data-relationship-id="${rid}"]`);
+  const confirm=async(label,button)=>{
+    await card.locator("summary").getByText(label,{exact:true}).click();
+    const form=card.locator(".buyer-qualification-form");
+    await form.getByLabel("Confirmed property types (one per line)",{exact:true}).fill("single_family");
+    await form.getByLabel("Maximum total acquisition price",{exact:true}).fill("150000");
+    await form.getByLabel("Maximum repairs",{exact:true}).fill("30000");
+    await form.getByLabel("What the investor actually confirmed",{exact:true}).fill("Synthetic reviewed reply only");
+    await form.getByLabel("I reviewed the latest incoming conversation",{exact:false}).check();
+    await form.getByRole("button",{name:button,exact:true}).click();
+    await expect(card).toContainText("Buyer request: current");
+  };
+  await confirm("Promote confirmed reply to buyer demand","Promote confirmed reply to buyer demand");
+  const original=await record();
+  await expect(card.getByText("Renew from a new buyer reply",{exact:true})).toHaveCount(0);
+  await card.getByText("Record conversation / next step",{exact:true}).click();
+  const eventForm=card.locator("form").filter({has:page.locator('[name="direction"]')});
+  await eventForm.locator('[name="direction"]').selectOption("incoming");
+  await eventForm.locator('[name="outcome"]').selectOption("buying_paused");
+  await eventForm.getByLabel("Conversation evidence reference",{exact:true}).fill("synthetic-withdrawal");
+  await eventForm.getByLabel("What happened / actual conversation",{exact:true}).fill("Synthetic: we have paused buying.");
+  await eventForm.getByRole("button",{name:"Record interaction",exact:true}).click();
+  await expect(card).toContainText("Buyer request: paused");
+  expect((await record()).buyer.status).toBe("paused");
+  await reply();await page.reload();
+  await confirm("Renew from a new buyer reply","Renew confirmed buying request");
+  const renewed=await record();
+  expect(renewed.buyer.id).toBe(original.buyer.id);
+  expect(renewed.qualification.mandate_id).not.toBe(original.qualification.mandate_id);
+});
+
 test("property-independent relationship, reply schedule and stop request",async({page,request},testInfo)=>{
   const unique=`${Date.now()}-${Math.random()}`;
   const errors=[];page.on("pageerror",error=>errors.push(error.message));
@@ -122,5 +176,5 @@ test("unknown investor permission requires explicit owner review before criteria
   expect(row.profile.permission).toBe("owner_reviewed");
   expect(row.profile.permission_reference).toBe("https://example.test/public-contact");
   expect(row.buyer).toBeNull();
-  expect(state.summary.qualified_buyers).toBe(0);
+  expect(state.summary.qualified_buyers).toBe(before.summary.qualified_buyers);
 });

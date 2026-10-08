@@ -488,3 +488,112 @@ def test_delayed_qualification_preserves_remaining_confirmation_window(tmp_path)
     mandate = current(book)["qualification"]["mandate"]
     remaining = datetime.fromisoformat(mandate["expires_at"]) - datetime.fromisoformat(mandate["verified_at"])
     assert timedelta(0) < remaining <= timedelta(days=1)
+    assert current(book)["follow_up_on"] == (business_today() + timedelta(days=1)).isoformat()
+
+
+def confirmed_request(book):
+    book.save(profile())
+    row = current(book)
+    book.interact(row["id"], interaction(row, outcome="interested"))
+    row = current(book)
+    return book.qualify_buyer(row["id"], qualification(row))
+
+
+def test_new_reply_renews_same_buyer_and_preserves_prior_request(tmp_path):
+    app, book = setup(tmp_path)
+    first = confirmed_request(book)
+    row = current(book)
+    with pytest.raises(ValueError, match="new incoming criteria reply"):
+        book.qualify_buyer(row["id"], qualification(row))
+    book.interact(row["id"], interaction(row, note="New actual criteria reply: budget now 150k."))
+    row = current(book)
+    data = qualification(row, max_total_price=150000)
+    second = book.qualify_buyer(row["id"], data)
+    assert book.qualify_buyer(row["id"], data)["id"] == second["id"]
+    assert second["buyer_id"] == first["buyer_id"]
+    assert second["mandate_id"] != first["mandate_id"]
+    latest = current(book)
+    assert latest["qualification"]["demand_status"] == "current"
+    with app.database.session() as (connection, _):
+        assert connection.execute("SELECT max_total_price FROM buyers WHERE id=?", (first["buyer_id"],)).fetchone()[0] == 150000
+        assert connection.execute("SELECT COUNT(*) FROM buyers").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM relationship_buyer_qualifications").fetchone()[0] == 2
+        assert connection.execute("SELECT status FROM buyer_mandates WHERE id=?", (first["mandate_id"],)).fetchone()[0] == "paused"
+        assert connection.execute("SELECT max_total_price FROM buyer_mandates WHERE id=?", (first["mandate_id"],)).fetchone()[0] == 180000
+
+
+@pytest.mark.parametrize("action", ["buying_paused", "stop", "permission", "profile"])
+def test_withdrawal_or_block_removes_current_confirmed_demand(tmp_path, action):
+    app, book = setup(tmp_path)
+    first = confirmed_request(book)
+    row = current(book)
+    if action == "permission":
+        book.review_permission(row["id"], permission_review(row, decision="block_outreach"))
+    elif action == "profile":
+        revise(book, row, status="paused")
+    else:
+        book.interact(row["id"], interaction(row, outcome=action))
+    latest = current(book)
+    assert latest["qualification"]["demand_status"] in {"paused", "blocked"}
+    assert latest["buyer"]["status"] == "paused"
+    assert book.state()["summary"]["qualified_buyers"] == 0
+    with app.database.session() as (connection, _):
+        assert connection.execute("SELECT status FROM buyer_mandates WHERE id=?", (first["mandate_id"],)).fetchone()[0] == "paused"
+    if action == "buying_paused":
+        book.interact(latest["id"], interaction(latest, note="We have resumed buying; current criteria confirmed."))
+        latest = current(book)
+        renewed = book.qualify_buyer(latest["id"], qualification(latest))
+        assert renewed["buyer_id"] == first["buyer_id"]
+        assert current(book)["qualification"]["demand_status"] == "current"
+    elif action == "stop":
+        book.interact(latest["id"], interaction(latest))
+        latest = current(book)
+        with pytest.raises(ValueError, match="Do-not-contact"):
+            book.qualify_buyer(latest["id"], qualification(latest))
+
+
+@pytest.mark.parametrize("direction", ["outgoing", "note"])
+def test_buying_pause_requires_incoming_response(tmp_path, direction):
+    _, book = setup(tmp_path)
+    confirmed_request(book)
+    row = current(book)
+    with pytest.raises(ValueError, match="actual incoming"):
+        book.interact(row["id"], interaction(row, direction=direction, outcome="buying_paused"))
+    assert current(book)["qualification"]["demand_status"] == "current"
+
+
+def test_expired_confirmation_not_counted_as_current_demand(tmp_path):
+    from core.memory.models import utc_now
+    app, book = setup(tmp_path)
+    first = confirmed_request(book)
+    with app.database.session(write=True) as (connection, _):
+        connection.execute("UPDATE buyer_mandates SET expires_at=? WHERE id=?",
+            ((utc_now() - timedelta(seconds=1)).isoformat(), first["mandate_id"]))
+    assert current(book)["qualification"]["demand_status"] == "expired"
+    assert book.state()["summary"]["qualified_buyers"] == 0
+
+
+def test_conversation_rejection_preserves_buying_demand(tmp_path):
+    _, book = setup(tmp_path)
+    confirmed_request(book)
+    row = current(book)
+    book.interact(row["id"], interaction(row, outcome="not_interested"))
+    assert current(book)["qualification"]["demand_status"] == "current"
+
+
+def test_withdrawal_preserves_unrelated_active_mandate(tmp_path):
+    app, book = setup(tmp_path)
+    first = confirmed_request(book)
+    other_id = str(uuid4())
+    with app.database.session(write=True) as (connection, _):
+        columns = [r[1] for r in connection.execute("PRAGMA table_info(buyer_mandates)")]
+        other = dict(connection.execute("SELECT * FROM buyer_mandates WHERE id=?", (first["mandate_id"],)).fetchone())
+        other["id"] = other_id
+        connection.execute(f"INSERT INTO buyer_mandates({','.join(columns)}) VALUES({','.join('?' for _ in columns)})",
+            [other[c] for c in columns])
+    row = current(book)
+    book.interact(row["id"], interaction(row, outcome="buying_paused"))
+    assert current(book)["qualification"]["demand_status"] == "paused"
+    with app.database.session() as (connection, _):
+        assert connection.execute("SELECT status FROM buyer_mandates WHERE id=?", (other_id,)).fetchone()[0] == "active"
+        assert connection.execute("SELECT status FROM buyers WHERE id=?", (first["buyer_id"],)).fetchone()[0] == "active"

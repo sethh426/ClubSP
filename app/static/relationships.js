@@ -54,7 +54,7 @@ function relProfileForm(record, state) {
 function relInteractionForm(record, state) {
   const form = relNode("form",undefined,"relationship-form");
   relSelect(form,"direction","Interaction direction",[["incoming","Incoming conversation"],["outgoing","Manually sent conversation"],["note","Internal note"]],"note");
-  relSelect(form,"outcome","Recorded outcome",[["general","General"],["interested","Interested"],["not_interested","Not interested"],["stop","Stop request"],["wrong_person","Wrong person"]],"general");
+  relSelect(form,"outcome","Recorded outcome",[["general","General"],["interested","Interested"],["not_interested","Not interested in this conversation"],["buying_paused","Buyer paused / withdrew buying request"],["stop","Stop request"],["wrong_person","Wrong person"]],"general");
   relField(form,"occurred_on","Interaction date",state.today,"date",true);
   relField(form,"evidence_reference","Conversation evidence reference","","text",true);
   relField(form,"note","What happened / actual conversation","","textarea",true,4000);
@@ -86,10 +86,11 @@ function relPermissionReviewForm(record) {
 
 function relBuyerQualificationForm(record) {
   const latest = record.interactions[0], p = record.profile;
-  if (record.buyer || record.blocked || record.paused || p.kind !== "investor" || !latest
+  if (record.blocked || record.paused || p.kind !== "investor" || !latest
+      || (record.buyer && record.qualification?.source_event_id === latest.id)
       || latest.direction !== "incoming" || !["general","interested"].includes(latest.outcome)) return null;
   const form = relNode("form",undefined,"relationship-form buyer-qualification-form");
-  form.append(relNode("p","Use only criteria confirmed in the latest incoming conversation. This creates a buyer and a time-bounded mandate; it does not verify funding unless you record reviewed evidence.","muted small wide"));
+  form.append(relNode("p",record.buyer ? "Renew from the new incoming reply. This keeps the same buyer, replaces the prior request, and preserves its history. Review every field against the reply; saved criteria are not automatically reconfirmed." : "Use only criteria confirmed in the latest incoming conversation. This creates a buyer and a time-bounded mandate; it does not verify funding unless you record reviewed evidence.","muted small wide"));
   relField(form,"markets","Confirmed markets (one per line)",(p.markets || []).join("\n"),"textarea",true,2000);
   const strategies=relNode("fieldset",undefined,"wide"),legend=relNode("legend","Confirmed strategies");
   strategies.append(legend);
@@ -112,7 +113,7 @@ function relBuyerQualificationForm(record) {
   relField(form,"review_note","What the investor actually confirmed","","textarea",true,2000);
   const confirmLabel=relNode("label",undefined,"wide"),confirm=relNode("input");confirm.type="checkbox";confirm.required=true;
   confirmLabel.append(confirm,document.createTextNode(" I reviewed the latest incoming conversation and these fields reflect its confirmed buyer criteria."));form.append(confirmLabel);
-  const button=relNode("button","Promote confirmed reply to buyer demand","button primary");button.type="submit";form.append(button);
+  const button=relNode("button",record.buyer ? "Renew confirmed buying request" : "Promote confirmed reply to buyer demand","button primary");button.type="submit";form.append(button);
   relSubmit(form,button,`/api/relationships/${record.id}/buyer-qualification`,data=>{
     const strategies=[...form.querySelectorAll('input[name="buyer_strategy"]:checked')].map(x=>x.value);
     delete data.buyer_strategy;
@@ -194,7 +195,7 @@ function relDetails(title, parent) {const details=relNode("details",undefined,"w
 async function relLoad() {
   const state=await relApi("/api/relationships");
   const metrics=document.getElementById("relationship-summary");metrics.replaceChildren();
-  for(const [key,label] of [["total","Relationships"],["due","Follow-ups due"],["qualified_buyers","Qualified buyers"],["overdue","Overdue"],["blocked","Do not contact"]]){const n=relNode("article");n.append(relNode("span",label),relNode("strong",String(state.summary[key])));metrics.append(n);}
+  for(const [key,label] of [["total","Relationships"],["due","Follow-ups due"],["qualified_buyers","Current confirmed requests"],["overdue","Overdue"],["blocked","Do not contact"]]){const n=relNode("article");n.append(relNode("span",label),relNode("strong",String(state.summary[key])));metrics.append(n);}
   document.getElementById("relationship-create-form").replaceChildren(relProfileForm(null,state));
   const focus=document.getElementById("relationship-focus");focus.replaceChildren();
   state.daily_focus.forEach(id=>{const r=state.relationships.find(x=>x.id===id),li=relNode("li"),link=relNode("a",r.profile.name);link.href=`#relationship-${id}`;link.addEventListener("click",()=>{document.getElementById("relationship-filter").value="all";document.getElementById("relationship-search").value="";relFilter();});li.append(link,relNode("p",`${r.next_action} · ${r.follow_up_on} · ${r.profile.owner}`,"small"));focus.append(li);});
@@ -211,11 +212,13 @@ async function relLoad() {
     const interaction=relDetails("Record conversation / next step",card);interaction.append(relInteractionForm(r,state));
     const qualificationForm=relBuyerQualificationForm(r);
     if(qualificationForm){
-      const qualification=relDetails("Promote confirmed reply to buyer demand",card);qualification.append(qualificationForm);
+      const qualification=relDetails(r.buyer ? "Renew from a new buyer reply" : "Promote confirmed reply to buyer demand",card);qualification.append(qualificationForm);
     }
     if(r.qualification?.mandate){
       const q=r.qualification, m=q.mandate;
-      card.append(relNode("p",`Qualified buyer demand · mandate active through ${m.expires_at || "no expiry"} · max price ${Number(m.max_total_price).toLocaleString("en-US")} · max repairs ${Number(m.max_repairs).toLocaleString("en-US")}`,"small"));
+      const demand = q.demand_status || 'unconfirmed';
+      card.append(relNode("p",`Buyer request: ${demand} · confirmation expires ${m.expires_at || "not recorded"} · max price ${Number(m.max_total_price).toLocaleString("en-US")} · max repairs ${Number(m.max_repairs).toLocaleString("en-US")}`,"small"));
+      if(demand !== 'current') card.append(relNode('p', demand === 'blocked' ? 'Contact is blocked. This request cannot be used as current demand.' : 'This request cannot drive new searches. Record a fresh incoming criteria reply and review it to renew demand.', 'muted small'));
     }
     const edit=relDetails("Edit relationship / schedule",card);edit.append(relProfileForm(r,state));
     if(r.draft){const d=relDetails("Message text for owner review",card);d.classList.add("relationship-draft");d.append(relDraftForm(r));d.append(relNode("p","Review identity, context, recipient and permission. Saved drafts and reviews remain in history. Approval records review of this exact text; no email is sent.","muted small"));}

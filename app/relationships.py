@@ -64,6 +64,16 @@ def _migrate_relationships_v1_to_v2(connection):
 
 
 class RelationshipBook:
+    @staticmethod
+    def pause_confirmed_demand(connection, rid):
+        """Withdraw this relationship's confirmed requests; preserve their evidence."""
+        rows = connection.execute("SELECT buyer_id,mandate_id FROM relationship_buyer_qualifications WHERE relationship_id=?", (rid,)).fetchall()
+        for row in rows:
+            connection.execute("UPDATE buyer_mandates SET status='paused' WHERE id=? AND status='active'", (row["mandate_id"],))
+        for buyer_id in {row["buyer_id"] for row in rows}:
+            if not connection.execute("SELECT 1 FROM buyer_mandates WHERE buyer_id=? AND status='active'", (buyer_id,)).fetchone():
+                connection.execute("UPDATE buyers SET status='paused' WHERE id=?", (buyer_id,))
+
     def __init__(self, application):
         self.application = application
         self.database = application.database
@@ -167,6 +177,8 @@ class RelationshipBook:
                 connection.execute("INSERT INTO relationships VALUES(?,?)", (rid, utc_now().isoformat()))
             pid = str(uuid4())
             connection.execute("INSERT INTO relationship_profiles VALUES(?,?,?,?,?,?)", (pid, rid, previous, key, encoded, utc_now().isoformat()))
+            if payload["status"] in {"paused", "closed"} or payload["permission"] == "blocked":
+                self.pause_confirmed_demand(connection, rid)
             return self.decode(connection.execute("SELECT * FROM relationship_profiles WHERE id=?", (pid,)).fetchone())
 
     def review_permission(self, rid, data):
@@ -253,6 +265,8 @@ class RelationshipBook:
                     json.dumps(interaction_payload, sort_keys=True), utc_now().isoformat(),
                 ),
             )
+            if next_permission == "blocked":
+                self.pause_confirmed_demand(connection, rid)
             result = self.decode(connection.execute(
                 "SELECT * FROM relationship_profiles WHERE id=?", (pid,)
             ).fetchone())
@@ -265,8 +279,10 @@ class RelationshipBook:
         event_id = identifier(data, "event_id", False)
         payload = {name: text_field(data, name, limit) for name, limit in [
             ("direction", 20), ("outcome", 30), ("note", 4000), ("evidence_reference", 500)]}
-        if payload["direction"] not in {"incoming", "outgoing", "note"} or payload["outcome"] not in {"general", "interested", "not_interested", "stop", "wrong_person"}:
+        if payload["direction"] not in {"incoming", "outgoing", "note"} or payload["outcome"] not in {"general", "interested", "not_interested", "stop", "wrong_person", "buying_paused"}:
             raise ValueError("Unsupported interaction direction or outcome")
+        if payload["outcome"] == "buying_paused" and payload["direction"] != "incoming":
+            raise ValueError("A buying pause requires an actual incoming buyer response")
         payload["occurred_on"] = day(data, "occurred_on", required=True, past=True)
         payload["follow_up_on"] = day(data, "follow_up_on")
         payload["next_action"] = text_field(data, "next_action", 500, required=bool(payload["follow_up_on"]))
@@ -291,6 +307,8 @@ class RelationshipBook:
                 if profile["email"]:
                     for contact in connection.execute("SELECT * FROM contacts WHERE email=?", (profile["email"],)).fetchall():
                         self.application._set_permission(connection, contact, "suppressed", "Relationship stop/wrong-person record", "relationship_interaction:" + eid)
+            if stop or payload["outcome"] == "buying_paused":
+                self.pause_confirmed_demand(connection, rid)
             return self.decode(connection.execute("SELECT * FROM relationship_interactions WHERE id=?", (eid,)).fetchone())
 
     def draft_blockers(self, connection, rid, profile, draft=None):
@@ -465,9 +483,11 @@ class RelationshipBook:
                 raise ValueError("Only investor relationships can be qualified as buyer demand")
             if profile["status"] in {"paused", "closed"}:
                 raise ValueError("Paused or closed relationships cannot be qualified")
-            if profile.get("buyer_id"):
-                raise ValueError("This relationship is already linked to a buyer")
-            if email_blocked(connection, profile["email"]) or connection.execute(
+            prior_qualification = connection.execute("SELECT * FROM relationship_buyer_qualifications WHERE relationship_id=? ORDER BY rowid DESC LIMIT 1", (rid,)).fetchone()
+            renewing = bool(profile.get("buyer_id"))
+            if renewing and (not prior_qualification or prior_qualification["buyer_id"] != profile["buyer_id"] or prior_qualification["source_event_id"] == event_id):
+                raise ValueError("This relationship is already linked to a buyer; renewal requires a new incoming criteria reply")
+            if profile["permission"] == "blocked" or email_blocked(connection, profile["email"]) or connection.execute(
                     "SELECT 1 FROM relationship_stops WHERE relationship_id=?", (rid,)).fetchone():
                 raise ValueError("Do-not-contact relationship cannot be promoted to active buyer demand")
             if event["direction"] != "incoming" or event["outcome"] not in {"general", "interested"}:
@@ -485,21 +505,29 @@ class RelationshipBook:
             now = now_dt.isoformat()
             expires_at = (now_dt + timedelta(days=refresh_days - criteria_age)).isoformat()
             buyer_id, mandate_id, linked_profile_id, qualification_id = (
-                str(uuid4()), str(uuid4()), str(uuid4()), str(uuid4())
+                profile["buyer_id"] if renewing else str(uuid4()), str(uuid4()), str(uuid4()), str(uuid4())
             )
             buyer_locations = sorted({" ".join(value.strip().lower().split()) for value in markets})
             buyer_verified_at = now if funding_status == "verified" else ""
 
-            connection.execute(
-                "INSERT INTO buyers(id,name,company,locations_json,strategies_json,property_types_json,"
-                "max_total_price,max_repairs,funding_status,verified_at,verification_reference,status,created_at) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    buyer_id, profile["name"], profile["company"], json.dumps(buyer_locations),
-                    json.dumps(strategies), json.dumps(property_types), max_total_price, max_repairs,
-                    funding_status, buyer_verified_at, funding_reference, "active", now,
-                ),
-            )
+            if renewing:
+                # Only fresh, explicitly reviewed criteria can replace the old request.
+                self.pause_confirmed_demand(connection, rid)
+                connection.execute(
+                    "UPDATE buyers SET locations_json=?,strategies_json=?,property_types_json=?,max_total_price=?,max_repairs=?,funding_status=?,verified_at=?,verification_reference=?,status='active' WHERE id=?",
+                    (json.dumps(buyer_locations), json.dumps(strategies), json.dumps(property_types), max_total_price, max_repairs, funding_status, buyer_verified_at, funding_reference, buyer_id),
+                )
+            else:
+                connection.execute(
+                    "INSERT INTO buyers(id,name,company,locations_json,strategies_json,property_types_json,"
+                    "max_total_price,max_repairs,funding_status,verified_at,verification_reference,status,created_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        buyer_id, profile["name"], profile["company"], json.dumps(buyer_locations),
+                        json.dumps(strategies), json.dumps(property_types), max_total_price, max_repairs,
+                        funding_status, buyer_verified_at, funding_reference, "active", now,
+                    ),
+                )
             connection.execute(
                 """INSERT INTO buyer_mandates(
                     id,buyer_id,name,markets_json,strategies_json,property_types_json,
@@ -532,7 +560,7 @@ class RelationshipBook:
             }
             profile_payload.update({
                 "status": "active", "buyer_id": buyer_id,
-                "follow_up_on": (now_dt + timedelta(days=refresh_days)).date().isoformat(),
+                "follow_up_on": (business_today() + timedelta(days=refresh_days - criteria_age)).isoformat(),
                 "next_action": "Reconfirm buyer criteria before the current mandate expires",
                 "event_id_at_review": event_id,
             })
@@ -837,6 +865,11 @@ class RelationshipBook:
                     if qualification["mandate"]:
                         for key in ("markets_json", "strategies_json", "property_types_json"):
                             qualification["mandate"][key[:-5]] = json.loads(qualification["mandate"].pop(key))
+                    m = qualification["mandate"]
+                    qualification["demand_status"] = (
+                        "blocked" if blocked else "paused" if paused or not m or m["status"] != "active" or not buyer or buyer["status"] != "active" else
+                        "expired" if m["expires_at"] and datetime.fromisoformat(m["expires_at"]) <= utc_now() else "current"
+                    )
                 draft = None
                 if eligible and profile["email"] and profile["permission"] == "owner_reviewed":
                     area = ", ".join(profile["markets"]) or "your preferred areas"
@@ -897,5 +930,5 @@ class RelationshipBook:
         return {"today": today, "sending_enabled": False, "relationships": records, "buyers": buyers,
                 "summary": {"total": len(records), "due": sum(r["due"] for r in records),
                     "overdue": sum(r["overdue"] for r in records), "blocked": sum(r["blocked"] for r in records),
-                    "qualified_buyers": sum(bool(r["qualification"]) for r in records)},
+                    "qualified_buyers": sum(bool(r["qualification"] and r["qualification"].get("demand_status") == "current") for r in records)},
                 "daily_focus": [r["id"] for r in records if r["due"]][:10]}
